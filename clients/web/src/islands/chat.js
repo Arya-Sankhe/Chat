@@ -19,6 +19,12 @@ import {
   closePinnedPopup,
   closeProfileMenu,
   closeSearchDialog,
+  applySpectrumLevel,
+  chatHooks,
+  closeActionMenu,
+  dismissComposerKeyboard,
+  hasChatAccess,
+  isCouncilMode,
   openAuthDialog,
   openDeleteConfirm,
   renderShell,
@@ -31,11 +37,13 @@ import {
 } from "../state/app";
 import { homeModes as homeModesController } from "../state/homeModes";
 import { loadMe } from "../state/boot";
+import { setCameraPhotoHandler } from "../state/camera";
 import {
   VISUALIZE_REPAIRING_LABEL,
   applyVisualizeFrameMessage,
   compactModelDisplayName,
   escapeHtml,
+  fileTypeIcon,
   getCodeSource,
   gmailComposeUrl,
   hasEmailCardBlock,
@@ -50,11 +58,15 @@ import {
 } from "./render.js";
 import {
   askDocument,
+  cancelPendingDocumentTurn,
   cancelResearch,
+  completeUpload,
+  createConversation,
   createContentReport,
   createResearch,
   createStudyCard,
   createStudyNote,
+  deleteAttachment,
   deleteConversation,
   downloadAttachment,
   exportEditableDocument,
@@ -63,14 +75,23 @@ import {
   fetchConversation,
   fetchProject,
   fetchDocumentJobStatus,
+  fetchDocumentStatus,
   fetchResearchReport,
   fetchResearchStatus,
   fetchStudyMaterials,
   fetchStudyPractice,
   listConversations,
   listProjects,
+  presignUpload,
+  putUploadContent,
+  requestClarifications,
   reviseEditableDocument,
-  saveEditableDocument
+  saveEditableDocument,
+  streamCompareConversationMessage,
+  streamConversationMessage,
+  streamTemporaryChat,
+  transcribeSpeech,
+  uploadFile
 } from "./api.js";
 import { guestDraftHasPreview, guestPreviewContent, liveGuestImages, serializeGuestDraft } from "./guestSend.js";
 import {
@@ -82,6 +103,9 @@ import {
   updateKluiBar
 } from "./klui.js";
 import { renderMindMap } from "./mindMap.js";
+import { extractReasoningDelta } from "./reasoning.js";
+import { createStreamReducer } from "./streaming.js";
+import { reconcilePendingTurnMessages } from "./pendingTurns.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
@@ -100,9 +124,14 @@ function renderConversations() {
   set({ runningChatIds: [...conversationRuns.keys()], unreadChatIds: [...unreadDoneChats] });
 }
 
-/** setRunning(): the composer's controls render from `running`. */
+/** setRunning(): the model and mode buttons render from `running`; the
+   prompt, send and stop buttons are the chat core's. */
 function setRunning(running) {
   state.running = running;
+  els.promptInput?.setAttribute("contenteditable", "true");
+  updateComposerPlaceholder();
+  updateSendButton();
+  syncComposerBeam();
 }
 
 function requireAuth() {
@@ -144,32 +173,20 @@ function renderProfileMenu() {}
 function renderSearchResults() {}
 function renderResearchMode() {}
 
+/** voiceMode.js voiceModeSupported(): recording and playback both work here. */
+function voiceModeSupported() {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+  const recordable = typeof MediaRecorder !== "undefined" && types.some((type) => MediaRecorder.isTypeSupported?.(type));
+  return Boolean(navigator.mediaDevices?.getUserMedia && recordable && (window.AudioContext || window.webkitAudioContext));
+}
+
 /* ─── Later slices ─── */
 
-// The composer input (skills, paste, attachments, the context meter) is the next slice.
-function clearComposerSkills() {
-  els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => el.remove());
-  state.composerSkillIds = [];
-}
-function setComposerPlainText() {}
-function applyComposerHeight() {}
-function renderImages() {
-  updateSendButton();
-}
-async function restorePendingDocuments() {}
-function resumePendingDocumentTurn() {}
-function renderContextMeter() {}
-// The composer renders the send button; this marks that it has synced once.
-function updateSendButton() {
-  set({ sendButtonSynced: true });
-}
-function showAttachmentModelNotice() {}
-// Sending: retry, edit, response adjustments and visual repair.
-async function retryFailedAssistant() {}
-function beginEditMessage() {}
-function cancelEditMessage() {}
-async function editUserMessage() {}
-function maybeAutoRepairVisualization() { return false; }
+// Voice mode, billing and projects.
+async function openVoiceMode() {}
+function openUpgradePlans() {}
+function renderProjectChatCrumb() {}
+
 async function submitEmailRevise() {}
 // Settings > Storage.
 function refreshAccountStorage() {}
@@ -186,6 +203,228 @@ async function loadStudyHub() {
 }
 
 /* ─── From public/js/app.js ─── */
+
+const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
+
+const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
+
+const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
+
+const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
+
+// Text compare: DeepSeek and Solar Pro (Solar runs at medium effort).
+const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_SOLAR_PRO];
+
+const DEFAULT_COUNCIL_MODELS = [
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_COUNCIL_HY3_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_SOLAR_PRO
+];
+
+function beginConversationRun(key, {
+  conversationId = "",
+  temporary = false,
+  abortController = null,
+  mode = "chat"
+} = {}) {
+  if (!key) return null;
+  const existing = conversationRuns.get(key);
+  if (existing) return existing;
+  const run = {
+    key,
+    conversationId: temporary ? "" : String(conversationId || key),
+    temporary: Boolean(temporary),
+    mode,
+    abortController,
+    messages: null,
+    messagePage: !temporary && isRunKeyActive(key) ? state.messagePage : null,
+    followUps: isRunKeyActive(key) ? state.followUps.slice() : [],
+    turnRunId: "",
+    turnWaiting: false,
+    cancelRequested: false,
+    cancelResult: null,
+    userMessage: null,
+    assistantMessage: null,
+    draft: null
+  };
+  conversationRuns.set(key, run);
+  if (!run.temporary && run.conversationId) unreadDoneChats.delete(run.conversationId);
+  if (isRunKeyActive(key)) syncActiveRunningUi();
+  renderConversations();
+  return run;
+}
+
+function setResearchConversationRunning(running, conversationId = state.activeConversationId) {
+  const id = String(conversationId || "");
+  if (!id) return;
+  if (running) {
+    beginConversationRun(id, {
+      conversationId: id,
+      temporary: false,
+      abortController: null,
+      mode: "research"
+    });
+    syncActiveRunningUi();
+    return;
+  }
+  const run = conversationRuns.get(id);
+  if (run?.mode === "research" && !run.abortController) {
+    endConversationRun(id, { completed: true });
+    return;
+  }
+  syncActiveRunningUi();
+}
+// Projects are hidden while they are reworked. Study courses share the projects API and stay on.
+const PROJECTS_ENABLED = false;
+
+function conversationIdFromLocation() {
+  const match = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function projectIdFromLocation() {
+  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function projectsRouteFromLocation() {
+  if (!PROJECTS_ENABLED) return false;
+  return window.location.pathname === "/projects" || Boolean(projectIdFromLocation());
+}
+
+function courseIdFromLocation() {
+  const match = window.location.pathname.match(/^\/study\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function studyRouteFromLocation() {
+  return window.location.pathname === "/study" || Boolean(courseIdFromLocation());
+}
+
+async function loadProjects() {
+  if (!state.session?.access_token) {
+    state.projects = [];
+    return;
+  }
+  const payload = await listProjects(state.session);
+  state.projects = payload.projects || [];
+}
+
+async function loadActiveProject() {
+  if (!state.activeProjectId) {
+    state.activeProject = null;
+    return;
+  }
+  state.activeProject = await fetchProject(state.session, state.activeProjectId);
+}
+
+async function loadConversations() {
+  const payload = await listConversations(state.session);
+  state.conversations = payload.conversations || [];
+  const validIds = new Set(state.conversations.map((conversation) => conversation.id));
+  state.pinnedChatIds = state.pinnedChatIds.filter((id) => validIds.has(id));
+  savePinnedChatIds();
+  const routeConversationId = conversationIdFromLocation();
+  if (projectsRouteFromLocation() || studyRouteFromLocation()) return;
+  if (routeConversationId) {
+    state.activeConversationId = state.conversations.some((conversation) => conversation.id === routeConversationId)
+      ? routeConversationId
+      : "";
+  }
+  if (state.activeConversationId && !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
+    state.activeConversationId = "";
+  }
+  if (!routeConversationId) state.activeConversationId = "";
+  if (state.activeConversationId) {
+    const loadResult = await loadActiveConversation();
+    const run = getConversationRun(state.activeConversationId);
+    const hasLiveRun = Boolean(run?.messages) && !(run.mode === "research" && !run.abortController);
+    if (loadResult === "applied" && !hasLiveRun) {
+      state.conversationLoading = false;
+      renderShell();
+      await restorePendingDocuments();
+    }
+  } else if (!guestDraftHasPreview(pendingGuestSend)) {
+    state.messages = [];
+    stopExtractedModulePollers();
+  }
+  if (routeConversationId && !state.activeConversationId) syncConversationUrl({ replace: true });
+}
+
+async function loadChatApp() {
+  const mobileHome = isMobileLayout() && !conversationIdFromLocation()
+    && !studyRouteFromLocation() && !projectsRouteFromLocation() && !pendingNativeConversationId;
+  if (mobileHome) {
+    const session = state.session;
+    const userId = state.me?.user?.id;
+    const payload = await (mobileRecentChats || listConversations(session, { limit: 10 })).catch(() => ({ conversations: [] }));
+    mobileRecentChats = null;
+    state.conversations = payload.conversations || [];
+    renderConversations();
+    // The complete list only updates navigation, never a chat opened while it loads.
+    void listConversations(session).then((all) => {
+      if (state.me?.user?.id !== userId || !state.session) return;
+      const current = new Map(state.conversations.map(chat => [chat.id, chat]));
+      for (const chat of all.conversations || []) {
+        if (!current.has(chat.id)) current.set(chat.id, chat);
+      }
+      state.conversations = [...current.values()];
+      renderConversations();
+    }).catch(() => {});
+    await loadProjects();
+  } else {
+    await Promise.all([loadConversations(), loadProjects()]);
+  }
+  if (studyRouteFromLocation()) {
+    await loadStudyHub();
+    state.studyOpen = true;
+    state.projectsOpen = false;
+    state.activeCourseId = courseIdFromLocation();
+    state.activeConversationId = "";
+    state.messages = [];
+    renderShell();
+    if (state.activeCourseId) {
+      try {
+        await studyHub.loadCourse();
+      } catch (error) {
+        showToast(error.message || "Course could not be loaded.");
+        state.activeCourseId = "";
+      }
+      renderShell();
+    }
+    return;
+  }
+  if (projectsRouteFromLocation()) {
+    state.projectsOpen = true;
+    state.activeProjectId = projectIdFromLocation();
+    state.activeConversationId = "";
+    state.messages = [];
+    if (state.activeProjectId) await loadActiveProject();
+    renderShell();
+    return;
+  }
+  const routeConversation = state.conversations.find(item => item.id === conversationIdFromLocation());
+  if (routeConversation && state.projects.some(item => item.id === routeConversation.project_id && item.kind === "course")) {
+    await openConversation(routeConversation.id);
+    return;
+  }
+  if (pendingNativeConversationId) {
+    const conversationId = pendingNativeConversationId;
+    pendingNativeConversationId = "";
+    if (state.conversations.some((conversation) => conversation.id === conversationId)) {
+      await openConversation(conversationId);
+      return;
+    }
+  }
+  renderShell();
+}
+
+let mobileRecentChats = null;
+function researchIdFromLocation() {
+  const match = window.location.pathname.match(/^\/research\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
 
 let viewTransitionUserMessageId = "";
 
@@ -2470,6 +2709,3147 @@ function setAutoScroll(enabled) {
   state.autoScroll = Boolean(enabled);
 }
 
+const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
+
+const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
+
+const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
+
+const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
+
+const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
+
+const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
+
+const COUNCIL_MEDIA_MODELS = [
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_MIMO_V25_MODEL,
+  OPENROUTER_VISION_L3,
+  OPENROUTER_VISION_L2
+];
+
+const DEFAULT_REASONING_EFFORT = "high";
+
+const SPECTRUM_N = 3;
+
+const SPECTRUM_STEPS = [
+  { mode: "thinking", model: OPENROUTER_NITRO_MODEL, effort: "high" },
+  { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "xhigh" },
+  { mode: "pro", model: OPENROUTER_PRO_MODEL, effort: "xhigh" }
+];
+
+function normalizeThinkingEffort(value) {
+  const effort = String(value || "").trim().toLowerCase();
+  if (effort === "max") return "xhigh";
+  return effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh"
+    ? effort
+    : DEFAULT_REASONING_EFFORT;
+}
+
+function currentReasoningEffort() {
+  return normalizeThinkingEffort(state.settings.thinkingEffort);
+}
+
+function spectrumLevelFromSettings() {
+  const stored = Number(state.settings.spectrumLevel);
+  if (Number.isInteger(stored) && stored >= 0 && stored < SPECTRUM_N) return stored;
+  const model = state.settings.model;
+  const effort = currentReasoningEffort();
+  const idx = SPECTRUM_STEPS.findIndex((s) => s.model === model && s.effort === effort);
+  if (idx >= 0) return idx;
+  return selectedModelMode() === "pro" ? SPECTRUM_N - 1 : 1;
+}
+
+const LONG_PASTE_MIN_CHARS = 1000;
+
+const LONG_PASTE_MIN_LINES = 8;
+
+const LONG_PASTE_MAX_CHARS = 95000;
+
+const WRITING_STYLE_LABELS = Object.freeze({
+  normal: "Normal",
+  learning: "Learning",
+  concise: "Concise",
+  explanatory: "Explanatory",
+  formal: "Formal"
+});
+
+const PENDING_DOCUMENTS_STORAGE_PREFIX = "klui_pending_documents_v1";
+
+let streamingRenderQueued = false;
+
+const streamingRenderTargets = new Map();
+
+let voiceRecorder = null;
+
+let voiceStream = null;
+
+let voiceChunks = [];
+
+let voiceState = "idle";
+
+let voiceCommit = true;
+
+function fileCategory(file) {
+  return String(file?.type || "").startsWith("image/") ? "image" : "document";
+}
+
+function textFromMessageContent(content) {
+  if (!Array.isArray(content)) return String(content || "");
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part?.type === "text") return String(part.text || "");
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function temporaryHistoryForRequest() {
+  return state.messages
+    .filter((message) => (message.role === "user" || message.role === "assistant") && !message.error && !message.compareGroup && !message.councilGroup)
+    .map((message) => ({
+      role: message.role,
+      content: textFromMessageContent(message.content)
+    }))
+    .filter((message) => message.content.trim())
+    .slice(-20);
+}
+
+function renderClarification() {
+  const card = els.clarificationCard;
+  if (!card) return;
+  if (state.clarificationChecking && !state.clarification) {
+    card.classList.remove("hidden");
+    card.innerHTML = `<div class="clarification-loading"><span></span>Checking whether one detail would help…</div>`;
+    return;
+  }
+  const flow = state.clarification;
+  if (!flow?.questions?.length) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+    return;
+  }
+  const question = flow.questions[flow.index];
+  const selected = flow.selections[flow.index];
+  const custom = selected === question.options.length;
+  const optionMarkup = question.options.map((option, index) => `
+    <button class="clarification-option${selected === index ? " selected" : ""}" type="button" data-clarification-option="${index}" aria-pressed="${selected === index}">
+      <span class="clarification-key">${String.fromCharCode(65 + index)}</span>
+      <span class="clarification-option-copy">${index === 0 ? "<small>Recommended</small>" : ""}${escapeHtml(option)}</span>
+    </button>`).join("");
+  const customIndex = question.options.length;
+  card.classList.remove("hidden");
+  card.innerHTML = `
+    <header class="clarification-header">
+      <span>Questions</span>
+      <nav aria-label="Question navigation">
+        <button type="button" data-clarification-back aria-label="Previous question" ${flow.index === 0 ? "disabled" : ""}>‹</button>
+        <span>${flow.index + 1} of ${flow.questions.length}</span>
+        <button type="button" data-clarification-next aria-label="Next question">›</button>
+      </nav>
+    </header>
+    <div class="clarification-body">
+      <h2>${escapeHtml(question.question)}</h2>
+      <div class="clarification-options" role="group" aria-label="${escapeHtml(question.question)}">
+        ${optionMarkup}
+        <button class="clarification-option${custom ? " selected" : ""}" type="button" data-clarification-option="${customIndex}" aria-pressed="${custom}">
+          <span class="clarification-key">${String.fromCharCode(65 + customIndex)}</span>
+          <span class="clarification-option-copy">No, tell it differently</span>
+        </button>
+      </div>
+      ${custom ? `<textarea class="clarification-custom" rows="2" placeholder="Tell Klui what you prefer…" aria-label="Your own answer">${escapeHtml(flow.answers[flow.index] || "")}</textarea>` : ""}
+    </div>
+    <footer class="clarification-footer">
+      <button class="clarification-skip" type="button" data-clarification-skip>Skip</button>
+      <button class="clarification-continue" type="button" data-clarification-continue ${custom && !flow.answers[flow.index]?.trim() ? "disabled" : ""}>Continue <span aria-hidden="true">↵</span></button>
+    </footer>`;
+  if (custom) window.requestAnimationFrame(() => card.querySelector(".clarification-custom")?.focus());
+}
+
+async function maybeRequestClarifications(text, paste) {
+  const requestId = ++state.clarificationRequestId;
+  state.clarificationChecking = true;
+  renderClarification();
+  updateSendButton();
+  try {
+    const payload = await requestClarifications(state.session, {
+      query: text,
+      ...(state.activeConversationId ? { conversationId: state.activeConversationId } : {})
+    });
+    if (requestId !== state.clarificationRequestId) return true;
+    const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+    state.clarificationChecking = false;
+    if (!questions.length) {
+      renderClarification();
+      updateSendButton();
+      return false;
+    }
+    state.clarification = {
+      text,
+      paste,
+      questions,
+      index: 0,
+      selections: questions.map(() => 0),
+      answers: questions.map((question) => question.options[0])
+    };
+    renderClarification();
+    updateSendButton();
+    return true;
+  } catch {
+    if (requestId === state.clarificationRequestId) clearClarification();
+    return false;
+  }
+}
+
+function selectClarificationOption(index) {
+  const flow = state.clarification;
+  const question = flow?.questions?.[flow.index];
+  if (!question || index < 0 || index > question.options.length) return;
+  flow.selections[flow.index] = index;
+  flow.answers[flow.index] = index < question.options.length ? question.options[index] : "";
+  renderClarification();
+}
+
+function continueClarification() {
+  const flow = state.clarification;
+  if (!flow) return;
+  if (!flow.answers[flow.index]?.trim()) return;
+  if (flow.index < flow.questions.length - 1) {
+    flow.index += 1;
+    renderClarification();
+    return;
+  }
+  const details = flow.questions
+    .map((question, index) => `- ${question.question} ${flow.answers[index]}`)
+    .join("\n");
+  const text = [flow.text, `Clarifications:\n${details}`].filter(Boolean).join("\n\n");
+  clearClarification();
+  void sendPrompt({
+    textOverride: text,
+    displayTextOverride: flow.text,
+    pasteOverride: flow.paste,
+    skipClarification: true
+  });
+}
+
+function normalizeWritingStyle(value) {
+  const style = String(value || "normal").trim().toLowerCase();
+  return Object.hasOwn(WRITING_STYLE_LABELS, style) ? style : "normal";
+}
+
+const SKILL_REMOVE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10"/></svg>';
+
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+}
+
+function mergeComposerSkillIds(...lists) {
+  return normalizeClientSkillIds(lists.flat());
+}
+
+function normalizeClientSkillMarks(value, skillIds, textLength = 100000) {
+  const allowed = new Set(normalizeClientSkillIds(skillIds));
+  const seen = new Set();
+  const out = [];
+  for (const mark of Array.isArray(value) ? value.slice(0, 16) : []) {
+    const id = String(mark?.id || "").trim();
+    const at = Number(mark?.at);
+    if (!allowed.has(id) || seen.has(id) || !Number.isInteger(at)) continue;
+    seen.add(id);
+    out.push({ id, at: Math.max(0, Math.min(textLength, at)) });
+  }
+  return out;
+}
+
+function composerSkillMarks(root = els.promptInput) {
+  let at = 0;
+  const marks = [];
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      at += (node.nodeValue || "").length;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const id = node.dataset?.skillId;
+    if (id) {
+      marks.push({ id, at });
+      return;
+    }
+    if (node.tagName === "BR") {
+      at += 1;
+      return;
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(root);
+  return marks;
+}
+
+function composerSnapshot() {
+  const raw = composerPlainText();
+  const lead = (raw.match(/^\s*/) || [""])[0].length;
+  const text = raw.trim();
+  const marks = composerSkillMarks().map((mark) => ({
+    id: mark.id,
+    at: Math.max(0, Math.min(text.length, mark.at - lead))
+  }));
+  return { text, marks };
+}
+
+function createSkillTokenEl(skill) {
+  const token = document.createElement("button");
+  token.type = "button";
+  token.className = "composer-skill-token";
+  token.dataset.skillId = skill.id;
+  token.contentEditable = "false";
+  token.setAttribute("aria-label", `Remove ${skillDisplayName(skill)}`);
+  token.title = `Remove ${skillDisplayName(skill)}`;
+  const icon = document.createElement("span");
+  icon.className = "composer-skill-token-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = skillIconMarkup(skill.id);
+  const remove = document.createElement("span");
+  remove.className = "composer-skill-token-remove";
+  remove.setAttribute("aria-hidden", "true");
+  remove.innerHTML = SKILL_REMOVE_ICON_SVG;
+  icon.append(remove);
+  const label = document.createElement("span");
+  label.textContent = skillDisplayName(skill);
+  token.append(icon, label);
+  token.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    token.remove();
+    syncComposerSkillState();
+    els.promptInput?.focus();
+  });
+  return token;
+}
+
+function setComposerPlainText(text, marks = []) {
+  const root = els.promptInput;
+  if (!root) return;
+  const value = String(text || "");
+  const placed = [];
+  const used = new Set();
+  for (const mark of Array.isArray(marks) ? marks : []) {
+    const id = String(mark?.id || "").trim();
+    if (!composerSkillById(id) || used.has(id)) continue;
+    used.add(id);
+    const at = Number(mark.at);
+    placed.push({
+      id,
+      at: Number.isInteger(at) ? Math.max(0, Math.min(value.length, at)) : 0
+    });
+  }
+  placed.sort((a, b) => a.at - b.at);
+  root.replaceChildren();
+  let cursor = 0;
+  for (const mark of placed) {
+    if (mark.at > cursor) root.append(value.slice(cursor, mark.at));
+    const skill = composerSkillById(mark.id);
+    if (skill) root.appendChild(createSkillTokenEl(skill));
+    cursor = mark.at;
+  }
+  if (cursor < value.length) root.append(value.slice(cursor));
+  syncComposerSkillState();
+  updateComposerPlaceholder();
+}
+
+function syncComposerSkillState() {
+  state.composerSkillIds = normalizeClientSkillIds(composerSkillMarks().map((mark) => mark.id));
+  updateComposerPlaceholder();
+  homeModesController?.render();
+}
+
+function setComposerSkillIds(ids, marks) {
+  const next = normalizeClientSkillIds(ids);
+  const text = composerPlainText();
+  const existing = composerSkillMarks().filter((mark) => next.includes(mark.id));
+  const nextMarks = Array.isArray(marks) && marks.length
+    ? marks
+    : (existing.length === next.length ? existing : next.map((id) => ({ id, at: 0 })));
+  setComposerPlainText(text, nextMarks);
+}
+
+function clearComposerSkills() {
+  els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => el.remove());
+  syncComposerSkillState();
+  closeSkillMenu();
+}
+
+function placeCaretAfter(node) {
+  const root = els.promptInput;
+  if (!root || !node) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertComposerText(text) {
+  const root = els.promptInput;
+  if (!root || !text) return;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || !root.contains(selection.anchorNode)) {
+    root.append(text);
+  } else {
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    placeCaretAfter(node);
+  }
+  updateComposerPlaceholder();
+}
+
+function composerCaretBeforeText() {
+  const root = els.promptInput;
+  const selection = window.getSelection();
+  if (!root || !selection?.rangeCount) return null;
+  const caret = selection.getRangeAt(0);
+  if (!caret.collapsed || !root.contains(caret.startContainer)) return null;
+  const pre = document.createRange();
+  pre.selectNodeContents(root);
+  pre.setEnd(caret.startContainer, caret.startOffset);
+  return composerPlainText({ childNodes: pre.cloneContents().childNodes, nodeType: Node.ELEMENT_NODE, dataset: {} });
+}
+
+function rangeFromComposerOffsets(start, end) {
+  const root = els.promptInput;
+  const range = document.createRange();
+  if (!root) return range;
+  let pos = 0;
+  let started = false;
+  const walk = (node) => {
+    if (started && range.endContainer !== root) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const next = pos + (node.nodeValue || "").length;
+      if (!started && start <= next) {
+        range.setStart(node, Math.max(0, start - pos));
+        started = true;
+      }
+      if (started && end <= next) {
+        range.setEnd(node, Math.max(0, end - pos));
+        return;
+      }
+      pos = next;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || node.dataset?.skillId) return;
+    if (node.tagName === "BR") {
+      if (!started && start <= pos + 1) {
+        range.setStartBefore(node);
+        started = true;
+      }
+      if (started && end <= pos + 1) {
+        range.setEndAfter(node);
+        return;
+      }
+      pos += 1;
+      return;
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(root);
+  if (!started) {
+    range.selectNodeContents(root);
+    range.collapse(false);
+  }
+  return range;
+}
+
+function animateSkillDrop(skillId, fromRect) {
+  const token = els.promptInput?.querySelector(`[data-skill-id="${skillId}"]`);
+  if (!token || !fromRect || prefersReducedMotion()) return;
+  const to = token.getBoundingClientRect();
+  if (!to.width || !to.height) return;
+  const ghost = token.cloneNode(true);
+  ghost.classList.add("composer-skill-token-fly");
+  ghost.tabIndex = -1;
+  ghost.style.left = `${fromRect.left}px`;
+  ghost.style.top = `${fromRect.top}px`;
+  ghost.style.width = `${fromRect.width}px`;
+  ghost.style.height = `${fromRect.height}px`;
+  document.body.appendChild(ghost);
+  token.classList.add("is-landing");
+  const dx = to.left - fromRect.left;
+  const dy = to.top - fromRect.top;
+  const sx = to.width / fromRect.width;
+  const sy = to.height / fromRect.height;
+  const motion = ghost.animate([
+    { transform: "translate(0, 0) scale(1)", opacity: 1 },
+    { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 1 }
+  ], {
+    duration: 220,
+    easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+    fill: "forwards"
+  });
+  const finish = () => {
+    ghost.remove();
+    token.classList.remove("is-landing");
+  };
+  motion.finished.then(finish).catch(finish);
+}
+
+function filteredSkillRows() {
+  const query = String(state.skillMenu.query || "").toLowerCase();
+  return state.composerSkills.filter((skill) => {
+    if (!query) return true;
+    return String(skill.id || "").toLowerCase().startsWith(query)
+      || String(skill.name || "").toLowerCase().startsWith(query);
+  });
+}
+
+function slashQueryAtCaret() {
+  const before = composerCaretBeforeText();
+  if (before == null) return null;
+  const match = before.match(/(^|\s)\/([a-z0-9-]*)$/i);
+  if (!match) return null;
+  const start = match.index + match[1].length;
+  const end = before.length;
+  return {
+    start,
+    end,
+    query: match[2],
+    range: rangeFromComposerOffsets(start, end)
+  };
+}
+
+function closeSkillMenu() {
+  if (!state.skillMenu.open && els.skillCommandMenu?.classList.contains("hidden")) {
+    els.promptInput?.setAttribute("aria-expanded", "false");
+    els.promptInput?.removeAttribute("aria-activedescendant");
+    return;
+  }
+  state.skillMenu.open = false;
+  state.skillMenu.query = "";
+  state.skillMenu.active = 0;
+  renderSkillCommandMenu();
+}
+
+function renderSkillCommandMenu() {
+  const menu = els.skillCommandMenu;
+  if (!menu) return;
+  menu.replaceChildren();
+  if (!state.skillMenu.open) {
+    menu.classList.add("hidden");
+    els.promptInput?.setAttribute("aria-expanded", "false");
+    els.promptInput?.removeAttribute("aria-activedescendant");
+    return;
+  }
+  const rows = filteredSkillRows();
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "skill-command-empty";
+    empty.textContent = "No matching skills";
+    menu.appendChild(empty);
+  } else {
+    rows.forEach((skill, index) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.id = `skill-option-${skill.id}`;
+      option.setAttribute("role", "option");
+      option.className = "skill-command-option";
+      option.dataset.skillId = skill.id;
+      const selected = state.composerSkillIds.includes(skill.id);
+      if (index === state.skillMenu.active) option.classList.add("is-active");
+      if (selected) option.classList.add("is-applied");
+      option.setAttribute("aria-selected", String(index === state.skillMenu.active));
+      const icon = document.createElement("span");
+      icon.className = "skill-command-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = skillIconMarkup(skill.id);
+      const name = document.createElement("span");
+      name.className = "skill-command-name";
+      name.textContent = skillDisplayName(skill);
+      const desc = document.createElement("span");
+      desc.className = "skill-command-desc";
+      desc.textContent = skill.description;
+      option.append(icon, name, desc);
+      if (selected) {
+        const check = document.createElement("span");
+        check.className = "skill-command-check";
+        check.setAttribute("aria-hidden", "true");
+        check.textContent = "✓";
+        option.appendChild(check);
+      }
+      option.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        selectComposerSkill(skill, option);
+      });
+      menu.appendChild(option);
+    });
+  }
+  menu.classList.remove("hidden");
+  els.promptInput?.setAttribute("aria-expanded", "true");
+  const active = rows[state.skillMenu.active];
+  if (active) {
+    els.promptInput?.setAttribute("aria-activedescendant", `skill-option-${active.id}`);
+    menu.querySelector(`#skill-option-${active.id}`)?.scrollIntoView({ block: "nearest" });
+  } else {
+    els.promptInput?.removeAttribute("aria-activedescendant");
+  }
+}
+
+function syncSkillMenu() {
+  const input = els.promptInput;
+  if (!input || state.researchMode || !state.composerSkills.length || state.skillMenu.composing) {
+    closeSkillMenu();
+    return;
+  }
+  const found = slashQueryAtCaret();
+  if (!found) {
+    closeSkillMenu();
+    return;
+  }
+  const queryChanged = !state.skillMenu.open || state.skillMenu.query !== found.query;
+  state.skillMenu.open = true;
+  state.skillMenu.query = found.query;
+  state.skillMenu.start = found.start;
+  state.skillMenu.end = found.end;
+  if (queryChanged) state.skillMenu.active = 0;
+  const rows = filteredSkillRows();
+  if (state.skillMenu.active >= rows.length) state.skillMenu.active = Math.max(0, rows.length - 1);
+  renderSkillCommandMenu();
+}
+
+function moveSkillActive(delta) {
+  const rows = filteredSkillRows();
+  if (!rows.length) return;
+  state.skillMenu.active = (state.skillMenu.active + delta + rows.length) % rows.length;
+  renderSkillCommandMenu();
+}
+
+function removeSlashQuery() {
+  const found = slashQueryAtCaret() || (state.skillMenu.start != null && state.skillMenu.end != null
+    ? { range: rangeFromComposerOffsets(state.skillMenu.start, state.skillMenu.end) }
+    : null);
+  found?.range?.deleteContents();
+  applyComposerHeight();
+  updateSendButton();
+}
+
+function selectComposerSkill(skill, fromEl) {
+  if (!skill) return;
+  if (skill.id === "illustration" && (state.temporaryChat || state.settings.compareEnabled)) {
+    showToast("Illustration works in standard chat.");
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (skill.id === "visualize" && state.settings.compareEnabled) {
+    showToast("Visualize works with one model at a time.");
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (state.composerSkillIds.includes(skill.id)) {
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (skill.exclusive) {
+    state.composerSkillIds = [skill.id];
+  } else if (state.composerSkillIds.some((id) => composerSkillById(id)?.exclusive)) {
+    state.composerSkillIds = [skill.id];
+  } else if (state.composerSkillIds.length >= 3) {
+    showToast("You can use up to 3 skills per message.");
+    return;
+  } else {
+    state.composerSkillIds = [...state.composerSkillIds, skill.id];
+  }
+  const fromRect = fromEl && !prefersReducedMotion() ? fromEl.getBoundingClientRect() : null;
+  const found = slashQueryAtCaret() || {
+    range: rangeFromComposerOffsets(state.skillMenu.start || 0, state.skillMenu.end || 0)
+  };
+  found.range?.deleteContents();
+  if (skill.exclusive) {
+    els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => {
+      if (el.dataset.skillId !== skill.id) el.remove();
+    });
+  } else {
+    els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => {
+      if (composerSkillById(el.dataset.skillId)?.exclusive) el.remove();
+    });
+  }
+  const token = createSkillTokenEl(skill);
+  const insertAt = found?.range || (() => {
+    const range = document.createRange();
+    range.selectNodeContents(els.promptInput);
+    range.collapse(false);
+    return range;
+  })();
+  insertAt.insertNode(token);
+  placeCaretAfter(token);
+  syncComposerSkillState();
+  closeSkillMenu();
+  applyComposerHeight();
+  updateSendButton();
+  if (fromRect) animateSkillDrop(skill.id, fromRect);
+}
+
+function isSupportedDocumentFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".tsv"].some((ext) => name.endsWith(ext));
+}
+
+function isSupportedPendingFile(file) {
+  return fileCategory(file) === "image" || isSupportedDocumentFile(file);
+}
+
+function contentHasVisualOrDocument(content) {
+  return Array.isArray(content) && content.some((part) => part?.type === "image_url" || part?.type === "file");
+}
+
+function chatHistoryNeedsVision() {
+  return state.messages.some((message) => contentHasVisualOrDocument(message.content));
+}
+
+function pendingPromptNeedsVision(images = state.images) {
+  return images.some((item) => item.category === "image" || item.category === "document");
+}
+
+function selectedSingleRole() {
+  const level = spectrumLevelFromSettings();
+  if (level === 0) return "nitro";
+  if (level === SPECTRUM_N - 1) return "pro";
+  return "think";
+}
+
+function selectedChatRole() {
+  if (state.settings.compareEnabled && state.settings.compareMode === "council") return "council";
+  if (state.settings.compareEnabled) return "compare";
+  return selectedSingleRole();
+}
+
+function chatRequestSettings() {
+  const { systemPrompt } = state.settings;
+  return { systemPrompt };
+}
+
+function composerPlaceholder() {
+  const homeModePlaceholder = homeModesController?.placeholderOverride();
+  if (homeModePlaceholder) return homeModePlaceholder;
+  if (state.composerSkillIds.length) return "";
+  // A message sent while a reply is still coming waits in the queue.
+  if (state.running) return "Queue message";
+  return "Ask Klui";
+}
+
+function updateComposerPlaceholder() {
+  const input = els.promptInput;
+  if (!input) return;
+  const placeholder = composerPlaceholder();
+  input.dataset.placeholder = placeholder;
+  input.setAttribute("aria-label", placeholder || "Ask Klui");
+  const empty = !composerPlainText().trim() && !state.composerSkillIds.length;
+  input.classList.toggle("is-placeholder", empty && Boolean(placeholder));
+  // A skill like Slides keeps its own hint next to the chip until the user types.
+  const skillHint = Boolean(homeModesController?.placeholderOverride()) && state.composerSkillIds.length > 0 && !composerPlainText().trim();
+  input.classList.toggle("is-skill-hint", skillHint);
+}
+
+function addFollowUpFromInput() {
+  const snapshot = composerSnapshot();
+  const text = snapshot.text;
+  const images = state.images.filter((item) => item.category === "image");
+  const blocked = state.images.some((item) => item.category !== "image");
+  if (blocked) {
+    showToast("Follow-up attachments can only be images while Klui is working.");
+    return;
+  }
+  if (!text && !images.length) return;
+  if (state.followUps.length >= 2) {
+    showToast("You can queue up to 2 follow-up messages.");
+    return;
+  }
+  state.followUps.push({
+    id: `followup_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    text,
+    images,
+    skillIds: [...state.composerSkillIds],
+    skillMarks: snapshot.marks
+  });
+  setComposerPlainText("");
+  state.images = [];
+  clearComposerSkills();
+  applyComposerHeight();
+  renderImages();
+  renderFollowUps();
+  updateSendButton();
+}
+
+function editFollowUp(id) {
+  const item = state.followUps.find((candidate) => candidate.id === id);
+  if (!item) return;
+  for (const candidate of state.followUps) candidate.editing = candidate.id === id;
+  renderFollowUps();
+  window.requestAnimationFrame(() => {
+    const input = els.followupQueue?.querySelector(`[data-followup-input="${cssString(id)}"]`);
+    input?.focus();
+    input?.select();
+  });
+}
+
+function saveFollowUp(id) {
+  const item = state.followUps.find((candidate) => candidate.id === id);
+  const input = els.followupQueue?.querySelector(`[data-followup-input="${cssString(id)}"]`);
+  if (!item || !input) return;
+  const text = input.value.trim();
+  if (!text && !item.images?.length) return;
+  item.text = text;
+  item.skillMarks = normalizeClientSkillIds(item.skillIds).map((skillId) => ({ id: skillId, at: 0 }));
+  item.editing = false;
+  renderFollowUps();
+}
+
+function deleteFollowUp(id) {
+  const removed = state.followUps.find((item) => item.id === id);
+  if (removed?.images?.length) {
+    for (const img of removed.images) {
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    }
+  }
+  state.followUps = state.followUps.filter((item) => item.id !== id);
+  renderFollowUps();
+  updateSendButton();
+}
+
+function drainFollowUps(limit = state.followUps.length) {
+  const queued = state.followUps.splice(0, limit)
+    .map((item) => ({
+      text: item.text.trim(),
+      images: Array.isArray(item.images) ? item.images : [],
+      skillIds: normalizeClientSkillIds(item.skillIds),
+      skillMarks: Array.isArray(item.skillMarks) ? item.skillMarks : []
+    }))
+    .filter((item) => item.text || item.images.length);
+  renderFollowUps();
+  updateSendButton();
+  return queued;
+}
+
+function followUpBatchText(queued) {
+  if (!queued.length) return "";
+  if (queued.length === 1) return queued[0].text || "Follow-up image";
+  return queued.map((item, index) => `Follow-up ${index + 1}: ${item.text || "Image attached"}`).join("\n\n");
+}
+
+function followUpBatchImages(queued) {
+  return queued.flatMap((item) => item.images || []);
+}
+
+function followUpBatchSkillMarks(queued) {
+  const marks = [];
+  let offset = 0;
+  for (let index = 0; index < queued.length; index += 1) {
+    const item = queued[index];
+    const single = queued.length === 1;
+    const prefix = single ? "" : `Follow-up ${index + 1}: `;
+    const itemText = item.text || (single ? "Follow-up image" : "Image attached");
+    for (const mark of item.skillMarks || []) {
+      const at = Number(mark?.at);
+      if (!Number.isInteger(at)) continue;
+      marks.push({
+        id: mark.id,
+        at: offset + prefix.length + Math.max(0, Math.min(itemText.length, at))
+      });
+    }
+    offset += prefix.length + itemText.length + (index < queued.length - 1 ? 2 : 0);
+  }
+  return marks;
+}
+
+function illustrationSendBlocked(skillIds, compareModels = []) {
+  return normalizeClientSkillIds(skillIds).includes("illustration")
+    && (state.temporaryChat || compareModels.length > 0);
+}
+
+function visualizeSendBlocked(skillIds, compareModels = []) {
+  return normalizeClientSkillIds(skillIds).includes("visualize") && compareModels.length > 0;
+}
+
+function drainAutomaticFollowUps() {
+  const next = state.followUps.slice(0, 1);
+  const skillIds = mergeComposerSkillIds(...next.map((item) => item.skillIds));
+  const images = followUpBatchImages(next);
+  const compareModels = resolveCompareModelsForSend({ images });
+  if (illustrationSendBlocked(skillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return [];
+  }
+  if (visualizeSendBlocked(skillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
+    return [];
+  }
+  return drainFollowUps(1);
+}
+
+function resolveCompareModelsForSend({ images = state.images, userContent = null, keepAttachments = [] } = {}) {
+  const base = compareController.activeCompareModelIds();
+  if (!base.length) return base;
+  const needsVision = pendingPromptNeedsVision(images)
+    || chatHistoryNeedsVision()
+    || contentHasVisualOrDocument(userContent)
+    || keepAttachments.some((item) => item.category === "image" || item.category === "document");
+  if (isCouncilMode()) return needsVision ? COUNCIL_MEDIA_MODELS.slice() : DEFAULT_COUNCIL_MODELS.slice();
+  return needsVision ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
+}
+
+function webSearchAvailable() {
+  return Boolean(state.config?.services?.websearch);
+}
+
+function renderWebSearchToggle() {
+  if (!els.webSearchToggle) return;
+  if (!webSearchAvailable()) {
+    els.webSearchToggle.classList.add("hidden");
+    return;
+  }
+  els.webSearchToggle.classList.remove("hidden");
+  const on = state.settings.webSearchMode !== "off";
+  els.webSearchToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  els.webSearchToggle.setAttribute(
+    "title",
+    on
+      ? "Web search: Auto — the model searches the web when it needs to. Click to disable."
+      : "Web search: Off — click to let the model search when needed."
+  );
+  els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
+}
+
+function toggleWebSearchMode() {
+  const next = state.settings.webSearchMode === "off" ? "auto" : "off";
+  updateSetting("webSearchMode", next);
+  renderWebSearchToggle();
+}
+
+function pendingHasDocuments() {
+  return state.images.some((item) => item.category === "document");
+}
+
+function chatHasDocuments() {
+  return state.messages.some((message) => (
+    Array.isArray(message.content) && message.content.some((part) => part?.type === "file")
+  ));
+}
+
+/* Why Council can't run here, or "" when it can. */
+function councilDocumentBlock() {
+  if (pendingHasDocuments()) return COUNCIL_DOCUMENT_NOTICE;
+  if (chatHasDocuments()) return COUNCIL_CHAT_DOCUMENT_NOTICE;
+  return "";
+}
+
+function showCouncilDocumentsNotice(text = councilDocumentBlock() || COUNCIL_DOCUMENT_NOTICE) {
+  showAttachmentModelNotice(text);
+}
+
+function normalizeClientUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const num = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+  };
+  const prompt = num(usage.promptTokens ?? usage.prompt_tokens);
+  const completion = num(usage.completionTokens ?? usage.completion_tokens);
+  const reasoning = num(
+    usage.reasoningTokens
+    ?? usage.reasoning_tokens
+    ?? usage.completion_tokens_details?.reasoning_tokens
+  );
+  let total = num(usage.totalTokens ?? usage.total_tokens);
+  if (total == null && (prompt != null || completion != null)) {
+    total = (prompt || 0) + (completion || 0);
+  }
+  const result = {};
+  if (prompt != null) result.promptTokens = prompt;
+  if (completion != null) result.completionTokens = completion;
+  if (reasoning != null) result.reasoningTokens = reasoning;
+  if (total != null) result.totalTokens = total;
+  return Object.keys(result).length ? result : null;
+}
+
+function renderContextMeter() {
+  /* Context estimation stays available for backend logic; UI is hidden. */
+}
+
+function markActivityStarted(message) {
+  if (!message.activityStartedAt) message.activityStartedAt = Date.now();
+}
+
+function markActivityEnded(message) {
+  if (message.activityStartedAt && !message.activityEndedAt) {
+    message.activityEndedAt = Date.now();
+  }
+}
+
+function markReasoningStarted(message) {
+  markActivityStarted(message);
+  if (!message.reasoningStartedAt) message.reasoningStartedAt = Date.now();
+}
+
+function markReasoningEnded(message) {
+  if (message.reasoningStartedAt && !message.reasoningEndedAt) {
+    message.reasoningEndedAt = Date.now();
+  }
+}
+
+function markAssistantActivityTree(message) {
+  const now = Date.now();
+  const stamp = (entry) => {
+    if (entry && !entry.activityStartedAt) entry.activityStartedAt = now;
+  };
+  stamp(message);
+  if (message?.compareGroup) {
+    for (const response of message.compareResponses || []) stamp(response);
+  }
+  if (message?.councilGroup) {
+    for (const panelist of message.panelists || []) stamp(panelist);
+    if (message.chairman) stamp(message.chairman);
+  }
+}
+
+function markAssistantActivityDoneTree(message) {
+  const now = Date.now();
+  const stamp = (entry) => {
+    if (entry?.activityStartedAt && !entry.activityEndedAt) entry.activityEndedAt = now;
+  };
+  stamp(message);
+  if (message?.compareGroup) {
+    for (const response of message.compareResponses || []) stamp(response);
+  }
+  if (message?.councilGroup) {
+    for (const panelist of message.panelists || []) stamp(panelist);
+    if (message.chairman) stamp(message.chairman);
+  }
+}
+
+function markAssistantStopped(message) {
+  if (!message) return;
+  if (message.councilGroup) {
+    for (const panelist of message.panelists) panelist.stopped = true;
+    if (message.chairman) message.chairman.stopped = true;
+  } else if (message.compareGroup) {
+    for (const response of message.compareResponses) response.stopped = true;
+  } else {
+    message.stopped = true;
+  }
+}
+
+function mergeArtifacts(message, artifacts = []) {
+  if (!Array.isArray(artifacts) || !artifacts.length) return;
+  if (!message.artifacts) message.artifacts = [];
+  const seen = new Set(message.artifacts.map(artifactKey).filter(Boolean));
+  for (const artifact of artifacts) {
+    const key = artifactKey(artifact);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    message.artifacts.push(artifact);
+  }
+}
+
+// Keep in sync with the mirrored copy in server/saas/messages/content.js.
+function stripLeakedReasoningMarkup(value, model) {
+  const text = String(value ?? "");
+  if (model !== OPENROUTER_NITRO_MODEL) return text;
+
+  let inCodeFence = false;
+  let leakedTagEnd = -1;
+  for (const match of text.matchAll(/```|~~~|<\/think\s*>/gi)) {
+    if (match[0] === "```" || match[0] === "~~~") {
+      inCodeFence = !inCodeFence;
+    } else if (!inCodeFence) {
+      leakedTagEnd = match.index + match[0].length;
+    }
+  }
+  return leakedTagEnd < 0 ? text : text.slice(leakedTagEnd).trimStart();
+}
+
+const {
+  applyStreamEvent,
+  applyToolEvent,
+  applyCompareStreamEvent,
+  applyCouncilStreamEvent,
+  ensureToolState
+} = createStreamReducer({
+  isAdminUser,
+  mergeArtifacts,
+  markActivityStarted,
+  markActivityEnded,
+  markReasoningStarted,
+  markReasoningEnded,
+  normalizeClientUsage,
+  stripLeakedReasoningMarkup,
+  stripLeakedToolMarkup,
+  isFinalFinishReason,
+  isPlaceholderPeerReason
+});
+
+function addTextToComposerPaste(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const combined = [state.pastedText, text].filter(Boolean).join("\n\n");
+  if (combined.length > LONG_PASTE_MAX_CHARS) {
+    showToast("Pasted text is too long. Keep it under 95,000 characters.");
+    return false;
+  }
+  state.pastedText = combined;
+  renderImages();
+  updateSendButton();
+  return true;
+}
+
+function visualizeSourceFromContent(content) {
+  return rawTextContent(content).match(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/i)?.[1]?.trim() || "";
+}
+
+function animateSentUserMessage(messageId) {
+  requestAnimationFrame(() => {
+    const bubble = els.messages.querySelector(`[data-message-id="${cssString(messageId)}"] .message-content`);
+    if (!bubble) return;
+    const reduced = prefersReducedMotion();
+    bubble.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translate(12px, 18px) scale(0.95)" },
+            { opacity: 1, transform: "translate(0, 0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 260,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
+}
+
+function animateRestoredComposerDraft() {
+  requestAnimationFrame(() => {
+    if (!els.promptInput) return;
+    const reduced = prefersReducedMotion();
+    els.promptInput.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translateY(-12px) scale(0.98)" },
+            { opacity: 1, transform: "translateY(0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 220,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
+}
+
+// Keep finished tables mounted so a mid-stream pan isn't cancelled by the next token.
+function adoptUnchangedTableScrolls(liveEl, nextRoot) {
+  const unused = [...liveEl.querySelectorAll(".table-scroll")];
+  if (!unused.length) return;
+  for (const next of nextRoot.querySelectorAll(".table-scroll")) {
+    const index = unused.findIndex((node) => node.innerHTML === next.innerHTML);
+    if (index < 0) continue;
+    next.replaceWith(unused[index]);
+    unused.splice(index, 1);
+  }
+}
+
+// Keep the loading surface mounted while its code changes so its animation
+// does not restart on every streamed token. Returns true when the live card
+// was patched in place; callers must then skip swapping children, because
+// detaching the card (even momentarily) cancels its CSS shimmer animation.
+// Safe to skip: once the fence is open, every new token lands inside it.
+function adoptLiveVisualizeBuilding(liveEl, nextRoot) {
+  const live = liveEl.querySelector(".visualize-building");
+  const next = nextRoot.querySelector(".visualize-building");
+  if (!live || !next) return false;
+  const liveCode = live.querySelector(".visualize-building-code code");
+  const nextCode = next.querySelector(".visualize-building-code code");
+  if (liveCode && nextCode && liveCode.textContent !== nextCode.textContent) {
+    liveCode.textContent = nextCode.textContent;
+  }
+  const liveLabel = live.querySelector(".visualize-building-status b");
+  const nextLabel = next.querySelector(".visualize-building-status b");
+  if (liveLabel && nextLabel && liveLabel.textContent !== nextLabel.textContent) {
+    liveLabel.textContent = nextLabel.textContent;
+    liveLabel.dataset.label = nextLabel.dataset.label || nextLabel.textContent;
+  }
+  return true;
+}
+
+function stripOpenEmailFence(raw) {
+  const text = String(raw || "");
+  if (/```email[ \t]*\r?\n[\s\S]*?\r?\n```/i.test(text)) return text;
+  if (/<email\b[^>]*>[\s\S]*?<\/email\s*>/i.test(text)) return text;
+  return text.replace(/```email[ \t]*\r?\n[\s\S]*$/i, "").replace(/```email[ \t]*$/i, "").replace(/<email\b[^>]*>[\s\S]*$/i, "");
+}
+
+function animateNewestStreamingText(root, addedCharacters) {
+  if (!root || addedCharacters < 1 || root.querySelector(".visualize-building")) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .sources-pill, .visualize-building, .klui-email, pre, code, .katex, button, svg")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let newest = null;
+  while (walker.nextNode()) newest = walker.currentNode;
+  if (!newest) return;
+  const start = Math.max(0, newest.data.length - Math.min(addedCharacters, 48));
+  const tail = newest.splitText(start);
+  const reveal = document.createElement("span");
+  reveal.className = "streaming-text-reveal";
+  tail.replaceWith(reveal);
+  reveal.append(tail);
+}
+
+function renderStreamingMessageSurface(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id) return false;
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
+  const contentEl = surface?.querySelector(".message-content");
+  if (!surface || !contentEl) return false;
+
+  captureReasoningOpenState();
+  preserveMessageScroll(() => {
+    const rawText = rawTextContent(message.content);
+    const previousRawText = surface.dataset.rawText || "";
+    const appendOnly = rawText.startsWith(previousRawText);
+    const addedCharacters = appendOnly
+      ? rawText.length - previousRawText.length
+      : rawText.length;
+    surface.dataset.rawText = rawText;
+    // Intro stays mounted while an unclosed email fence streams; the card
+    // appears once, complete. Otherwise every hidden token remounts the
+    // intro and retriggers streaming-text-reveal.
+    if (stripOpenEmailFence(rawText) === stripOpenEmailFence(previousRawText) && addedCharacters > 0) {
+      return;
+    }
+    const reasoningEl = contentEl.querySelector("details.reasoning");
+    const statusEl = message.error || isStoppedMessage(message) ? null : contentEl.querySelector(".thinking-status");
+    const hasContent = rawText.trim().length > 0;
+    const provisional = isProvisionalToolProse(message);
+
+    if (statusEl && hasContent) {
+      // Keep the live status node so opacity can fade out while answer HTML updates.
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderAssistantMessageContent(message);
+      tmp.querySelector(".thinking-status")?.remove();
+      adoptUnchangedTableScrolls(contentEl, tmp);
+      adoptLiveEmailCards(contentEl, tmp);
+      const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
+      if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
+        if (!keptFrame) collapseExpandedVisualize();
+        for (const node of [...contentEl.childNodes]) {
+          if (node !== statusEl) node.remove();
+        }
+        while (tmp.firstChild) contentEl.appendChild(tmp.firstChild);
+      }
+      if (provisional) {
+        // Interim tool-loop prose: keep Klui visible alongside the one-liner.
+        statusEl.classList.remove("is-leaving");
+        const label = currentThinkingStatus(message, { streaming: true });
+        if (label) {
+          updateKluiBar(statusEl, {
+            label,
+            feed: thinkingFeed(message),
+            active: !isFinalFinishReason(message?.finishReason)
+          });
+        }
+      } else if (!statusEl.classList.contains("is-leaving")) {
+        void statusEl.offsetWidth;
+        statusEl.classList.add("is-leaving");
+        const removeStatus = () => {
+          if (statusEl.isConnected) statusEl.remove();
+        };
+        statusEl.addEventListener("transitionend", removeStatus, { once: true });
+        setTimeout(removeStatus, 200);
+      }
+    } else if (statusEl?.classList.contains("klui-bar") && !hasContent) {
+      // Root fix: reasoning/tool-adjacent deltas used to innerHTML-replace this node
+      // mid-roll (old shimmer stutter). Patch the live bar instead of remounting.
+      const label = currentThinkingStatus(message, { streaming: true });
+      if (label) {
+        updateKluiBar(statusEl, {
+          label,
+          feed: thinkingFeed(message),
+          active: !isFinalFinishReason(message?.finishReason)
+        });
+      }
+    } else {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderAssistantMessageContent(message);
+      adoptUnchangedTableScrolls(contentEl, tmp);
+      adoptLiveEmailCards(contentEl, tmp);
+      const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
+      if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
+        if (!keptFrame) collapseExpandedVisualize();
+        if (reasoningEl && tmp.querySelector("details.reasoning")) {
+          patchReasoningInPlace(reasoningEl, message);
+          tmp.querySelector("details.reasoning").remove();
+          for (const node of [...contentEl.childNodes]) {
+            if (node !== reasoningEl) node.remove();
+          }
+          contentEl.append(...tmp.childNodes);
+        } else {
+          contentEl.replaceChildren(...tmp.childNodes);
+        }
+        hydrateKluiBars(contentEl);
+      }
+    }
+    animateNewestStreamingText(contentEl, contentEl.querySelector("[data-email-card]") ? 0 : addedCharacters);
+  });
+  syncPendingArtifactPolls();
+  renderContextMeter();
+  return true;
+}
+
+function flushStreamingMessageSurfaces() {
+  streamingRenderQueued = false;
+  const targets = Array.from(streamingRenderTargets.values());
+  streamingRenderTargets.clear();
+  for (const target of targets) {
+    if (!renderStreamingMessageSurface(target)) renderMessages();
+  }
+}
+
+function queueStreamingMessageRender(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id) {
+    queueRenderMessages();
+    return;
+  }
+  streamingRenderTargets.set(id, message);
+  if (streamingRenderQueued) return;
+  streamingRenderQueued = true;
+  requestAnimationFrame(flushStreamingMessageSurfaces);
+}
+
+function pendingDocumentUploads() {
+  return state.images.filter((item) => item.category === "document" && item.status !== "ready");
+}
+
+function pendingDocumentLabel(item) {
+  if (item.status === "failed") return item.error || "Failed";
+  if (item.status === "uploading") return "Uploading";
+  if (item.status === "processing") return `${Math.max(1, Math.min(99, Math.round(item.progress || 10)))}%`;
+  return "Queued";
+}
+
+function renderImages() {
+  if (state.images?.length || state.pastedText) els.composer?.classList.remove("compact");
+  const pastedPreview = state.pastedText
+    ? `<div class="preview-thumb preview-pasted" data-open-composer-paste>
+        <span>${renderPlainText(state.pastedText.replace(/\s+/g, " ").trim().slice(0, 120))}</span>
+        <strong>Pasted</strong>
+        <button class="preview-remove" type="button" data-remove-paste aria-label="Remove pasted text">×</button>
+      </div>`
+    : "";
+  els.imagePreviews.innerHTML = pastedPreview + state.images.map((img, i) => `
+    <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
+      ${img.category === "image"
+        ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
+        : `${fileTypeIcon(img.file.name)}<span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
+      <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
+    </div>
+  `).join("");
+  updateSendButton();
+  renderContextMeter();
+}
+
+function updatePendingDocument(localId, patch) {
+  const item = state.images.find((entry) => entry.localId === localId);
+  if (!item) return null;
+  Object.assign(item, patch);
+  rememberPendingDocument(item);
+  renderImages();
+  return item;
+}
+
+function pendingDocumentsStorageKey() {
+  const userId = state.me?.user?.id;
+  return userId ? `${PENDING_DOCUMENTS_STORAGE_PREFIX}:${userId}` : "";
+}
+
+function readPendingDocuments() {
+  const key = pendingDocumentsStorageKey();
+  if (!key) return [];
+  try {
+    const records = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingDocuments(records) {
+  const key = pendingDocumentsStorageKey();
+  if (!key) return;
+  if (records.length) localStorage.setItem(key, JSON.stringify(records));
+  else localStorage.removeItem(key);
+}
+
+function rememberPendingDocument(item) {
+  if (item?.category !== "document" || !item.attachmentId || item.status === "failed") return;
+  const records = readPendingDocuments().filter((record) => record.attachmentId !== item.attachmentId);
+  records.push({
+    attachmentId: item.attachmentId,
+    documentId: item.documentId || "",
+    fileName: item.file?.name || item.uploaded?.fileName || "Document",
+    contentType: item.file?.type || item.uploaded?.contentType || "application/octet-stream",
+    sizeBytes: Number(item.file?.size || item.uploaded?.sizeBytes || 0),
+    status: item.status || "processing",
+    progress: Number(item.progress || 0),
+    conversationId: state.activeConversationId || "",
+    savedAt: Date.now()
+  });
+  writePendingDocuments(records.slice(-10));
+}
+
+function forgetPendingDocument(item) {
+  const attachmentId = typeof item === "string" ? item : item?.attachmentId;
+  if (!attachmentId) return;
+  writePendingDocuments(readPendingDocuments().filter((record) => record.attachmentId !== attachmentId));
+}
+
+async function restorePendingDocuments() {
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+  const records = readPendingDocuments();
+  const currentConversationId = state.activeConversationId || "";
+  const keep = records.filter((record) => Number(record.savedAt || 0) >= cutoff);
+  writePendingDocuments(keep);
+  for (const record of keep.filter((entry) => (entry.conversationId || "") === currentConversationId)) {
+    if (state.images.some((item) => item.attachmentId === record.attachmentId)) continue;
+    const item = {
+      localId: `restored_${record.attachmentId}`,
+      file: {
+        name: record.fileName || "Document",
+        type: record.contentType || "application/octet-stream",
+        size: Number(record.sizeBytes || 0)
+      },
+      category: "document",
+      previewUrl: "",
+      status: record.status === "ready" ? "ready" : "processing",
+      progress: Number(record.progress || 8),
+      attachmentId: record.attachmentId,
+      documentId: record.documentId || "",
+      uploaded: {
+        id: record.attachmentId,
+        fileName: record.fileName || "Document",
+        contentType: record.contentType || "application/octet-stream",
+        sizeBytes: Number(record.sizeBytes || 0),
+        category: "document"
+      },
+      error: ""
+    };
+    state.images.push(item);
+    if (item.status === "ready") continue;
+    void pollUploadedDocument(item.localId, item.attachmentId).catch((error) => {
+      updatePendingDocument(item.localId, {
+        status: "failed",
+        progress: 0,
+        error: error?.message || "Document status could not be restored."
+      });
+      forgetPendingDocument(item);
+    });
+  }
+  renderImages();
+}
+
+async function pollUploadedDocument(localId, attachmentId) {
+  let failedAttempts = 0;
+  while (state.session && state.images.some((entry) => entry.localId === localId)) {
+    let payload;
+    try {
+      payload = await fetchDocumentStatus(state.session, attachmentId);
+      failedAttempts = 0;
+    } catch (error) {
+      failedAttempts += 1;
+      if (failedAttempts >= 8) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(10000, 1000 * (2 ** failedAttempts))));
+      continue;
+    }
+    const doc = payload.document || {};
+    if (!state.images.some((entry) => entry.localId === localId)) return;
+    updatePendingDocument(localId, {
+      status: doc.usable ? "ready" : "processing",
+      progress: doc.usable ? 100 : Math.max(8, Number(doc.progress || 15)),
+      stage: doc.stage || "",
+      textReadyAt: doc.textReadyAt || null,
+      visualReadyAt: doc.visualReadyAt || null,
+      enrichedAt: doc.enrichedAt || null,
+      documentId: doc.id || "",
+      error: doc.error?.message || ""
+    });
+    if (doc.usable) {
+      return;
+    }
+    if (doc.status === "failed" && !doc.usable) {
+      throw new Error(doc.error?.message || "Document could not be processed.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+}
+
+async function startDocumentUpload(item) {
+  const controller = new AbortController();
+  item.abortController = controller;
+  updatePendingDocument(item.localId, { status: "uploading", progress: 3, error: "" });
+  try {
+    const { upload: presigned, file: uploadFile } = await presignUpload(state.session, item.file, "document", { signal: controller.signal });
+    item.uploadId = presigned.uploadId;
+    await putUploadContent(state.session, presigned, uploadFile, "document", { signal: controller.signal });
+    const uploaded = await completeUpload(state.session, presigned.uploadId, { signal: controller.signal });
+    if (!state.images.some((entry) => entry.localId === item.localId)) {
+      forgetPendingDocument(uploaded.id);
+      await deleteAttachment(state.session, uploaded.id).catch(() => {});
+      void refreshAccountStorage();
+      return;
+    }
+    updatePendingDocument(item.localId, {
+      attachmentId: uploaded.id,
+      uploaded,
+      status: uploaded.category === "document" ? "processing" : "ready",
+      progress: uploaded.category === "document" ? 8 : 100,
+      abortController: null
+    });
+    if (uploaded.category === "document") {
+      await pollUploadedDocument(item.localId, uploaded.id);
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    updatePendingDocument(item.localId, {
+      status: "failed",
+      progress: 0,
+      error: err.message || "Upload failed.",
+      abortController: null
+    });
+    forgetPendingDocument(item);
+  }
+}
+
+function acceptPendingFiles(files) {
+  if (state.researchMode) {
+    showToast("Turn off Deep Research before adding attachments.");
+    return;
+  }
+  const draft = composerSnapshot();
+  const plan = state.me?.plan || {};
+  let allFiles = [...files];
+  if (!state.session) {
+    const imagesOnly = allFiles.filter((file) => fileCategory(file) === "image");
+    if (imagesOnly.length < allFiles.length) showToast("Sign up to attach documents.");
+    allFiles = imagesOnly;
+    if (!allFiles.length) return;
+  }
+  const imagesOnly = state.temporaryChat || isCouncilMode();
+  const accepted = allFiles.filter((file) => imagesOnly
+    ? fileCategory(file) === "image"
+    : state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
+  if (imagesOnly && accepted.length < allFiles.length) {
+    if (state.temporaryChat) showToast("Temporary chat supports images only.");
+    else showAttachmentModelNotice(COUNCIL_DOCUMENT_NOTICE);
+  }
+  if (state.running && allFiles.length && !accepted.length) {
+    showToast("Follow-up attachments can only be images while Klui is working.");
+    return;
+  }
+  if (state.running && accepted.length < allFiles.length) {
+    showToast("Only images were added to the follow-up.");
+  }
+  const currentImages = state.images.filter((item) => item.category === "image").length;
+  const currentDocs = state.images.filter((item) => item.category === "document").length;
+  const maxImages = plan.maxImagesPerMessage || 4;
+  const maxDocs = plan.maxDocumentsPerMessage || 5;
+  const chosen = [];
+  let imageSlots = Math.max(0, maxImages - currentImages);
+  let docSlots = Math.max(0, maxDocs - currentDocs);
+  for (const file of accepted) {
+    const category = fileCategory(file);
+    if (category === "image" && imageSlots > 0) {
+      chosen.push(file);
+      imageSlots -= 1;
+    } else if (category === "document" && docSlots > 0) {
+      chosen.push(file);
+      docSlots -= 1;
+    }
+  }
+  if (accepted.length > chosen.length) showToast(state.running ? `Attach up to ${maxImages} images.` : `Attach up to ${maxImages} images and ${maxDocs} documents.`);
+  if (!imagesOnly && allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
+
+  for (const file of chosen) {
+    const category = fileCategory(file);
+    const item = {
+      localId: `pending_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      file,
+      category,
+      previewUrl: category === "image" ? URL.createObjectURL(file) : "",
+      status: category === "document" ? "queued" : "ready",
+      progress: category === "document" ? 1 : 100,
+      attachmentId: "",
+      documentId: "",
+      error: ""
+    };
+    state.images.push(item);
+    if (category === "document") {
+      startDocumentUpload(item);
+    }
+  }
+  if (chosen.length && spectrumLevelFromSettings() === 0) {
+    applySpectrumLevel(1);
+    showAttachmentModelNotice();
+  }
+  renderImages();
+  setComposerPlainText(draft.text, draft.marks);
+  applyComposerHeight();
+  compareController.syncCompareContextBanner();
+}
+
+let attachmentModelNoticeTimer = null;
+
+function hideAttachmentModelNotice() {
+  clearTimeout(attachmentModelNoticeTimer);
+  attachmentModelNoticeTimer = null;
+  els.attachmentModelNotice?.classList.remove("visible");
+  els.attachmentModelNotice?.setAttribute("aria-hidden", "true");
+}
+
+const NITRO_ATTACHMENT_NOTICE = "Nitro is text-only. Switched to Think for attachments.";
+
+const COUNCIL_DOCUMENT_NOTICE = "Council supports images only. Use Compare for documents.";
+
+const COUNCIL_CHAT_DOCUMENT_NOTICE = "This chat has documents, and Council can't read them. Use Compare or start a new chat.";
+
+/* Small notice above the composer explaining why an attachment or mode changed. */
+function showAttachmentModelNotice(text = NITRO_ATTACHMENT_NOTICE) {
+  clearTimeout(attachmentModelNoticeTimer);
+  if (els.attachmentModelNoticeText) els.attachmentModelNoticeText.textContent = text;
+  els.attachmentModelNotice?.classList.add("visible");
+  els.attachmentModelNotice?.setAttribute("aria-hidden", "false");
+  attachmentModelNoticeTimer = setTimeout(hideAttachmentModelNotice, 4500);
+}
+
+/* Composer border-beam: md while generating, pulse-inner ocean while mic. */
+const BEAM_PULSE_ROWS = [["--bw1-mic",0.72,1.308,2.34,0,""],["--bh1-mic",1.252,0.762,3.276,0,""],["--bx1-mic",-33,29.7,3.04,0,"px"],["--by1-mic",18.15,-23.1,3.04,0,"px"],["--bw2-mic",1.28,0.762,2.86,0,""],["--bh2-mic",0.776,1.294,2.106,0,""],["--bx2-mic",26.4,-29.7,3.572,0,"px"],["--by2-mic",-33,21.45,3.572,0,"px"],["--bw3-mic",0.832,1.322,2.548,0,""],["--bh3-mic",1.21,0.72,3.64,0,""],["--bx3-mic",-19.8,33,2.755,0,"px"],["--by3-mic",-28.05,14.85,2.755,0,"px"],["--bgh-mic",0.66,1.34,2.4,0,""],["--bop-tl-mic",0.52,1,1.9,0,""],["--bop-tr-mic",0.52,1,2.508,0.532,""],["--bop-bl-mic",0.52,1,1.596,1.045,""],["--bop-br-mic",0.52,1,3.002,1.577,""]];
+
+const BEAM_PULSE_HUE = { prop: "--beam-hue-mic", range: 28, period: 16 };
+
+let beamPulseRaf = null;
+
+let beamPulseLast = 0;
+
+let beamPulseEl = null;
+
+function setComposerBeamActive(el, on) {
+  if (!el) return;
+  if (on) {
+    el.removeAttribute("data-fading");
+    el.setAttribute("data-active", "");
+    return;
+  }
+  if (!el.hasAttribute("data-active") && !el.hasAttribute("data-fading")) return;
+  el.removeAttribute("data-active");
+  el.setAttribute("data-fading", "");
+  setTimeout(() => el.removeAttribute("data-fading"), 600);
+}
+
+function setMicPulseActive(el, on) {
+  if (!on) {
+    beamPulseEl = null;
+    if (beamPulseRaf != null) {
+      cancelAnimationFrame(beamPulseRaf);
+      beamPulseRaf = null;
+    }
+    return;
+  }
+  if (!el || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  beamPulseEl = el;
+  if (beamPulseRaf != null) return;
+  beamPulseLast = 0;
+  const tick = (ts) => {
+    beamPulseRaf = requestAnimationFrame(tick);
+    if (!beamPulseEl || ts - beamPulseLast < 1000 / 30 - 2) return;
+    beamPulseLast = ts;
+    const t = ts / 1000;
+    const ease = (phase) => (1 - Math.cos(Math.PI * 2 * phase)) / 2;
+    for (const [prop, a, b, period, delay, unit] of BEAM_PULSE_ROWS) {
+      const v = a + (b - a) * ease((t - delay) / period);
+      beamPulseEl.style.setProperty(prop, unit === "px" ? `${v.toFixed(2)}px` : v.toFixed(4));
+    }
+    beamPulseEl.style.setProperty(
+      BEAM_PULSE_HUE.prop,
+      // ponytail: ping-pong ±range so ocean stays blue/purple (no full-spectrum spin).
+      `${(-BEAM_PULSE_HUE.range + 2 * BEAM_PULSE_HUE.range * ease(t / BEAM_PULSE_HUE.period)).toFixed(2)}deg`
+    );
+  };
+  beamPulseRaf = requestAnimationFrame(tick);
+}
+
+function syncComposerBeam() {
+  const el = els.composerBeam;
+  if (!el) return;
+  const voiceOn = voiceState === "recording" || voiceState === "processing";
+  const mode = voiceOn ? "mic" : state.running ? "gen" : "";
+  if (!mode) {
+    setComposerBeamActive(el, false);
+    setMicPulseActive(el, false);
+    return;
+  }
+  if (el.getAttribute("data-beam") !== mode) {
+    el.removeAttribute("data-active");
+    el.removeAttribute("data-fading");
+    el.setAttribute("data-beam", mode);
+  }
+  setComposerBeamActive(el, true);
+  setMicPulseActive(el, mode === "mic");
+}
+
+function trackPendingTurnEvent(event, run = getConversationRun()) {
+  if (!run) return;
+  run.lastEventAt = Date.now();
+  if (event?.type === "turn:submitted") {
+    run.turnRunId = event.turnRunId || "";
+  } else if (event?.type === "turn:waiting" || event?.type === "turn:claimed") {
+    run.turnWaiting = true;
+  } else if (event?.type && !event.type.startsWith("turn:")) {
+    run.turnWaiting = false;
+  } else {
+    return;
+  }
+  if (isRunKeyActive(run.key)) syncTurnFieldsFromRun(run);
+}
+
+// Stop takes the send button's place mid-tap, so the tap that sent a message could land on it too.
+// Only a press that began on Stop itself (or a keyboard click) counts.
+let stopPressStarted = false;
+
+function updateSendButton() {
+  if (els.voiceButton) {
+    els.voiceButton.disabled = voiceState === "processing"
+      || (!state.config?.services?.speech && voiceState !== "recording");
+  }
+  const voiceBusy = voiceState === "recording" || voiceState === "processing";
+  const canStop = Boolean(state.activeResearchId || getConversationRun());
+  els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
+  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy || !canStop);
+  if (els.stopButton?.classList.contains("hidden")) stopPressStarted = false;
+  if (voiceBusy || state.running) setVoiceModeButton(false);
+  if (voiceBusy) {
+    els.sendButton.classList.toggle("active", voiceState === "recording");
+    els.sendButton.disabled = voiceState !== "recording";
+    els.sendButton.classList.toggle("is-voice-confirm", true);
+    return;
+  }
+  els.sendButton.classList.toggle("is-voice-confirm", false);
+  const hasText = Boolean(composerPlainText().trim() || state.pastedText);
+  if (state.running) {
+    const hasContent = hasText || state.images.some((item) => item.category === "image");
+    const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 2;
+    els.sendButton.classList.toggle("active", hasContent && !blocked);
+    els.sendButton.disabled = !hasContent || blocked;
+    return;
+  }
+  const hasContent = hasText || state.images.length || state.followUps.length;
+  const blocked = pendingDocumentUploads().length > 0 || state.clarificationChecking;
+  // An empty composer offers voice mode where the send arrow would be.
+  const offerVoice = !hasContent && !blocked && !state.clarification && voiceModeAvailable();
+  setVoiceModeButton(offerVoice);
+  els.sendButton.classList.toggle("hidden", offerVoice);
+  els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
+  els.sendButton.disabled = blocked;
+}
+
+function voiceModeAvailable() {
+  return Boolean(state.config?.services?.speech) && !state.researchMode && voiceModeSupported();
+}
+
+function setVoiceModeButton(visible) {
+  if (!els.voiceModeButton) return;
+  const wasVisible = !els.voiceModeButton.classList.contains("hidden");
+  els.voiceModeButton.classList.toggle("hidden", !visible);
+  els.voiceModeButton.disabled = !visible;
+  // The first keystroke morphs the voice button into Send (and back when the composer empties).
+  if (wasVisible && !visible && !state.running) {
+    els.sendButton.classList.remove("is-from-voice");
+    void els.sendButton.offsetWidth;
+    els.sendButton.classList.add("is-from-voice");
+    els.sendButton.addEventListener("animationend", function done(event) {
+      if (event.animationName !== "send-from-voice") return;
+      els.sendButton.classList.remove("is-from-voice");
+      els.sendButton.removeEventListener("animationend", done);
+    });
+  } else if (visible) {
+    els.sendButton.classList.remove("is-from-voice");
+  }
+}
+
+function setVoiceState(next) {
+  voiceState = next;
+  const recording = next === "recording";
+  const processing = next === "processing";
+  els.composer?.classList.toggle("is-voice-recording", recording || processing);
+  if (els.voiceButton) {
+    els.voiceButton.classList.toggle("is-recording", recording);
+    els.voiceButton.classList.toggle("is-processing", processing);
+    els.voiceButton.setAttribute("aria-pressed", String(recording));
+    els.voiceButton.setAttribute(
+      "aria-label",
+      recording ? "Cancel voice input" : processing ? "Transcribing voice input" : "Start voice input"
+    );
+    els.voiceButton.title = recording ? "Cancel recording" : processing ? "Transcribing…" : "Voice input";
+  }
+  if (els.sendButton) {
+    els.sendButton.setAttribute(
+      "aria-label",
+      recording ? "Confirm and transcribe" : processing ? "Transcribing…" : "Send"
+    );
+    els.sendButton.title = recording ? "Transcribe into message" : processing ? "Transcribing…" : "Send";
+  }
+  updateSendButton();
+  syncComposerBeam();
+}
+
+function preferredRecordingType() {
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    .find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function pcmWavBlob(samples, sampleRate) {
+  const bytes = samples.length * 2;
+  const buffer = new ArrayBuffer(44 + bytes);
+  const view = new DataView(buffer);
+  const ascii = (offset, text) => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + bytes, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, bytes, true);
+  for (let i = 0, offset = 44; i < samples.length; i += 1, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function voiceRecordingWav(blob) {
+  if (String(blob.type || "").toLowerCase().includes("wav")) return blob;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!Ctx || !Offline) throw new Error("Voice input is not supported in this browser.");
+  const ctx = new Ctx();
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const rate = 16000;
+    const frames = Math.max(1, Math.ceil(decoded.duration * rate));
+    const offline = new Offline(1, frames, rate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start();
+    return pcmWavBlob((await offline.startRendering()).getChannelData(0), rate);
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
+async function finishVoiceRecording() {
+  const chunks = voiceChunks;
+  const commit = voiceCommit;
+  const mimeType = chunks[0]?.type || "audio/webm";
+  voiceChunks = [];
+  voiceStream?.getTracks().forEach((track) => track.stop());
+  voiceStream = null;
+  voiceRecorder = null;
+  voiceCommit = true;
+  if (!commit) {
+    setVoiceState("idle");
+    return;
+  }
+  setVoiceState("processing");
+  const blob = new Blob(chunks, { type: mimeType });
+  if (!blob.size) {
+    showToast("No speech was detected.");
+    setVoiceState("idle");
+    return;
+  }
+  try {
+    const result = await transcribeSpeech(state.session, await voiceRecordingWav(blob));
+    const transcript = String(result.transcript || "").trim();
+    if (transcript) {
+      const current = composerPlainText();
+      const marks = composerSkillMarks();
+      setComposerPlainText(`${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`, marks);
+      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      els.promptInput.focus();
+    } else {
+      showToast("No speech was detected.");
+    }
+  } catch (error) {
+    showToast(error?.message || "Speech transcription failed.");
+  }
+  setVoiceState("idle");
+}
+
+async function startVoiceRecording() {
+  if (!state.config?.services?.speech) {
+    showToast("Voice input is not configured.");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    showToast("Voice input is not supported in this browser.");
+    return;
+  }
+
+  try {
+    setVoiceState("processing");
+    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    voiceChunks = [];
+    voiceCommit = true;
+    const mimeType = preferredRecordingType();
+    voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+    voiceRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size) voiceChunks.push(event.data);
+    });
+    voiceRecorder.addEventListener("error", () => {
+      showToast("Recording failed.");
+      stopVoiceRecording({ commit: false });
+    });
+    voiceRecorder.addEventListener("stop", finishVoiceRecording, { once: true });
+    setVoiceState("recording");
+    voiceRecorder.start();
+  } catch (error) {
+    voiceStream?.getTracks().forEach((track) => track.stop());
+    voiceStream = null;
+    voiceRecorder = null;
+    voiceChunks = [];
+    setVoiceState("idle");
+    showToast(error?.name === "NotAllowedError" ? "Microphone access was blocked." : "Could not start voice input.");
+  }
+}
+
+function stopVoiceRecording({ commit }) {
+  if (voiceState !== "recording") return;
+  voiceCommit = Boolean(commit);
+  setVoiceState("processing");
+  if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+  else finishVoiceRecording();
+}
+
+function toggleVoiceRecording() {
+  if (voiceState === "processing") return;
+  if (voiceState === "recording") {
+    stopVoiceRecording({ commit: false });
+    return;
+  }
+  startVoiceRecording();
+}
+
+function applyComposerHeight() {
+  const input = els.promptInput;
+  input.style.height = "auto";
+  if (!document.body.classList.contains("mobile-ui")) {
+    input.classList.remove("is-multiline");
+    input.style.height = `${Math.min(200, input.scrollHeight)}px`;
+    return;
+  }
+  // Phones keep one line and, once the text wraps, show only a sliver of the
+  // line above: enough to hint that earlier text is there to scroll back to.
+  const line = parseFloat(getComputedStyle(input).lineHeight) || 26;
+  const multiline = input.scrollHeight > line * 1.5;
+  input.classList.toggle("is-multiline", multiline);
+  input.style.height = multiline ? `${Math.round(line * 1.4)}px` : "";
+  if (multiline && isCaretAtComposerEnd()) input.scrollTop = input.scrollHeight;
+}
+
+function isCaretAtComposerEnd() {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !els.promptInput.contains(selection.anchorNode)) return true;
+  if (!selection.isCollapsed) return false;
+  const tail = document.createRange();
+  tail.selectNodeContents(els.promptInput);
+  tail.setStart(selection.anchorNode, selection.anchorOffset);
+  // Trailing spaces still count as the end; a following line does not.
+  return /^[ \t\u00a0]*$/.test(tail.toString());
+}
+
+function isStreamDeltaEvent(event) {
+  if (event?.type === "delta") return isStreamDeltaEvent(event.event);
+  if (event?.type === "council:chairman:delta") return isStreamDeltaEvent(event.event);
+  const delta = event?.choices?.[0]?.delta || {};
+  return Boolean(
+    typeof delta.content === "string" && delta.content
+    || extractReasoningDelta(delta)
+  );
+}
+
+function patchReasoningInPlace(reasoning, message) {
+  const streaming = isAssistantMessageStreaming(message);
+  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
+  reasoning.classList.toggle("is-streaming", stillThinking);
+  reasoning.classList.toggle("is-done", !stillThinking && Boolean(message?.reasoning?.trim() || message?.reasoningEndedAt));
+  const summary = reasoning.querySelector("summary");
+  const label = reasoningSummaryLabel(message, { streaming });
+  if (summary.textContent !== label) summary.textContent = label;
+  const body = reasoning.querySelector("div");
+  const html = message?.reasoning?.trim() ? renderContent(message.reasoning) : "";
+  if (body.innerHTML !== html) body.innerHTML = html;
+}
+
+function patchKluiThinkingInPlace(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id || message.error || isStoppedMessage(message) || isVisualizeRepairing(message)) return false;
+  if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return false;
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
+  const contentEl = surface?.querySelector(".message-content");
+  if (!contentEl) return false;
+  if (isAdminUser() && state.settings.showModelReasoning) {
+    const reasoning = contentEl.querySelector("details.reasoning");
+    if (!reasoning) return false;
+    patchReasoningInPlace(reasoning, message);
+    return true;
+  }
+  const label = currentThinkingStatus(message, { streaming: true });
+  if (!label) return false;
+  const active = !isFinalFinishReason(message?.finishReason);
+  const feed = thinkingFeed(message);
+  let bar = contentEl.querySelector(".klui-bar");
+  if (!bar) {
+    contentEl.insertAdjacentHTML("afterbegin", renderKluiThinkingStatus(message, { label, active, feed, startedAt: message.activityStartedAt }));
+    hydrateKluiBars(contentEl);
+    return true;
+  }
+  updateKluiBar(bar, { label, feed, active });
+  return true;
+}
+
+function queueStreamRenderForEvent(message, event) {
+  if (isStreamDeltaEvent(event)) {
+    // While still thinking (no answer text), keep the Klui bar alive — reasoning
+    // deltas previously remounted it every chunk and chopped slot-text mid-roll.
+    if (!rawTextContent(message?.content).trim() && patchKluiThinkingInPlace(message)) return;
+    queueStreamingMessageRender(message);
+    return;
+  }
+  if (patchKluiThinkingInPlace(message)) return;
+  queueRenderMessages();
+}
+
+// Compare and council lanes stream side by side. Repaint only the lane that changed,
+// never the whole chat, or every hidden reasoning chunk makes all lanes flicker.
+function queueLaneStreamRender(message, event) {
+  const choice = event.event?.choices?.[0];
+  // Reasoning hidden from this user arrives as empty chunks: nothing on screen changes.
+  if (choice && !isStreamDeltaEvent(event) && !choice.finish_reason && !choice.delta?.tool_calls) return;
+  if (patchKluiThinkingInPlace(message)) return;
+  queueStreamingMessageRender(message);
+}
+
+// Lifecycle/stage events must not rebuild the sibling lanes or restart their bars.
+function applyLaneStreamEvent(group, event, council, runKey) {
+  const previous = council
+    ? (event.type?.startsWith("council:chairman:") ? group.chairman : group.panelists?.[Number(event.index)])
+    : group.compareResponses?.[Number(event.index)];
+  const previousId = previous?.id;
+  const target = council ? applyCouncilStreamEvent(group, event) : applyCompareStreamEvent(group, event);
+  if (!isRunKeyActive(runKey)) return;
+  const anchorId = previousId || (council ? group.panelists?.[0]?.id : group.compareResponses?.[0]?.id);
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(anchorId)}"]`);
+  const article = surface?.closest("article.message");
+  if (previousId && target && surface) {
+    surface.dataset.messageId = String(target.id);
+    const reasoning = surface.querySelector("details.reasoning");
+    if (reasoning) reasoning.dataset.messageId = String(target.id);
+  }
+  if (target && /(^|:)delta$/.test(event.type)) {
+    queueLaneStreamRender(target, event);
+    return;
+  }
+  let patched = false;
+  preserveMessageScroll(() => {
+    patched = council
+      ? councilController.patchCouncilMessage(article, group, { streaming: true })
+      : compareController.patchCompareMessage(article, group.compareResponses, { streaming: true });
+  });
+  if (!patched) {
+    queueRenderMessages();
+    return;
+  }
+  hydrateKluiBars(article);
+  if (target) queueStreamingMessageRender(target);
+}
+
+function restoredTurnAttachment(part) {
+  const source = part?.type === "file" ? part.file : part?.image_url;
+  const attachmentId = source?.attachment_id || "";
+  if (!attachmentId) return null;
+  const category = part.type === "file" ? "document" : "image";
+  const item = {
+    localId: `cancelled_${attachmentId}`,
+    file: {
+      name: source.file_name || (category === "document" ? "Document" : "Image"),
+      type: source.content_type || (category === "document" ? "application/octet-stream" : "image/jpeg"),
+      size: Number(source.size_bytes || 0)
+    },
+    category,
+    previewUrl: category === "image" ? (source.url || "") : "",
+    status: category === "document" ? "processing" : "ready",
+    progress: category === "document" ? 8 : 100,
+    attachmentId,
+    uploaded: {
+      id: attachmentId,
+      fileName: source.file_name || (category === "document" ? "Document" : "Image"),
+      contentType: source.content_type || (category === "document" ? "application/octet-stream" : "image/jpeg"),
+      sizeBytes: Number(source.size_bytes || 0),
+      category
+    },
+    error: ""
+  };
+  return item;
+}
+
+function restoreCancelledTurnDraft(result, run = getConversationRun()) {
+  if (result?.run?.status !== "cancelled") return false;
+  if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
+  markAssistantStopped(run?.assistantMessage);
+  const content = result.user_message?.content;
+  const restoredText = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
+  const restoredMarks = result.user_message?.metadata?.skillMarks
+    || (result.user_message?.metadata?.skillIds || run?.draft?.skillIds || []).map((id) => ({ id, at: 0 }));
+  setComposerPlainText(restoredText, restoredMarks);
+  const parts = Array.isArray(content) ? content : [];
+  state.images = parts.length
+    ? parts.map(restoredTurnAttachment).filter(Boolean)
+    : (run?.draft?.images || []);
+  for (const item of state.images) {
+    if (item.category !== "document") continue;
+    rememberPendingDocument(item);
+    void pollUploadedDocument(item.localId, item.attachmentId).catch((error) => {
+      updatePendingDocument(item.localId, {
+        status: "failed",
+        progress: 0,
+        error: error?.message || "Document status could not be restored."
+      });
+    });
+  }
+  renderImages();
+  applyComposerHeight();
+  renderMessages();
+  animateRestoredComposerDraft();
+  els.promptInput.focus();
+  return true;
+}
+
+/* A saved turn keeps running on the server when the app goes to the
+   background or the connection drops, so the chat rejoins it instead of
+   showing an error. Rejoining replays the reply so far and follows it live. */
+const MAX_TURN_REJOINS = 5;
+
+const turnRejoins = new Map();
+
+const CONNECTION_LOST_MESSAGE = "Connection lost. Your reply is still being written. Open this chat again to see it.";
+
+function isDroppedConnection(error) {
+  return error?.name === "TypeError" && /fetch|network|load failed|connection/i.test(error?.message || "");
+}
+
+function shouldRejoinTurn(run, error) {
+  if (!run?.turnRunId || run.cancelRequested) return false;
+  if (!run.reattaching && !isDroppedConnection(error)) return false;
+  const attempts = (turnRejoins.get(run.turnRunId) || 0) + 1;
+  turnRejoins.set(run.turnRunId, attempts);
+  return attempts <= MAX_TURN_REJOINS;
+}
+
+/* Reloads the chat; a turn still running comes back through pendingTurns. */
+async function rejoinConversationTurn(conversationId, assistant) {
+  for (const delay of [0, 1000, 2500, 5000]) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (state.activeConversationId !== conversationId || state.temporaryChat) return;
+    if (await loadActiveConversation().catch(() => false)) return;
+  }
+  assistant.error = CONNECTION_LOST_MESSAGE;
+  assistant.connectionLost = true;
+}
+
+async function resumePendingDocumentTurn(run) {
+  if (!run?.id || !state.activeConversationId) return;
+  const conversationId = run.conversation_id || state.activeConversationId;
+  if (conversationId !== state.activeConversationId) return;
+  const runKey = conversationRunKey(conversationId, false);
+  if (getConversationRun(runKey) || state.resumingTurnId === run.id) return;
+  state.resumingTurnId = run.id;
+  const payload = run.request_payload || {};
+  const compareModels = Array.isArray(payload.models) ? payload.models.filter(Boolean) : [];
+  const council = Boolean(payload.council);
+  const localAssistant = localAssistantForMode(compareModels, council);
+  markAssistantActivityTree(localAssistant);
+  state.messages = reconcilePendingTurnMessages(state.messages, run.id, localAssistant);
+  const abortController = new AbortController();
+  const activeRun = beginConversationRun(runKey, {
+    conversationId,
+    temporary: false,
+    abortController,
+    mode: "pending"
+  });
+  activeRun.turnRunId = run.id;
+  activeRun.messages = state.messages;
+  setAutoScroll(true);
+  syncActiveRunningUi();
+  renderMessages();
+  pinMessagesToBottom();
+  let rejoin = false;
+
+  try {
+    await streamConversationMessage(state.session, conversationId, { turnRunId: run.id }, {
+      signal: abortController.signal,
+      onEvent: (event) => {
+        trackPendingTurnEvent(event, activeRun);
+        if (council) {
+          applyLaneStreamEvent(localAssistant, event, true, runKey);
+        } else if (compareModels.length) {
+          applyLaneStreamEvent(localAssistant, event, false, runKey);
+        } else {
+          applyStreamEvent(localAssistant, event);
+          if (!isRunKeyActive(runKey)) return;
+          queueStreamRenderForEvent(localAssistant, event);
+        }
+      }
+    });
+    markAssistantActivityDoneTree(localAssistant);
+  } catch (error) {
+    if (shouldRejoinTurn(activeRun, error)) rejoin = true;
+    else if (error.name === "AbortError") localAssistant.stopped = true;
+    else localAssistant.error = error.message || "The pending turn could not resume.";
+  } finally {
+    state.resumingTurnId = "";
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
+    endConversationRun(runKey, { completed: !rejoin && !localAssistant.stopped && !localAssistant.error });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (rejoin && state.activeConversationId === conversationId) {
+      await rejoinConversationTurn(conversationId, localAssistant);
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (state.activeConversationId === conversationId) {
+      const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
+      if (refreshed) {
+        state.messages = refreshed.messages || state.messages;
+        state.messagePage = refreshed.page || { hasMore: false, cursor: null };
+        const nextTurn = (refreshed.pendingTurns || [])[0];
+        if (nextTurn && nextTurn.id !== run.id) {
+          setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
+        }
+      }
+      settleLiveMessages({ pinned, scrollTop });
+    } else {
+      loadConversations().catch(() => {});
+    }
+  }
+}
+
+function stageGuestSend(draft) {
+  pendingGuestSend = draft;
+  state.messages = [guestPreviewMessage(draft)];
+  setComposerPlainText("");
+  state.pastedText = "";
+  state.images = [];
+  renderImages();
+  applyComposerHeight();
+  renderMessages();
+  pinMessagesToBottom();
+  openGuestContinue();
+  if (document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.blur();
+    void hideNativeKeyboard();
+  }
+}
+
+async function sendPrompt({
+  textOverride = null,
+  displayTextOverride = null,
+  pasteOverride = null,
+  skipClarification = false
+} = {}) {
+  hideAttachmentModelNotice();
+  if (state.clarificationChecking) return;
+  if (state.clarification && textOverride == null) {
+    continueClarification();
+    return;
+  }
+  if (voiceState === "recording") {
+    stopVoiceRecording({ commit: true });
+    return;
+  }
+  if (voiceState === "processing") return;
+  if (state.session && !hasChatAccess()) {
+    openUpgradePlans();
+    return;
+  }
+  let text = textOverride == null ? composerSnapshot().text : String(textOverride).trim();
+  if (document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.blur();
+    void hideNativeKeyboard();
+  }
+  if (state.running) {
+    if (state.activeResearchId) {
+      showToast("Wait for Deep Research to finish or cancel it first.");
+      return;
+    }
+    if (!requireAuth()) return;
+    addFollowUpFromInput();
+    return;
+  }
+  const sendSkillSnapshot = textOverride == null ? composerSnapshot() : { text, marks: [] };
+  let sendSkillIds = [...state.composerSkillIds];
+  let sendSkillMarks = sendSkillSnapshot.marks;
+  if (textOverride == null && state.followUps.length) {
+    const candidateSkillIds = mergeComposerSkillIds(
+      ...state.followUps.map((item) => item.skillIds),
+      sendSkillIds
+    );
+    const candidateImages = [...followUpBatchImages(state.followUps), ...state.images];
+    const candidateCompareModels = resolveCompareModelsForSend({ images: candidateImages });
+    if (illustrationSendBlocked(candidateSkillIds, candidateCompareModels)) {
+      showToast("Illustration works in standard chat.");
+      return;
+    }
+    if (visualizeSendBlocked(candidateSkillIds, candidateCompareModels)) {
+      showToast("Visualize works with one model at a time.");
+      return;
+    }
+  }
+  if (textOverride == null && !text && state.followUps.length) {
+    const queued = drainFollowUps();
+    text = followUpBatchText(queued);
+    state.images = [...followUpBatchImages(queued), ...state.images];
+    sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
+    sendSkillMarks = followUpBatchSkillMarks(queued);
+    renderImages();
+  } else if (textOverride == null && text && state.followUps.length) {
+    const queued = drainFollowUps();
+    const queuedText = followUpBatchText(queued);
+    const queuedMarks = followUpBatchSkillMarks(queued);
+    const currentOffset = queuedText ? queuedText.length + 2 : 0;
+    text = [queuedText, text].filter(Boolean).join("\n\n");
+    state.images = [...followUpBatchImages(queued), ...state.images];
+    sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
+    sendSkillMarks = [
+      ...queuedMarks,
+      ...sendSkillMarks.map((mark) => ({ ...mark, at: mark.at + currentOffset }))
+    ];
+    renderImages();
+  }
+  sendSkillMarks = normalizeClientSkillMarks(sendSkillMarks, sendSkillIds, text.length);
+  const pastedText = textOverride == null ? state.pastedText.trim() : "";
+  const paste = textOverride == null
+    ? pastedText
+      ? { start: text ? text.length + 2 : 0, length: pastedText.length }
+      : null
+    : pasteOverride;
+  if (pastedText) text = text ? `${text}\n\n${pastedText}` : pastedText;
+  if (text.length > 100000) {
+    showToast("Message is too long. Shorten the typed text or pasted content.");
+    return;
+  }
+  if (!text && !state.images.length) return;
+  if (!state.session) {
+    stageGuestSend({
+      text,
+      images: state.images.map((img) => ({
+        file: img.file,
+        category: img.category,
+        previewUrl: img.previewUrl,
+        attachmentId: img.attachmentId,
+        uploaded: img.uploaded
+      })),
+      skillIds: sendSkillIds,
+      skillMarks: sendSkillMarks,
+      researchMode: state.researchMode
+    });
+    return;
+  }
+  if (!requireAuth()) return;
+  if (state.researchMode && !skipClarification && await maybeRequestClarifications(text, paste)) return;
+  if (state.researchMode) {
+    if (state.images.length) {
+      showToast("Deep Research currently supports text questions only.");
+      return;
+    }
+    await researchController.startDeepResearch(text, displayTextOverride || text);
+    return;
+  }
+  const pendingImages = state.images.map((img) => ({
+    file: img.file,
+    category: img.category,
+    previewUrl: img.previewUrl,
+    attachmentId: img.attachmentId,
+    uploaded: img.uploaded
+  }));
+  const compareModels = resolveCompareModelsForSend({ images: pendingImages });
+  if (sendSkillIds.includes("illustration") && (state.temporaryChat || compareModels.length)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
+  if (visualizeSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
+    return;
+  }
+  if (state.temporaryChat && compareModels.length) {
+    showToast("Temporary chat uses one model for now.");
+    return;
+  }
+  // Council was already on when a chat with documents was opened.
+  if (isCouncilMode() && councilDocumentBlock()) {
+    showCouncilDocumentsNotice();
+    return;
+  }
+  const pendingDocs = pendingDocumentUploads();
+  if (pendingDocs.length) {
+    const failed = pendingDocs.find((item) => item.status === "failed");
+    showToast(failed ? `Remove or retry ${failed.file.name}.` : "Wait for document processing to finish.");
+    return;
+  }
+  if (state.settings.compareEnabled && compareController.selectedCompareModelIds().length < (isCouncilMode() ? 4 : 2)) {
+    showToast(isCouncilMode() ? "Council needs its four fixed models." : "Compare needs its two fixed models.");
+    return;
+  }
+  compareController.closeCompareContextBanner();
+
+  await executeSend({
+    text,
+    images: pendingImages,
+    compareModels,
+    council: Boolean(compareModels.length && isCouncilMode()),
+    describeImages: Boolean(compareModels.length && compareIncludesTextOnlyModels(compareModels)),
+    paste,
+    skillIds: sendSkillIds,
+    skillMarks: sendSkillMarks
+  });
+}
+
+async function waitForDocumentReady(attachmentId, fileName) {
+  while (state.session) {
+    const payload = await fetchDocumentStatus(state.session, attachmentId);
+    const doc = payload.document || {};
+    if (doc.usable) return doc;
+    if (doc.status === "failed" && !doc.usable) {
+      throw new Error(doc.error?.message || `${fileName || "Document"} could not be processed.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  throw new Error(`${fileName || "Document"} processing stopped because the session ended.`);
+}
+
+function beginEditMessage(id) {
+  if (state.running || !id) return;
+  state.editingMessageId = String(id);
+  renderMessages();
+  const input = els.messages.querySelector(`[data-edit-input="${cssString(id)}"]`);
+  if (input) {
+    autoSizeEditInput(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
+function cancelEditMessage() {
+  if (!state.editingMessageId) return;
+  state.editingMessageId = "";
+  renderMessages();
+}
+
+function attachmentsFromMessageContent(content) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const part of content) {
+    if (part?.type === "image_url") {
+      const image = part.image_url || {};
+      out.push({
+        id: image.attachment_id || "",
+        category: "image",
+        fileName: image.file_name || "image",
+        contentType: image.content_type || "",
+        url: image.url || ""
+      });
+    } else if (part?.type === "file") {
+      const file = part.file || {};
+      out.push({
+        id: file.attachment_id || "",
+        category: "document",
+        fileName: file.file_name || "file",
+        contentType: file.content_type || "",
+        url: file.url || ""
+      });
+    }
+  }
+  return out.filter((att) => att.id);
+}
+
+/**
+ * Edit a previously sent user message. The server replaces the message text
+ * in place (keeping its original images and documents), drops every later
+ * message, and regenerates — so the model answers as if the old prompt never
+ * existed. This reuses executeSend, so it works for normal, compare and
+ * council chats through one code path.
+ */
+async function editUserMessage(id) {
+  if (state.running || !id) return;
+  const input = els.messages.querySelector(`[data-edit-input="${cssString(id)}"]`);
+  const text = (input?.value || "").trim();
+
+  const index = state.messages.findIndex((m) => String(m.id) === String(id));
+  if (index < 0) return;
+  const original = state.messages[index];
+  const keepAttachments = attachmentsFromMessageContent(original.content);
+  if (!text && !keepAttachments.length) {
+    showToast("Message can't be empty.");
+    return;
+  }
+
+  state.editingMessageId = "";
+  state.messages = state.messages.slice(0, index);
+  renderMessages();
+
+  const compareModels = resolveCompareModelsForSend({ images: [], keepAttachments });
+  await executeSend({
+    text,
+    images: [],
+    compareModels,
+    council: Boolean(compareModels.length && isCouncilMode()),
+    describeImages: Boolean(compareModels.length && compareIncludesTextOnlyModels(compareModels)),
+    editMessageId: String(id),
+    keepAttachments
+  });
+}
+
+/* Visualize auto-repair: the server can only compile a document, so runtime
+   failures surface here via the sandbox bridge. Only the latest visualize turn
+   is repaired, silently, and attempts are capped per user prompt so a stubborn
+   bug cannot loop. Returns true when a repair started. */
+const VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS = 2;
+
+const VISUALIZE_AUTO_REPAIR_STORE = "klui:visualize-repairs";
+
+const visualizeRepairCounts = new Map();
+
+// Attempts live in localStorage so a reload or a second tab cannot reset the cap; the
+// in-memory map keeps the cap when storage is unavailable.
+function storedVisualizeRepairs() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VISUALIZE_AUTO_REPAIR_STORE) || "{}");
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  } catch {
+    return {};
+  }
+}
+
+function visualizeRepairCount(key) {
+  return Math.max(visualizeRepairCounts.get(key) || 0, Number(storedVisualizeRepairs()[key]) || 0);
+}
+
+function setVisualizeRepairCount(key, count) {
+  visualizeRepairCounts.set(key, count);
+  const stored = storedVisualizeRepairs();
+  delete stored[key];
+  const entries = [...Object.entries(stored), [key, count]].slice(-100);
+  try {
+    localStorage.setItem(VISUALIZE_AUTO_REPAIR_STORE, JSON.stringify(Object.fromEntries(entries)));
+  } catch {}
+}
+
+function maybeAutoRepairVisualization({ messageId, message } = {}) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || state.temporaryChat || state.running || !messageId) return false;
+
+  const index = state.messages.findIndex((item) => String(item?.id) === String(messageId));
+  if (index <= 0 || index !== state.messages.length - 1) return false;
+  const assistant = state.messages[index];
+  const userMsg = state.messages[index - 1];
+  if (assistant?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(assistant)) return false;
+  if (!normalizeClientSkillIds(userMsg?.metadata?.skillIds).includes("visualize")) return false;
+  if (!visualizeSourceFromContent(assistant.content)) return false;
+
+  const attemptKey = `${conversationId}:${userMsg.id}`;
+  const attempts = visualizeRepairCount(attemptKey);
+  if (attempts >= VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS) return false;
+  setVisualizeRepairCount(attemptKey, attempts + 1);
+
+  // Silent by design: the panel stays put and switches to "Getting it ready".
+  void retryFailedAssistant(String(assistant.id), "", {
+    visualizeRuntimeError: String(message || "The visualization could not run.").slice(0, 300)
+  }).catch(() => {});
+  return true;
+}
+
+async function retryFailedAssistant(assistantMessageId, responseAdjustment = "", { visualizeRuntimeError = "" } = {}) {
+  if (state.running || !state.activeConversationId || !assistantMessageId) return;
+
+  const conversationId = state.activeConversationId;
+  const runKey = conversationRunKey(conversationId, false);
+  if (getConversationRun(runKey)) return;
+
+  const index = state.messages.findIndex((message) => message.id === assistantMessageId);
+  if (index <= 0) return;
+
+  const failed = state.messages[index];
+  const userMsg = state.messages[index - 1];
+  if (failed?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(failed)) return;
+
+  const repairSource = visualizeRuntimeError ? visualizeSourceFromContent(failed.content) : "";
+  const localAssistant = {
+    id: `local_assistant_${Date.now()}`,
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: [],
+    ...(repairSource ? { visualizeRepairSource: repairSource } : {})
+  };
+  markAssistantActivityTree(localAssistant);
+  state.messages[index] = localAssistant;
+
+  const abortController = new AbortController();
+  const activeRun = beginConversationRun(runKey, {
+    conversationId,
+    temporary: false,
+    abortController,
+    mode: "retry"
+  });
+  activeRun.messages = state.messages;
+  setAutoScroll(true);
+  syncActiveRunningUi();
+  renderMessages();
+  pinMessagesToBottom();
+  let wasAborted = false;
+  let shouldReloadConversation = false;
+  // A visual repair never shows its own failure: the original visual comes back instead.
+  let repairErrored = false;
+
+  try {
+    await streamConversationMessage(state.session, conversationId, {
+      retryAssistantMessageId: assistantMessageId,
+      ...(responseAdjustment ? { responseAdjustment } : {}),
+      ...(visualizeRuntimeError ? { visualizeRuntimeError } : {}),
+      role: selectedSingleRole(),
+      settings: chatRequestSettings(),
+      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
+      agentMode: true,
+      webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
+    }, {
+      signal: abortController.signal,
+      onEvent: (event) => {
+        if (repairSource && event?.type === "error") {
+          repairErrored = true;
+          return;
+        }
+        applyStreamEvent(localAssistant, event);
+        if (!isRunKeyActive(runKey)) return;
+        queueStreamRenderForEvent(localAssistant, event);
+      }
+    });
+
+    markAssistantActivityDoneTree(localAssistant);
+    shouldReloadConversation = !repairErrored;
+    await Promise.all([loadMe(), loadConversations()]).catch(() => {});
+  } catch (err) {
+    if (err.name === "AbortError") {
+      wasAborted = true;
+      localAssistant.stopped = true;
+    } else {
+      const hasRenderedOutput = rawTextContent(localAssistant.content).trim()
+        || artifactListFromMessage(localAssistant).length;
+      if (!hasRenderedOutput) localAssistant.error = err.message;
+    }
+  } finally {
+    const stillActive = state.activeConversationId === conversationId;
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
+    endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
+    // A silent visual repair that fails puts the previous visual back instead of an error;
+    // if it breaks again, the attempt cap decides between another repair and the fallback bar.
+    // Stopping a repair by hand also ends automatic repairs for this prompt.
+    const repairFailed = Boolean(repairSource) && !shouldReloadConversation;
+    if (repairFailed && wasAborted) setVisualizeRepairCount(`${conversationId}:${userMsg.id}`, VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS);
+    // Find the draft by identity: loading older messages mid-repair shifts indexes.
+    const draftIndex = repairFailed ? (activeRun.messages?.indexOf(localAssistant) ?? -1) : -1;
+    if (draftIndex >= 0) {
+      activeRun.messages[draftIndex] = failed;
+      if (stillActive) renderMessages();
+    } else if (shouldReloadConversation && stillActive) {
+      await loadActiveConversation().catch(() => {});
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (!stillActive) {
+      loadConversations().catch(() => {});
+    } else {
+      settleLiveMessages({ pinned, scrollTop });
+    }
+    if (queuedFollowUps.length) {
+      const followUpImages = followUpBatchImages(queuedFollowUps);
+      const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
+      await executeSend({
+        text: followUpText,
+        images: followUpImages,
+        compareModels: followUpCompareModels,
+        council: Boolean(followUpCompareModels.length && isCouncilMode()),
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
+      });
+    }
+  }
+}
+
+function localAssistantForMode(compareModels = [], council = false) {
+  if (council) {
+    return {
+      id: `local_council_${Date.now()}`,
+      role: "assistant",
+      councilGroup: true,
+      sessionId: "",
+      stage1Status: "active",
+      stage2Status: "pending",
+      stage3Status: "pending",
+      peerStatus: "",
+      panelists: compareModels.map((model) => ({
+        id: `local_panel_${model}_${Date.now()}`,
+        role: "assistant",
+        model,
+        content: "",
+        reasoning: "",
+        toolCalls: [],
+        metadata: { council: { role: "panelist", stage: 1 } }
+      })),
+      chairman: null,
+      ballots: []
+    };
+  }
+  if (compareModels.length) {
+    const stamp = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return {
+      id: `local_compare_${stamp}`,
+      role: "assistant",
+      compareGroup: true,
+      compareResponses: compareModels.map((model) => ({
+        id: `local_compare_${model}_${stamp}`,
+        role: "assistant",
+        model,
+        content: "",
+        reasoning: "",
+        toolCalls: []
+      }))
+    };
+  }
+  return {
+    id: `local_assistant_${Date.now()}`,
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
+}
+
+// `voice` (voice mode) sends a spoken turn with Think and the voice prompt, leaves the composer
+// alone, and reports stream events; the result tells voice mode how the turn ended.
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null, skillIds = [], skillMarks = [], voice = null }) {
+  compareController.closeCompareContextBanner();
+  const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
+  const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
+  // Capture the selected deck theme before any composer/skill-chip mutation below clears it.
+  const sendDeckTheme = sendSkillIds.includes("slides") ? (homeModesController?.deckThemeForSend() || "") : "";
+  if (illustrationSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
+  if (visualizeSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
+    return;
+  }
+
+  const temporaryChat = state.temporaryChat;
+  const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
+  const creatingConversation = !temporaryChat && (newChat || !state.activeConversationId);
+  // Home state to restore if creating the conversation fails.
+  const rollback = { messages: state.messages, messagePage: state.messagePage, projectsOpen: state.projectsOpen, studyOpen: state.studyOpen };
+  const conversationPromise = creatingConversation
+    ? createConversation(state.session, {
+        role: selectedChatRole(),
+        ...(voice ? { role: "think" } : {}),
+        projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
+      })
+    : null;
+  let conversationId = state.activeConversationId;
+  let runKey = creatingConversation ? "" : conversationRunKey(conversationId, temporaryChat);
+  if (!creatingConversation && (!runKey || getConversationRun(runKey))) return null;
+
+  const keptParts = keepAttachments.map((att) => att.category === "document"
+    ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
+    : { type: "image_url", image_url: { attachment_id: att.id, file_name: att.fileName, url: att.url } });
+
+  const localUser = {
+    id: `local_${Date.now()}`,
+    role: "user",
+    ...((paste || sendSkillIds.length) ? {
+      metadata: {
+        ...(paste ? { paste } : {}),
+        ...(sendSkillIds.length ? { skillIds: sendSkillIds } : {}),
+        ...(sendSkillMarks.length ? { skillMarks: sendSkillMarks } : {})
+      }
+    } : {}),
+    content: (images.length || keptParts.length)
+      ? [
+          ...(text ? [{ type: "text", text }] : []),
+          ...keptParts,
+          ...images.map((img) => img.category === "image"
+            ? { type: "image_url", image_url: { url: img.previewUrl } }
+            : { type: "file", file: { file_name: img.file.name, content_type: img.file.type } })
+        ]
+      : text
+  };
+
+  const localAssistant = localAssistantForMode(compareModels, council);
+
+  markAssistantActivityTree(localAssistant);
+  /* Drop any cancelled local compare/council group from the previous send
+     so its stale "Stopped by user" bubbles can't collide with the new
+     streaming ids in the DOM. */
+  if (localAssistant.compareGroup || localAssistant.councilGroup) {
+    state.messages = state.messages.filter((m) => {
+      if (m === localAssistant) return true;
+      if (m.role !== "assistant") return true;
+      if (!m.stopped) return true;
+      return !(m.compareGroup || m.councilGroup);
+    });
+  }
+  if (creatingConversation) {
+    state.messages = [localUser, localAssistant];
+  } else {
+    state.messages.push(localUser, localAssistant);
+  }
+  if (!voice) {
+    setComposerPlainText("");
+    state.pastedText = "";
+    if (!editMessageId) {
+      closeSkillMenu();
+    }
+    applyComposerHeight();
+    for (const item of images) forgetPendingDocument(item);
+    state.images = [];
+    renderImages();
+  }
+
+  if (creatingConversation) {
+    state.projectsOpen = false;
+    setAutoScroll(true);
+    setRunning(true);
+    const paintConversation = (transitionMessage = false) => {
+      viewTransitionUserMessageId = transitionMessage ? localUser.id : "";
+      renderShell();
+      viewTransitionUserMessageId = "";
+      pinMessagesToBottom();
+    };
+    // View transition snapshots paint above every z-index, so they would show through the voice overlay.
+    if (voice) {
+      paintConversation();
+    } else if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) {
+      document.startViewTransition(() => paintConversation(true));
+    } else {
+      paintConversation();
+      animateSentUserMessage(localUser.id);
+    }
+
+    let payload;
+    try {
+      payload = await conversationPromise;
+    } catch (error) {
+      Object.assign(state, rollback);
+      if (!voice) {
+        state.images = images;
+        for (const item of images) rememberPendingDocument(item);
+        setComposerPlainText(text, sendSkillMarks);
+      }
+      setRunning(false);
+      renderImages();
+      applyComposerHeight();
+      renderShell();
+      if (voice) return { error: error.message || "Chat could not be created." };
+      showToast(error.message || "Chat could not be created.");
+      return null;
+    }
+    state.conversations = [payload.conversation, ...state.conversations];
+    state.activeConversationId = payload.conversation.id;
+    state.messages = [localUser, localAssistant]; // re-assert: the user may have navigated while the request was in flight
+    state.messagePage = { hasMore: false, cursor: null };
+    conversationId = state.activeConversationId;
+    runKey = conversationRunKey(conversationId, false);
+    syncConversationUrl();
+    renderConversations();
+    renderProjectChatCrumb();
+  }
+
+  const abortController = new AbortController();
+  const activeRun = beginConversationRun(runKey, {
+    conversationId: temporaryChat ? "" : conversationId,
+    temporary: temporaryChat,
+    abortController,
+    mode: council ? "council" : (compareModels.length ? "compare" : "chat")
+  });
+  activeRun.messages = state.messages;
+  activeRun.userMessage = localUser;
+  activeRun.assistantMessage = localAssistant;
+  activeRun.draft = { text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks };
+  voice?.onStart?.(() => abortController.abort());
+  setAutoScroll(true);
+  syncActiveRunningUi();
+  renderMessages();
+  if (!creatingConversation) animateSentUserMessage(localUser.id);
+  pinMessagesToBottom();
+  let shouldReloadConversation = false;
+  let wasAborted = false;
+  let rejoinTurn = false;
+  const sentPreviewUrls = images
+    .filter((img) => img.category === "image" && img.previewUrl)
+    .map((img) => img.previewUrl);
+
+  try {
+    const uploaded = [];
+    for (const img of images) {
+      if (img.category === "document" && img.attachmentId) {
+        uploaded.push(img.uploaded || {
+          id: img.attachmentId,
+          fileName: img.file.name,
+          contentType: img.file.type,
+          sizeBytes: img.file.size,
+          category: "document"
+        });
+        continue;
+      }
+
+      const uploadedFile = await uploadFile(state.session, img.file);
+      if (uploadedFile.category === "document") {
+        await waitForDocumentReady(uploadedFile.id, img.file.name);
+      }
+      uploaded.push(uploadedFile);
+    }
+
+    const courseSources = !temporaryChat && state.studyOpen ? studyHub?.chatSources?.() || [] : [];
+    const coursePages = courseSources.length ? studyHub?.chatSourcePages?.() || {} : {};
+    const payload = {
+      text,
+      // Voice turns stream directly (no queued turn), so interrupting one keeps its partial reply.
+      ...(voice ? {} : {
+        clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`
+      }),
+      attachments: uploaded.map((item) => item.id),
+      role: selectedChatRole(),
+      settings: chatRequestSettings(),
+      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
+      skillIds: sendSkillIds,
+      skillMarks: sendSkillMarks,
+      agentMode: true,
+      webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
+      ...(courseSources.length ? { sources: courseSources } : {}),
+      ...(Object.keys(coursePages).length ? { sourcePages: coursePages } : {}),
+      ...(sendDeckTheme ? { deckTheme: sendDeckTheme } : {}),
+      ...(paste ? { paste } : {}),
+      ...(describeImages ? { describeImages: true } : {}),
+      ...(editMessageId ? { editUserMessageId: editMessageId } : {}),
+      ...(voice ? { role: "think", voice: true } : {})
+    };
+
+    if (temporaryChat) {
+      await streamTemporaryChat(state.session, {
+        ...payload,
+        messages: previousTemporaryMessages
+      }, {
+        signal: abortController.signal,
+        onEvent: (event) => {
+          trackPendingTurnEvent(event, activeRun);
+          applyStreamEvent(localAssistant, event);
+          voiceStreamEvent(voice, localAssistant, event);
+          if (!isRunKeyActive(runKey)) return;
+          queueStreamRenderForEvent(localAssistant, event);
+        }
+      });
+    } else if (council) {
+      await streamCompareConversationMessage(state.session, conversationId, {
+        ...payload,
+        council: true
+      }, {
+        signal: abortController.signal,
+        onEvent: (event) => {
+          trackPendingTurnEvent(event, activeRun);
+          applyLaneStreamEvent(localAssistant, event, true, runKey);
+        }
+      });
+    } else if (compareModels.length) {
+      await streamCompareConversationMessage(state.session, conversationId, {
+        ...payload
+      }, {
+        signal: abortController.signal,
+        onEvent: (event) => {
+          trackPendingTurnEvent(event, activeRun);
+          applyLaneStreamEvent(localAssistant, event, false, runKey);
+        }
+      });
+    } else {
+      await streamConversationMessage(state.session, conversationId, payload, {
+        signal: abortController.signal,
+        onEvent: (event) => {
+          trackPendingTurnEvent(event, activeRun);
+          applyStreamEvent(localAssistant, event);
+          voiceStreamEvent(voice, localAssistant, event);
+          if (!isRunKeyActive(runKey)) return;
+          queueStreamRenderForEvent(localAssistant, event);
+        }
+      });
+    }
+
+    voice?.onStreamEnd?.();
+    markAssistantActivityDoneTree(localAssistant);
+    await (temporaryChat ? loadMe() : Promise.all([loadMe(), loadConversations()]));
+    shouldReloadConversation = true;
+  } catch (err) {
+    if (shouldRejoinTurn(activeRun, err)) {
+      rejoinTurn = true;
+    } else if (err.name === "AbortError") {
+      wasAborted = true;
+      if (activeRun.cancelRequested && activeRun.turnWaiting && !activeRun.cancelResult) {
+        if (isRunKeyActive(runKey)) {
+          setComposerPlainText(text, sendSkillMarks);
+          state.images = images;
+          for (const item of images) rememberPendingDocument(item);
+          renderImages();
+          applyComposerHeight();
+        }
+      }
+      markAssistantStopped(localAssistant);
+    } else {
+      if (localAssistant.councilGroup) {
+        for (const panelist of localAssistant.panelists) {
+          if (!panelist.content) panelist.error = err.message;
+        }
+        if (localAssistant.chairman && !localAssistant.chairman.content) {
+          localAssistant.chairman.error = err.message;
+        }
+      } else if (localAssistant.compareGroup) {
+        for (const response of localAssistant.compareResponses) {
+          if (!response.content) response.error = err.message;
+        }
+      } else {
+        const hasRenderedOutput = rawTextContent(localAssistant.content).trim()
+          || artifactListFromMessage(localAssistant).length;
+        if (!hasRenderedOutput) localAssistant.error = err.message;
+      }
+    }
+  } finally {
+    const stillActive = temporaryChat
+      ? state.temporaryChat && isRunKeyActive(runKey)
+      : state.activeConversationId === conversationId && !state.temporaryChat;
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
+    endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
+    if (rejoinTurn && stillActive) {
+      await rejoinConversationTurn(conversationId, localAssistant);
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (shouldReloadConversation && !temporaryChat && stillActive) {
+      const reloaded = await loadActiveConversation().catch(() => false);
+      if (reloaded === "applied") {
+        for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
+      }
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (stillActive) {
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (!temporaryChat) {
+      loadConversations().catch(() => {});
+    }
+    if (queuedFollowUps.length) {
+      const followUpImages = followUpBatchImages(queuedFollowUps);
+      const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
+      await executeSend({
+        text: followUpText,
+        images: followUpImages,
+        compareModels: followUpCompareModels,
+        council: Boolean(followUpCompareModels.length && isCouncilMode()),
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
+      });
+    }
+  }
+  return { ok: shouldReloadConversation, aborted: wasAborted, error: localAssistant.error || "" };
+}
+
+function voiceStreamEvent(voice, message, event) {
+  if (!voice) return;
+  if (typeof event?.type === "string" && event.type.startsWith("tool:")) voice.onTool?.(event);
+  const content = typeof message.content === "string" ? message.content : rawTextContent(message.content);
+  if (content) voice.onText?.(content);
+}
+
+async function resumeGuestSend() {
+  const memory = pendingGuestSend;
+  const stored = serializeGuestDraft(memory || {});
+  const liveImages = liveGuestImages(memory?.images);
+  if (!guestDraftHasPreview({ ...stored, images: liveImages })) {
+    clearGuestSend();
+    return;
+  }
+  closeAuthDialog();
+  closeGuestContinue();
+  if (!hasChatAccess()) return;
+  setComposerPlainText(stored.text, stored.skillMarks);
+  state.images = liveImages;
+  renderImages();
+  applyComposerHeight();
+  if (stored.researchMode) state.researchMode = true;
+  await sendPrompt({ skipClarification: true });
+  if (state.activeConversationId || state.messages.some((message) => message.id !== "local_guest")) {
+    clearGuestSend();
+  }
+}
+
+/** bootstrap() reopens a research report linked from the URL. */
+async function openRouteResearchReport() {
+  const reportId = researchIdFromLocation();
+  if (reportId) await researchController.openResearchReport(reportId, { push: false });
+}
+
 /* ─── Events: the #messages parts of bindEvents() ─── */
 
 function bindMessageEvents() {
@@ -3376,6 +6756,298 @@ function bindHistoryEvents() {
   });
 }
 
+/* ─── Events: the composer parts of bindEvents() ─── */
+
+function bindComposerEvents() {
+  els.imageFileInput.addEventListener("change", (e) => {
+    acceptPendingFiles(e.target.files || []);
+    e.target.value = "";
+  });
+  setCameraPhotoHandler((file) => acceptPendingFiles([file]));
+  els.cameraFileInput?.addEventListener("change", (e) => {
+    acceptPendingFiles(e.target.files || []);
+    e.target.value = "";
+  });
+
+  const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+  els.composer?.addEventListener("dragover", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    if (state.researchMode) return;
+    event.dataTransfer.dropEffect = "copy";
+    els.composer.classList.add("drag-over");
+  });
+  els.composer?.addEventListener("dragleave", (event) => {
+    if (!els.composer.contains(event.relatedTarget)) els.composer.classList.remove("drag-over");
+  });
+  els.composer?.addEventListener("drop", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    els.composer.classList.remove("drag-over");
+    acceptPendingFiles(event.dataTransfer?.files || []);
+  });
+
+  if (els.webSearchToggle) {
+    els.webSearchToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleWebSearchMode();
+    });
+  }
+  els.imagePreviews.addEventListener("click", (e) => {
+    const removePaste = e.target.closest("[data-remove-paste]");
+    if (removePaste) {
+      e.stopPropagation();
+      state.pastedText = "";
+      renderImages();
+      return;
+    }
+    if (e.target.closest("[data-open-composer-paste]")) {
+      openPastedTextDialog(state.pastedText);
+      return;
+    }
+    const removeBtn = e.target.closest("[data-remove-index]");
+    if (removeBtn) {
+      e.stopPropagation();
+      const [removed] = state.images.splice(Number(removeBtn.dataset.removeIndex), 1);
+      forgetPendingDocument(removed);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      if (removed?.abortController) removed.abortController.abort();
+      const deleteId = removed?.attachmentId || removed?.uploadId || "";
+      if (deleteId) {
+        deleteAttachment(state.session, deleteId).then(() => refreshAccountStorage()).catch((err) => {
+          showToast(err.message || "Attachment could not be deleted.");
+        });
+      }
+      renderImages();
+      compareController.syncCompareContextBanner();
+      return;
+    }
+    const thumb = e.target.closest("[data-preview-src]");
+    if (thumb) openLightbox(thumb.dataset.previewSrc, thumb.dataset.previewCaption || "");
+  });
+
+  els.followupQueue?.addEventListener("click", (e) => {
+    const edit = e.target.closest("[data-edit-followup]");
+    if (edit) {
+      editFollowUp(edit.dataset.editFollowup);
+      return;
+    }
+    const save = e.target.closest("[data-save-followup]");
+    if (save) {
+      saveFollowUp(save.dataset.saveFollowup);
+      return;
+    }
+    const del = e.target.closest("[data-delete-followup]");
+    if (del) {
+      deleteFollowUp(del.dataset.deleteFollowup);
+    }
+  });
+
+  els.followupQueue?.addEventListener("keydown", (e) => {
+    const input = e.target.closest("[data-followup-input]");
+    if (!input) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveFollowUp(input.dataset.followupInput);
+    } else if (e.key === "Escape") {
+      const item = state.followUps.find((candidate) => candidate.id === input.dataset.followupInput);
+      if (item) item.editing = false;
+      renderFollowUps();
+    }
+  });
+
+  els.sendButton.addEventListener("pointerdown", (event) => {
+    if (!document.body.classList.contains("capacitor-native") || event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    els.sendButton.click();
+  });
+  els.sendButton.addEventListener("click", (event) => {
+    // Native pointer gestures act on pointerdown; detail=0 keeps keyboard/AT clicks working.
+    if (document.body.classList.contains("capacitor-native") && event.detail > 0) return;
+    if (els.sendButton.disabled || voiceState === "processing") return;
+    if (voiceState === "recording") {
+      stopVoiceRecording({ commit: true });
+      return;
+    }
+    sendPrompt();
+  });
+  els.clarificationCard?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-clarification-option]");
+    if (option) {
+      selectClarificationOption(Number(option.dataset.clarificationOption));
+      return;
+    }
+    if (event.target.closest("[data-clarification-back]")) {
+      if (state.clarification?.index > 0) {
+        state.clarification.index -= 1;
+        renderClarification();
+      }
+      return;
+    }
+    if (event.target.closest("[data-clarification-skip]")) {
+      const flow = state.clarification;
+      const text = flow?.text || "";
+      clearClarification();
+      void sendPrompt({ textOverride: text, pasteOverride: flow?.paste, skipClarification: true });
+      return;
+    }
+    if (event.target.closest("[data-clarification-next], [data-clarification-continue]")) continueClarification();
+  });
+  els.clarificationCard?.addEventListener("input", (event) => {
+    if (!event.target.matches(".clarification-custom") || !state.clarification) return;
+    state.clarification.answers[state.clarification.index] = event.target.value;
+    const button = els.clarificationCard.querySelector("[data-clarification-continue]");
+    if (button) button.disabled = !event.target.value.trim();
+  });
+  els.clarificationCard?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && event.target.matches(".clarification-custom")) {
+      event.preventDefault();
+      continueClarification();
+    }
+  });
+  els.attachmentModelNoticeClose?.addEventListener("click", hideAttachmentModelNotice);
+  els.voiceButton?.addEventListener("click", toggleVoiceRecording);
+  els.voiceModeButton?.addEventListener("click", () => { void openVoiceMode(); });
+  els.stopButton.addEventListener("pointerdown", () => { stopPressStarted = true; });
+  els.stopButton.addEventListener("click", (event) => {
+    if (event.detail > 0 && !stopPressStarted) return;
+    stopPressStarted = false;
+    if (state.activeResearchId) {
+      cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));
+      return;
+    }
+    const run = getConversationRun();
+    if (!run) return;
+    if (run.turnRunId && run.conversationId) {
+      run.cancelRequested = true;
+      state.activeTurnCancelRequested = true;
+      cancelPendingDocumentTurn(
+        state.session,
+        run.conversationId,
+        run.turnRunId
+      ).then((result) => {
+        run.cancelResult = result;
+        state.activeTurnCancelResult = result;
+        restoreCancelledTurnDraft(result, run);
+      }).catch((error) => showToast(error.message || "The pending turn could not be cancelled."))
+        .finally(() => run.abortController?.abort());
+      return;
+    }
+    restoreCancelledTurnDraft({ run: { status: "cancelled" } }, run);
+    run.abortController?.abort();
+  });
+
+  els.promptInput.addEventListener("input", () => {
+    if (state.clarification || state.clarificationChecking) clearClarification();
+    syncComposerSkillState();
+    els.composer?.classList.remove("compact");
+    applyComposerHeight();
+    updateSendButton();
+    renderContextMeter();
+    syncSkillMenu();
+  });
+  els.promptInput.addEventListener("click", () => syncSkillMenu());
+  els.promptInput.addEventListener("keyup", (e) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) syncSkillMenu();
+  });
+  els.promptInput.addEventListener("compositionstart", () => {
+    state.skillMenu.composing = true;
+  });
+  els.promptInput.addEventListener("compositionend", () => {
+    state.skillMenu.composing = false;
+    syncSkillMenu();
+  });
+  els.promptInput.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (document.activeElement === els.promptInput) return;
+      if (els.skillCommandMenu?.contains(document.activeElement)) return;
+      closeSkillMenu();
+    }, 0);
+  });
+  els.promptInput.addEventListener("keydown", (e) => {
+    if (state.skillMenu.open && !e.isComposing && e.key !== "Process") {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveSkillActive(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveSkillActive(-1);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        const rows = filteredSkillRows();
+        const skill = rows[state.skillMenu.active];
+        e.preventDefault();
+        if (skill) selectComposerSkill(skill);
+        else closeSkillMenu();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSkillMenu();
+        return;
+      }
+    }
+    if (e.key === "Backspace" && !e.isComposing) {
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range?.collapsed) {
+        const node = range.startContainer;
+        const offset = range.startOffset;
+        let chip = null;
+        if (node === els.promptInput && offset > 0 && els.promptInput.childNodes[offset - 1]?.dataset?.skillId) {
+          chip = els.promptInput.childNodes[offset - 1];
+        } else if (node.nodeType === Node.TEXT_NODE && offset === 0 && node.previousSibling?.dataset?.skillId) {
+          chip = node.previousSibling;
+        }
+        if (chip) {
+          e.preventDefault();
+          chip.remove();
+          syncComposerSkillState();
+          return;
+        }
+      }
+    }
+    if (e.key === "Enter" && e.shiftKey) {
+      e.preventDefault();
+      insertComposerText("\n");
+      applyComposerHeight();
+      updateSendButton();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (voiceState === "recording") {
+        stopVoiceRecording({ commit: true });
+        return;
+      }
+      sendPrompt();
+    }
+  });
+  els.promptInput.addEventListener("paste", (e) => {
+    const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
+    if (files.length) {
+      e.preventDefault();
+      acceptPendingFiles(files);
+      return;
+    }
+    const pasted = e.clipboardData?.getData("text/plain") || "";
+    const isLongPaste = pasted.length >= LONG_PASTE_MIN_CHARS || pasted.split("\n").length >= LONG_PASTE_MIN_LINES;
+    e.preventDefault();
+    if (isLongPaste && !state.running && state.session) {
+      addTextToComposerPaste(pasted);
+      return;
+    }
+    insertComposerText(pasted);
+    applyComposerHeight();
+    updateSendButton();
+    syncSkillMenu();
+  });
+
+}
+
 /* ─── Mount ─── */
 
 // #guestContinue moves in and out of #messages (mountGuestContinue), so the
@@ -3511,7 +7183,19 @@ export function mountChat() {
     updateKluiBar
   });
   bindMessageEvents();
+  bindComposerEvents();
   bindHistoryEvents();
+  Object.assign(chatHooks, {
+    pendingNeedsVision: pendingPromptNeedsVision,
+    showAttachmentModelNotice,
+    setComposerSkillIds,
+    fillComposerText: (text) => {
+      setComposerPlainText(text);
+      applyComposerHeight();
+      updateSendButton();
+      els.promptInput?.focus();
+    }
+  });
   Object.assign(chatSurfaces, {
     emailMenu: () => {
       if (!document.querySelector(".klui-email-menu:not([hidden])")) return false;
@@ -3543,8 +7227,12 @@ export function mountChat() {
   // renderShell() re-rendered the messages and the document viewer every time
   // it ran; a guest's first renderShell() can land before React mounts this.
   const renderChatShell = () => {
+    syncComposerSkillState();
+    renderWebSearchToggle();
     renderMessages();
     renderDocumentViewer();
+    updateComposerPlaceholder();
+    if (state.session && hasChatAccess()) compareController.syncCompareContextBanner();
   };
   let lastShellRender = useApp.getState().shellRender;
   if (lastShellRender > 0 && useApp.getState().view === "chat") renderChatShell();
@@ -3562,6 +7250,11 @@ export function prefetchRecentChats(promise) {
 
 export {
   addConversation,
+  applyComposerHeight,
+  closeGuestContinue,
+  openRouteResearchReport,
+  restorePendingDocuments,
+  resumeGuestSend,
   conversationCache,
   loadChatApp,
   loadConversations,
@@ -3573,224 +7266,3 @@ export {
   signOutAndReset,
   stopExtractedModulePollers
 };
-const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
-
-const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
-
-const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
-
-const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
-
-// Text compare: DeepSeek and Solar Pro (Solar runs at medium effort).
-const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_SOLAR_PRO];
-
-const DEFAULT_COUNCIL_MODELS = [
-  OPENROUTER_TEXT_MODEL,
-  OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_VISION_MODEL,
-  OPENROUTER_SOLAR_PRO
-];
-
-function beginConversationRun(key, {
-  conversationId = "",
-  temporary = false,
-  abortController = null,
-  mode = "chat"
-} = {}) {
-  if (!key) return null;
-  const existing = conversationRuns.get(key);
-  if (existing) return existing;
-  const run = {
-    key,
-    conversationId: temporary ? "" : String(conversationId || key),
-    temporary: Boolean(temporary),
-    mode,
-    abortController,
-    messages: null,
-    messagePage: !temporary && isRunKeyActive(key) ? state.messagePage : null,
-    followUps: isRunKeyActive(key) ? state.followUps.slice() : [],
-    turnRunId: "",
-    turnWaiting: false,
-    cancelRequested: false,
-    cancelResult: null,
-    userMessage: null,
-    assistantMessage: null,
-    draft: null
-  };
-  conversationRuns.set(key, run);
-  if (!run.temporary && run.conversationId) unreadDoneChats.delete(run.conversationId);
-  if (isRunKeyActive(key)) syncActiveRunningUi();
-  renderConversations();
-  return run;
-}
-
-function setResearchConversationRunning(running, conversationId = state.activeConversationId) {
-  const id = String(conversationId || "");
-  if (!id) return;
-  if (running) {
-    beginConversationRun(id, {
-      conversationId: id,
-      temporary: false,
-      abortController: null,
-      mode: "research"
-    });
-    syncActiveRunningUi();
-    return;
-  }
-  const run = conversationRuns.get(id);
-  if (run?.mode === "research" && !run.abortController) {
-    endConversationRun(id, { completed: true });
-    return;
-  }
-  syncActiveRunningUi();
-}
-// Projects are hidden while they are reworked. Study courses share the projects API and stay on.
-const PROJECTS_ENABLED = false;
-
-function conversationIdFromLocation() {
-  const match = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function projectIdFromLocation() {
-  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function projectsRouteFromLocation() {
-  if (!PROJECTS_ENABLED) return false;
-  return window.location.pathname === "/projects" || Boolean(projectIdFromLocation());
-}
-
-function courseIdFromLocation() {
-  const match = window.location.pathname.match(/^\/study\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : "";
-}
-
-function studyRouteFromLocation() {
-  return window.location.pathname === "/study" || Boolean(courseIdFromLocation());
-}
-
-async function loadProjects() {
-  if (!state.session?.access_token) {
-    state.projects = [];
-    return;
-  }
-  const payload = await listProjects(state.session);
-  state.projects = payload.projects || [];
-}
-
-async function loadActiveProject() {
-  if (!state.activeProjectId) {
-    state.activeProject = null;
-    return;
-  }
-  state.activeProject = await fetchProject(state.session, state.activeProjectId);
-}
-
-async function loadConversations() {
-  const payload = await listConversations(state.session);
-  state.conversations = payload.conversations || [];
-  const validIds = new Set(state.conversations.map((conversation) => conversation.id));
-  state.pinnedChatIds = state.pinnedChatIds.filter((id) => validIds.has(id));
-  savePinnedChatIds();
-  const routeConversationId = conversationIdFromLocation();
-  if (projectsRouteFromLocation() || studyRouteFromLocation()) return;
-  if (routeConversationId) {
-    state.activeConversationId = state.conversations.some((conversation) => conversation.id === routeConversationId)
-      ? routeConversationId
-      : "";
-  }
-  if (state.activeConversationId && !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
-    state.activeConversationId = "";
-  }
-  if (!routeConversationId) state.activeConversationId = "";
-  if (state.activeConversationId) {
-    const loadResult = await loadActiveConversation();
-    const run = getConversationRun(state.activeConversationId);
-    const hasLiveRun = Boolean(run?.messages) && !(run.mode === "research" && !run.abortController);
-    if (loadResult === "applied" && !hasLiveRun) {
-      state.conversationLoading = false;
-      renderShell();
-      await restorePendingDocuments();
-    }
-  } else if (!guestDraftHasPreview(pendingGuestSend)) {
-    state.messages = [];
-    stopExtractedModulePollers();
-  }
-  if (routeConversationId && !state.activeConversationId) syncConversationUrl({ replace: true });
-}
-
-async function loadChatApp() {
-  const mobileHome = isMobileLayout() && !conversationIdFromLocation()
-    && !studyRouteFromLocation() && !projectsRouteFromLocation() && !pendingNativeConversationId;
-  if (mobileHome) {
-    const session = state.session;
-    const userId = state.me?.user?.id;
-    const payload = await (mobileRecentChats || listConversations(session, { limit: 10 })).catch(() => ({ conversations: [] }));
-    mobileRecentChats = null;
-    state.conversations = payload.conversations || [];
-    renderConversations();
-    // The complete list only updates navigation, never a chat opened while it loads.
-    void listConversations(session).then((all) => {
-      if (state.me?.user?.id !== userId || !state.session) return;
-      const current = new Map(state.conversations.map(chat => [chat.id, chat]));
-      for (const chat of all.conversations || []) {
-        if (!current.has(chat.id)) current.set(chat.id, chat);
-      }
-      state.conversations = [...current.values()];
-      renderConversations();
-    }).catch(() => {});
-    await loadProjects();
-  } else {
-    await Promise.all([loadConversations(), loadProjects()]);
-  }
-  if (studyRouteFromLocation()) {
-    await loadStudyHub();
-    state.studyOpen = true;
-    state.projectsOpen = false;
-    state.activeCourseId = courseIdFromLocation();
-    state.activeConversationId = "";
-    state.messages = [];
-    renderShell();
-    if (state.activeCourseId) {
-      try {
-        await studyHub.loadCourse();
-      } catch (error) {
-        showToast(error.message || "Course could not be loaded.");
-        state.activeCourseId = "";
-      }
-      renderShell();
-    }
-    return;
-  }
-  if (projectsRouteFromLocation()) {
-    state.projectsOpen = true;
-    state.activeProjectId = projectIdFromLocation();
-    state.activeConversationId = "";
-    state.messages = [];
-    if (state.activeProjectId) await loadActiveProject();
-    renderShell();
-    return;
-  }
-  const routeConversation = state.conversations.find(item => item.id === conversationIdFromLocation());
-  if (routeConversation && state.projects.some(item => item.id === routeConversation.project_id && item.kind === "course")) {
-    await openConversation(routeConversation.id);
-    return;
-  }
-  if (pendingNativeConversationId) {
-    const conversationId = pendingNativeConversationId;
-    pendingNativeConversationId = "";
-    if (state.conversations.some((conversation) => conversation.id === conversationId)) {
-      await openConversation(conversationId);
-      return;
-    }
-  }
-  renderShell();
-}
-
-let mobileRecentChats = null;
-function researchIdFromLocation() {
-  const match = window.location.pathname.match(/^\/research\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : "";
-}

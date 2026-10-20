@@ -5,10 +5,15 @@ import { createCameraSheet } from "../islands/cameraSheet.js";
 import { showToast } from "./app";
 
 let sheet: ReturnType<typeof createCameraSheet> | null = null;
+// The chat core takes photos as pending attachments once it mounts.
+let onPhoto: (file: File) => void = () => {};
 
 export function mountCameraSheet() {
-  // Photos join the pending attachments with the attachment slice.
-  sheet ||= createCameraSheet({ onPhoto: () => {}, onError: showToast });
+  sheet ||= createCameraSheet({ onPhoto: (file: File) => onPhoto(file), onError: showToast });
+}
+
+export function setCameraPhotoHandler(handler: (file: File) => void) {
+  onPhoto = handler;
 }
 
 export const closeCameraSheet = () => sheet?.close() ?? false;

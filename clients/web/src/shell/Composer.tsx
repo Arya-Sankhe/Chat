@@ -1,36 +1,16 @@
 /* The message composer (the composer-area section of public/index.html). Its
    chrome is rendered from settings as paintSpectrum, renderComposerModeChip,
    renderCompareControls and renderWritingStyle draw it in public/js/app.js.
-   The prompt is a contenteditable owned outside React (see promptRef). */
+   The prompt and the send, stop and voice buttons belong to the chat core
+   (islands/chat.js): React renders them once and never touches them again. */
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { SPECTRUM_N, SPECTRUM_STEPS, WRITING_STYLE_LABELS, normalizeWritingStyle, spectrumLevel } from "@klui/shared";
 import { createComposerKlui } from "../islands/composerKlui.js";
+import { applyComposerHeight } from "../state/chat";
 import { homeModes } from "../state/homeModes";
 import { activateCompareMode, applySpectrumLevel, cancelCompareMode, closeActionMenu, enterCouncilMode, setResearchMode, closeModelDropdown, setWritingStyle, toggleActionMenu, toggleModelDropdown, updateSetting, useApp } from "../state/app";
 import { ActionMenu, DeckPickerPop, NativeModeWrap, WritingStyleMenu } from "./ComposerSheets";
 import { cx } from "./cx";
-
-/** voiceMode.js voiceModeSupported(): recording and playback both work here. */
-function voiceModeSupported() {
-  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-  const recordable = typeof MediaRecorder !== "undefined" && types.some((type) => MediaRecorder.isTypeSupported?.(type));
-  return Boolean(typeof navigator.mediaDevices?.getUserMedia === "function" && recordable && (window.AudioContext || (window as any).webkitAudioContext));
-}
-
-/** applyComposerHeight(): desktop sizes the prompt to its content; phones keep one
-   line and, once the text wraps, show a sliver of the line above. */
-function applyComposerHeight(input: HTMLElement, mobile: boolean) {
-  input.style.height = "auto";
-  if (!mobile) {
-    input.classList.remove("is-multiline");
-    input.style.height = `${Math.min(200, input.scrollHeight)}px`;
-    return;
-  }
-  const line = parseFloat(getComputedStyle(input).lineHeight) || 26;
-  const multiline = input.scrollHeight > line * 1.5;
-  input.classList.toggle("is-multiline", multiline);
-  input.style.height = multiline ? `${Math.round(line * 1.4)}px` : "";
-}
 
 const CHIP_LABELS = { research: "Deep research", compare: "Compare", council: "Council" } as const;
 type ChipMode = keyof typeof CHIP_LABELS | "";
@@ -55,7 +35,6 @@ export function Composer() {
   const running = useApp((s) => s.running);
   const hasMessages = useApp((s) => s.hasMessages);
   const composerRef = useRef<HTMLDivElement>(null);
-  const promptRef = useRef<HTMLDivElement>(null);
 
   const level = spectrumLevel(settings);
   const sliderPct = `${(level / (SPECTRUM_N - 1)) * 100}%`;
@@ -74,12 +53,6 @@ export function Composer() {
   const writingStyle = normalizeWritingStyle(settings.writingStyle);
   const actionMenu = useApp((s) => s.actionMenu);
 
-  // updateSendButton(): an empty composer offers voice mode where the send arrow would be.
-  // Recording, follow-ups and pending uploads join with their slices.
-  const synced = useApp((s) => s.sendButtonSynced);
-  const composerHasText = useApp((s) => s.composerHasText);
-  const speech = useApp((s) => Boolean((s.config as any)?.services?.speech));
-  const offerVoice = synced && !composerHasText && speech && !researchMode && voiceModeSupported();
   const spectrumOpen = useApp((s) => s.spectrumOpen);
 
   // paintSpectrum(): a new label blurs out, swaps on the next frame and clears on the one after.
@@ -163,29 +136,8 @@ export function Composer() {
     window.addEventListener("pointerup", up);
   };
 
-  useLayoutEffect(() => applyComposerHeight(promptRef.current!, mobile), [mobile]);
-
-  // updateComposerPlaceholder(). The prompt's classes are written here and in
-  // applyComposerHeight, never through React, which would overwrite them.
-  const skillIds = useApp((s) => s.composerSkillIds);
-  const docsSkill = skillIds.includes("docs");
-  const placeholder = docsSkill ? "Describe the document you want" : skillIds.length ? "" : running ? "Queue message" : "Ask Klui";
-  useLayoutEffect(() => {
-    const input = promptRef.current!;
-    input.dataset.placeholder = placeholder;
-    input.setAttribute("aria-label", placeholder || "Ask Klui");
-    input.classList.toggle("is-placeholder", !composerHasText && !skillIds.length && Boolean(placeholder));
-    input.classList.toggle("is-skill-hint", docsSkill && skillIds.length > 0 && !composerHasText);
-  }, [placeholder, composerHasText, skillIds, docsSkill]);
-
-  // The prompt's input handler; clarifications, skill marks, the context meter
-  // and the slash menu join with the composer input slice.
-  const onPromptInput = (event: React.FormEvent<HTMLDivElement>) => {
-    const input = event.currentTarget;
-    input.closest(".composer")?.classList.remove("compact");
-    applyComposerHeight(input, mobile);
-    useApp.setState({ composerHasText: Boolean(input.textContent?.trim()), sendButtonSynced: true });
-  };
+  // The phone and desktop prompts size differently.
+  useLayoutEffect(() => applyComposerHeight(), [mobile]);
 
   // Pixel Klui on the composer (syncComposerKlui): only beside a running chat on desktop.
   const klui = useRef<ReturnType<typeof createComposerKlui> | null>(null);
@@ -262,7 +214,7 @@ export function Composer() {
               {mobile && <ContextWrap />}
               <div className="composer-input">
                 <div className="composer-deck-thumb hidden" id="composerDeckThumb" aria-hidden="true" />
-                <div ref={promptRef} onInput={onPromptInput} id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
+                <div id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
               </div>
               <div className="composer-bottom">
                 <div className="composer-actions">
@@ -405,7 +357,7 @@ export function Composer() {
                   {mobile && <NativeModeWrap />}
                 </div>
                 <div className="composer-send">
-                  <button className="voice-btn" id="voiceButton" type="button" aria-label="Start voice input" aria-pressed="false" title="Voice input" disabled={synced && !speech}>
+                  <button className="voice-btn" id="voiceButton" type="button" aria-label="Start voice input" aria-pressed="false" title="Voice input">
                     <svg className="voice-icon-mic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -419,7 +371,7 @@ export function Composer() {
                     <span className="voice-dot" aria-hidden="true" />
                   </button>
                   {" "}
-                  <button className={cx("send-btn", { hidden: offerVoice, active: synced && composerHasText })} id="sendButton" type="button" aria-label="Send">
+                  <button className="send-btn" id="sendButton" type="button" aria-label="Send">
                     <svg className="send-icon-arrow" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       {mobile ? <path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /> : <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />}
                     </svg>
@@ -429,7 +381,7 @@ export function Composer() {
                     </svg>
                   </button>
                   {" "}
-                  <button className={cx("voice-mode-btn", { hidden: !offerVoice })} id="voiceModeButton" type="button" aria-label="Start voice mode" title="Voice mode" disabled={!offerVoice}>
+                  <button className="voice-mode-btn hidden" id="voiceModeButton" type="button" aria-label="Start voice mode" title="Voice mode" disabled>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true">
                       <path d="M4 10v4" />
                       <path d="M8 7v10" />

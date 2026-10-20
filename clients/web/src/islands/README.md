@@ -14,5 +14,10 @@ mutated. Functions React already owns come in as bridges under their old names
 (the top of `chat.js`), and pieces whose slice has not landed are listed there
 too. `api.js`, `render.js` and the controllers (`compare.js`, `council.js`,
 `research.js`, `documentViewer.js`) are the old modules; `platform/index.js` is
-the old platform layer with only its web branches. Island changes are noted in
+the old platform layer with only its web branches. The chat core also owns the
+prompt and the send, stop and voice buttons: React renders them once with their
+markup classes, and sending, streaming (`streaming.js`, `reasoning.js`,
+`activityFeed.js`, `pendingTurns.js`), attachments, skills and follow-ups run
+here. The rest of the composer is React's; `chatHooks` in `state/app.ts` is how
+it asks the core about pending attachments and fills the prompt. Island changes are noted in
 a header comment where a file differs from its original.

@@ -67,12 +67,6 @@ export interface AppState {
   composerSkillIds: string[];
   /** The skills the server offers the composer. */
   composerSkills: { id: string; name?: string }[];
-  /** updateSendButton() has run. Until then the send and voice buttons keep
-     their markup state: the old app first syncs them when a signed-in chat
-     loads, opens or resets, never on the guest home. */
-  sendButtonSynced: boolean;
-  /** The prompt has text (composerPlainText().trim()). */
-  composerHasText: boolean;
   /** The composer's + menu: closed, its two pages, or the styles submenu. */
   actionMenu: "" | "root" | "more" | "style";
   /** The phone mode sheet (top-bar mode picker). */
@@ -143,8 +137,6 @@ export const useApp = create<AppState>(() => ({
   profileMenuOpen: false,
   pinnedPopupOpen: false,
   composerSkillIds: [],
-  sendButtonSynced: false,
-  composerHasText: false,
   composerSkills: [],
   actionMenu: "",
   modeSheetOpen: false,
@@ -357,10 +349,14 @@ export function closeModelDropdown() {
   set({ spectrumOpen: false });
 }
 
-/** applySpectrumLevel(): pick Nitro, Think or Pro. Vision attachments (which
-   Nitro can't read) arrive with the attachment slice. */
+/** applySpectrumLevel(): pick Nitro, Think or Pro. */
 export function applySpectrumLevel(level: number) {
-  const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  let n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  // Nitro is text-only: pending images or documents keep Think, with a notice.
+  if (n === 0 && chatHooks.pendingNeedsVision()) {
+    n = 1;
+    chatHooks.showAttachmentModelNotice();
+  }
   const step = SPECTRUM_STEPS[n]!;
   const settings = { ...get().settings, spectrumScale: 3, spectrumLevel: n, modelMode: step.mode, thinkingEffort: step.effort, model: step.model };
   set({ settings });
@@ -419,6 +415,14 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
   if (get().settings.compareEnabled) cancelCompareMode();
   applySpectrumLevel(mode === "nitro" ? 0 : mode === "pro" ? SPECTRUM_N - 1 : 1);
 }
+
+/** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
+export const chatHooks = {
+  pendingNeedsVision: () => false,
+  showAttachmentModelNotice: () => {},
+  setComposerSkillIds: (_ids: string[]) => {},
+  fillComposerText: (_text: string) => {}
+};
 
 /** Surfaces the chat core owns (islands/chat.js), registered when it mounts.
    Each closes itself and returns true when it was open. */

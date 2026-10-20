@@ -5,6 +5,7 @@ import { createHomeModesController } from "../islands/homeModes.js";
 import {
   activateCompareMode,
   cancelCompareMode,
+  chatHooks,
   enterCouncilMode,
   isCouncilMode,
   setResearchMode,
@@ -44,15 +45,9 @@ export function mountHomeModes() {
     state,
     els,
     composerSkillById: (id: string) => useApp.getState().composerSkills.find((skill) => skill.id === id) || null,
-    // The prompt's skill marks follow these ids with the composer input slice.
-    setComposerSkillIds: (ids: string[]) => useApp.setState({ composerSkillIds: [...new Set(ids)] }),
-    fillComposerText: (text: string) => {
-      const input = document.getElementById("promptInput");
-      if (!input) return;
-      input.textContent = text;
-      input.classList.toggle("is-placeholder", !text);
-      input.focus();
-    },
+    // The prompt is the chat core's (islands/chat.js).
+    setComposerSkillIds: (ids: string[]) => chatHooks.setComposerSkillIds(ids),
+    fillComposerText: (text: string) => chatHooks.fillComposerText(text),
     focusComposer: focusComposerEnd,
     enterCompareMode: activateCompareMode,
     enterCouncilMode,
@@ -71,5 +66,7 @@ export const homeModes = {
   closePicker: () => controller?.closePicker() ?? false,
   selectMode: (mode: string) => controller?.selectMode(mode),
   handleGalleryClick: (event: Event) => controller?.handleGalleryClick(event),
-  showAnswerModeExplainer: () => controller?.showAnswerModeExplainer()
+  showAnswerModeExplainer: () => controller?.showAnswerModeExplainer(),
+  placeholderOverride: () => controller?.placeholderOverride(),
+  deckThemeForSend: () => controller?.deckThemeForSend()
 };

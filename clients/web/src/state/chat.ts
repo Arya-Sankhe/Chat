@@ -11,6 +11,11 @@ export const addConversation = core.addConversation as () => Promise<void>;
 export const removeConversation = core.removeConversation as (id: string) => Promise<void>;
 export const signOutAndReset = core.signOutAndReset as () => Promise<void>;
 export const loadChatApp = core.loadChatApp as () => Promise<void>;
+export const applyComposerHeight = core.applyComposerHeight as () => void;
+export const restorePendingDocuments = core.restorePendingDocuments as () => Promise<void>;
+export const openRouteResearchReport = core.openRouteResearchReport as () => Promise<void>;
+export const resumeGuestSend = core.resumeGuestSend as () => Promise<void>;
+export const closeGuestContinue = core.closeGuestContinue as () => void;
 export const prefetchRecentChats = core.prefetchRecentChats as (promise: Promise<unknown>) => void;
 
 /** Before boot: what index.html's script painted on a phone opened at "/". */

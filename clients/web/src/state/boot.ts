@@ -4,7 +4,7 @@
 import { api, session } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
-import { loadChatApp, prefetchRecentChats } from "./chat";
+import { closeGuestContinue, loadChatApp, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -127,8 +127,8 @@ export async function bootstrap() {
     if (signedIn) void loadPaymentRequests();
     if (signedIn && get().me?.access?.active) {
       await loadChatApp();
-      // restorePendingDocuments() ends in renderImages(), which syncs the send button.
-      set({ sendButtonSynced: true });
+      await restorePendingDocuments();
+      await openRouteResearchReport();
     }
   } catch (error) {
     set({ signedIn: false, me: null, conversations: [] });
@@ -163,7 +163,10 @@ export async function signInWithGoogleCredential(credential: string) {
     renderShell();
     if (hasChatAccess()) {
       await loadChatApp();
-      set({ sendButtonSynced: true });
+      await restorePendingDocuments();
+      await resumeGuestSend();
+    } else {
+      closeGuestContinue();
     }
   } catch (error) {
     const notice = (error as Error)?.message || "Signed in, but your account could not be loaded.";
