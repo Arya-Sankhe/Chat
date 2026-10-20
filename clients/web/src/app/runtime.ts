@@ -13,9 +13,14 @@ export const session = new SessionManager(localStore);
 // index.html starts /api/config and /api/plans with the page (window.__kluiBoot).
 const boot = (globalThis as { __kluiBoot?: Record<string, Promise<Response | null> | undefined> }).__kluiBoot;
 
+// Set once /api/config answers (boot.ts); the old api.js sent the same header.
+export const webBuild = { id: "", check: () => {} };
+
 export const api = createApiClient({
   baseUrl: "",
   session,
+  buildId: () => webBuild.id,
+  onStaleBuild: () => webBuild.check(),
   takeBootResponse(name) {
     const pending = boot?.[name] ?? null;
     if (boot) delete boot[name];

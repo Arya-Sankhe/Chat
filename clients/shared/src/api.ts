@@ -50,6 +50,11 @@ export interface ApiClientOptions {
   /** The web page starts /api/config and /api/plans before any script loads
      (window.__kluiBoot); each prefetched response is used once, if it succeeded. */
   takeBootResponse?: (name: "config" | "plans") => Promise<Response | null> | null;
+  /** The web build this page was served with. The server turns away same-origin
+     writes without it (a stale tab); native clients send none. */
+  buildId?: () => string;
+  /** Called on a 404, 410 or 426 so the page can check for a newer build. */
+  onStaleBuild?: () => void;
 }
 
 export interface StreamOptions {
@@ -78,7 +83,8 @@ export function createApiClient(options: ApiClientOptions) {
       ...init,
       headers: {
         ...(init.headers as Record<string, string> | undefined),
-        ...(token ? { authorization: `Bearer ${token}` } : {})
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(options.buildId?.() ? { "x-klui-build-id": options.buildId() } : {})
       }
     }).catch((error: unknown) => { throw transportError(error, init.signal); });
 
@@ -89,6 +95,7 @@ export function createApiClient(options: ApiClientOptions) {
       if (session?.access_token) response = await send(session.access_token);
     }
     if (response.status === 401 && options.session.current() == null) options.onSessionExpired?.();
+    if (!response.ok && [404, 410, 426].includes(response.status)) options.onStaleBuild?.();
     return response;
   }
 

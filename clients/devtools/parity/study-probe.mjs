@@ -55,7 +55,8 @@ for (const site of SITES) {
       await page.evaluate(async () => {
         await document.fonts.ready;
         const messages = document.getElementById("messages");
-        for (let last = -1, still = 0; still < 3; ) {
+        // (Capped at five seconds: a chat that never settles is a finding of its own.)
+        for (let last = -1, still = 0, tries = 0; still < 3 && tries < 33; tries++) {
           await new Promise((resolve) => setTimeout(resolve, 150));
           still = messages.scrollTop === last ? still + 1 : 0;
           last = messages.scrollTop;

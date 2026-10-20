@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type MouseEvent } from "react";
+import { Fragment, useLayoutEffect, useRef, type MouseEvent } from "react";
 import type { ConversationSummary } from "@klui/shared";
 import {
   chatHooks,
@@ -89,6 +89,7 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
           ? <span className="conversation-activity is-running" title="Generating" aria-hidden="true" />
           : unread && <span className="conversation-activity is-done" title="New reply" aria-hidden="true" />}
       </button>
+      {" "}
       <div className="conversation-menu-wrap">
         <button className="conversation-menu-btn" type="button" data-toggle-menu-id={conversation.id} aria-label="Chat options" aria-haspopup="menu" aria-expanded={menuOpen ? "true" : "false"}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
@@ -245,13 +246,13 @@ export function Sidebar() {
         <div className={cx("sidebar-section pinned-section", { hidden: !pinned.length })} id="pinnedSection">
           <div className="sidebar-section-label">Pinned</div>
           <div id="pinnedConversationList">
-            {pinned.map((conversation) => <ConversationRow conversation={conversation} key={conversation.id} />)}
+            {pinned.map((conversation) => <Fragment key={conversation.id}>{" "}<ConversationRow conversation={conversation} />{" "}</Fragment>)}
           </div>
         </div>
         <div className="sidebar-section recents-section">
           <div className="sidebar-section-label">Recents</div>
           <div id="conversationList">
-            {recent.map((conversation) => <ConversationRow conversation={conversation} key={conversation.id} />)}
+            {recent.map((conversation) => <Fragment key={conversation.id}>{" "}<ConversationRow conversation={conversation} />{" "}</Fragment>)}
           </div>
         </div>
       </nav>

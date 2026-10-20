@@ -187,6 +187,7 @@ let pendingNativeConversationId = "";
 
 /** The sidebar renders from the store; publish what only the chat core knows. */
 function renderConversations() {
+  if (state.activeConversationId) unreadDoneChats.delete(state.activeConversationId);
   set({ runningChatIds: [...conversationRuns.keys()], unreadChatIds: [...unreadDoneChats] });
 }
 
@@ -9140,6 +9141,8 @@ export function mountChat() {
     renderResearchMode();
     renderAdminOnlyControls();
     syncComposerSkillState();
+    // ...and renderConversations(), which clears the open chat's unread dot.
+    renderConversations();
     renderProjects();
     studyHub?.render();
     renderProjectChatCrumb();

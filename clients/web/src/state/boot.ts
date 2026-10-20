@@ -1,7 +1,7 @@
 /* Startup, ported from bootstrap() and loadChatApp() in public/js/app.js. The
    order, concurrency and render points follow the old code, because what the
    page shows (and how many times the home greeting restarts) depends on them. */
-import { api, session } from "../app/runtime";
+import { api, session, webBuild } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
@@ -58,19 +58,23 @@ export async function loadMe() {
 
 /** The web build monitor: a newer deploy shows the "Klui has updated" toast. */
 let buildPoll: ReturnType<typeof setInterval> | undefined;
-function checkWebBuild() {
-  if (document.visibilityState !== "visible" || !get().buildId) return;
-  void api.fetchBuild().then((payload) => {
+// Several stale responses at once share one check.
+let buildCheck: Promise<void> | null = null;
+// A stale response forces a check even from a hidden tab.
+function checkWebBuild({ force = false } = {}) {
+  if (!get().buildId || (!force && document.visibilityState !== "visible")) return;
+  buildCheck ??= api.fetchBuild().then((payload) => {
     const next = String(payload?.buildId || "");
     if (next && next !== get().buildId) set({ appUpdateAvailable: true });
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => { buildCheck = null; });
 }
 
 function startWebBuildMonitor() {
   if (buildPoll) return;
-  document.addEventListener("visibilitychange", checkWebBuild);
-  window.addEventListener("focus", checkWebBuild);
-  buildPoll = setInterval(checkWebBuild, 5 * 60 * 1000);
+  const checkWhenVisible = () => checkWebBuild();
+  document.addEventListener("visibilitychange", checkWhenVisible);
+  window.addEventListener("focus", checkWhenVisible);
+  buildPoll = setInterval(checkWhenVisible, 5 * 60 * 1000);
   checkWebBuild();
 }
 
@@ -87,11 +91,13 @@ export async function bootstrap() {
       plans: plansPayload.plans || [],
       composerSkills: Array.isArray((config as any)?.skills) ? (config as any).skills : []
     });
+    webBuild.id = get().buildId;
+    webBuild.check = () => checkWebBuild({ force: true });
     // The chat core's API client (the old api.js) reads and refreshes the same session.
     configureApiAuth({
       getSession: () => session.current(),
       refresh: (_current: unknown, options: { force?: boolean }) => session.ensureFresh(options),
-      buildCheck: checkWebBuild,
+      buildCheck: () => checkWebBuild({ force: true }),
       buildId: get().buildId
     });
     startWebBuildMonitor();

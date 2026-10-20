@@ -71,3 +71,27 @@ describe("boot prefetch", () => {
     expect(fetched).toEqual(["/api/config", "/api/plans"]);
   });
 });
+
+describe("web build id", () => {
+  it("sends the page's build id with every request and asks for a build check when the server turns one away", async () => {
+    const sent: (string | null)[] = [];
+    let checks = 0;
+    let buildId = "";
+    const client = createApiClient({
+      baseUrl: "",
+      session: new SessionManager(noStorage),
+      fetch: async (_input, init) => {
+        sent.push(new Headers(init?.headers).get("x-klui-build-id"));
+        return new Response('{"error":"This tab is out of date. Reload to continue."}', { status: 426 });
+      },
+      buildId: () => buildId,
+      onStaleBuild: () => { checks += 1; }
+    });
+    // Before /api/config answers there is no build id to send.
+    await client.renameConversation("c1", "Atoms").catch(() => {});
+    buildId = "build-7";
+    await client.renameConversation("c1", "Atoms").catch(() => {});
+    expect(sent).toEqual([null, "build-7"]);
+    expect(checks).toBe(2);
+  });
+});

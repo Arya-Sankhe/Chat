@@ -106,10 +106,13 @@ export async function reset() {
   for (const user of Object.values(USERS)) {
     await ensureUser(user);
     // Everything a user owns hangs off profiles/auth.users with cascades; clearing
-    // conversations and projects covers what the fixtures and scenarios create.
+    // conversations and projects covers what the fixtures and scenarios create;
+    // uploads left out of a chat (Settings > Storage lists them) go too.
     sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email, role = 'user';
          delete from public.conversations where user_id = ${lit(user.id)};
          delete from public.projects where user_id = ${lit(user.id)};
+         delete from public.document_files where user_id = ${lit(user.id)};
+         delete from public.attachments where user_id = ${lit(user.id)};
          ${fixtureSql(user)}`);
   }
 }
