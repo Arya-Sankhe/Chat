@@ -92,8 +92,11 @@ import {
   streamCompareConversationMessage,
   streamConversationMessage,
   streamTemporaryChat,
+  synthesizeVoice,
   transcribeSpeech,
-  uploadFile
+  transcribeVoiceTurn,
+  uploadFile,
+  warmVoiceMode
 } from "./api.js";
 import { guestDraftHasPreview, guestPreviewContent, liveGuestImages, serializeGuestDraft } from "./guestSend.js";
 import {
@@ -113,7 +116,8 @@ import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
-import { composeEmailNatively, copyText, isNative, openExternal } from "./platform/index.js";
+import { createVoiceSession, normalizeVoiceId, normalizeVoiceSpeed, openVoicePicker, voiceModeSupported } from "./voiceMode.js";
+import { composeEmailNatively, copyText, isNative, keepVoiceSessionAlive, openExternal } from "./platform/index.js";
 
 /* ─── Bridges: the React store's versions of old functions ─── */
 
@@ -176,17 +180,9 @@ function renderProfileMenu() {}
 function renderSearchResults() {}
 function renderResearchMode() {}
 
-/** voiceMode.js voiceModeSupported(): recording and playback both work here. */
-function voiceModeSupported() {
-  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-  const recordable = typeof MediaRecorder !== "undefined" && types.some((type) => MediaRecorder.isTypeSupported?.(type));
-  return Boolean(navigator.mediaDevices?.getUserMedia && recordable && (window.AudioContext || window.webkitAudioContext));
-}
-
 /* ─── Later slices ─── */
 
-// Voice mode, billing and projects.
-async function openVoiceMode() {}
+// Billing and projects.
 function openUpgradePlans() {}
 function renderProjectChatCrumb() {}
 
@@ -5912,6 +5908,108 @@ async function submitEmailRevise(form) {
     input.disabled = false;
     form.querySelector("button[type='submit']")?.removeAttribute("disabled");
   }
+}
+
+// Voice mode: the live session and the Settings picker (declared early: settings code runs at load).
+let voiceSession = null;
+
+function voicePrefs() {
+  return { voice: normalizeVoiceId(state.settings.voiceId), speed: normalizeVoiceSpeed(state.settings.voiceSpeed) };
+}
+
+function saveVoicePrefs({ voice, speed }) {
+  updateSetting("voiceId", normalizeVoiceId(voice));
+  updateSetting("voiceSpeed", normalizeVoiceSpeed(speed));
+  updateSetting("voiceChosen", true);
+}
+
+function pickVoiceMode({ first = false, engine } = {}) {
+  const { voice, speed } = voicePrefs();
+  return openVoicePicker({
+    voice,
+    speed,
+    engine,
+    first,
+    onSave: saveVoicePrefs,
+    onError: showToast,
+    reducedMotion: prefersReducedMotion()
+  });
+}
+
+async function openVoiceMode() {
+  if (voiceSession?.active) return;
+  if (!requireAuth()) return;
+  if (!hasChatAccess()) {
+    openUpgradePlans();
+    return;
+  }
+  if (!voiceModeSupported()) {
+    showToast("Voice mode is not supported in this browser.");
+    return;
+  }
+  if (state.running) {
+    showToast("Wait for the current reply to finish.");
+    return;
+  }
+  void warmVoiceMode(state.session).catch(() => {});
+  if (!state.settings.voiceChosen && !await pickVoiceMode({ first: true })) return;
+  if (voiceSession?.active) return;
+  document.body.classList.add("voice-mode-open");
+  let releaseKeepAlive = () => {};
+  const session = createVoiceSession({
+    api: {
+      transcribe: (blob, options) => transcribeVoiceTurn(state.session, blob, options),
+      speak: (text, voice, speed, options) => synthesizeVoice(state.session, { text, voice, speed }, options)
+    },
+    sendTurn: (text, hooks) => executeSend({ text, images: [], compareModels: [], voice: hooks }),
+    prefs: voicePrefs,
+    pickVoice: (options) => pickVoiceMode(options),
+    escapeHtml,
+    reducedMotion: prefersReducedMotion(),
+    // The Android app keeps talking with the screen off or another app open.
+    keepRunningHidden: isNative(),
+    onLive: () => { releaseKeepAlive = keepVoiceRunning(session); },
+    onToast: showToast,
+    onClose: () => {
+      releaseKeepAlive();
+      // A newer conversation may already be open; only this one's state is cleared.
+      if (voiceSession !== session) return;
+      voiceSession = null;
+      document.body.classList.remove("voice-mode-open");
+      updateSendButton();
+    }
+  });
+  voiceSession = session;
+  document.body.append(session.root);
+  await session.start();
+}
+
+/* Holds the Android background service for one voice conversation and returns
+   its release. If Android refuses (Klui left the screen while voice mode was
+   starting), it tries again when Klui is back on screen. */
+function keepVoiceRunning(session) {
+  let released = false;
+  let hold = null;
+  const retry = () => {
+    if (document.hidden || released) return;
+    document.removeEventListener("visibilitychange", retry);
+    hold?.stop();
+    void acquire();
+  };
+  const acquire = async () => {
+    const next = await keepVoiceSessionAlive({ onEnd: () => void session.close() });
+    if (released || !session.active) { next.stop(); return; }
+    hold = next;
+    if (next.running) return;
+    if (document.hidden) document.addEventListener("visibilitychange", retry);
+    else showToast("Voice mode will pause if you leave Klui.");
+  };
+  void acquire();
+  return () => {
+    released = true;
+    document.removeEventListener("visibilitychange", retry);
+    hold?.stop();
+  };
 }
 
 /* ─── Events: the #messages parts of bindEvents() ─── */
