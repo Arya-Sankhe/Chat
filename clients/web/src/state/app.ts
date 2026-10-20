@@ -45,6 +45,10 @@ export interface AppState {
   hasMessages: boolean;
   /** A response is streaming in the open chat (state.running). */
   running: boolean;
+  /** #imageToggle's disabled state. The old app wrote it from setRunning()
+     (temporary chat or research), renderShell() and setResearchMode()
+     (running or research), so it keeps whichever wrote last. */
+  imageToggleDisabled: boolean;
   /** Chats with a response in flight, and chats whose response finished while away. */
   runningChatIds: string[];
   unreadChatIds: string[];
@@ -121,6 +125,7 @@ export const useApp = create<AppState>(() => ({
   chatEmpty: mobileQuery.matches,
   hasMessages: false,
   running: false,
+  imageToggleDisabled: false,
   runningChatIds: [],
   unreadChatIds: [],
   view: "boot",
@@ -378,8 +383,9 @@ export function cancelCompareMode() {
   updateSettings({ compareEnabled: false, compareModels: [] });
 }
 
-/** enterCouncilMode(): Council can't read documents; that check joins with the attachment slice. */
+/** enterCouncilMode(): Council can't read documents; the chat core checks the attachments. */
 export function enterCouncilMode() {
+  if (chatHooks.councilBlocked()) return false;
   updateSettings({ compareMode: "council", compareModels: [...DEFAULT_COUNCIL_MODELS], compareEnabled: true });
   return true;
 }
@@ -392,7 +398,9 @@ export function setResearchMode(enabled: boolean) {
     showToast("Deep Research is not available in temporary chat.");
     return;
   }
-  set({ researchMode: next });
+  if (next && chatHooks.researchBlocked()) return;
+  chatHooks.researchChanging(next);
+  set({ researchMode: next, imageToggleDisabled: get().running || next });
   if (next && get().settings.compareEnabled) cancelCompareMode();
   closeActionMenu();
   const input = document.getElementById("promptInput");
@@ -418,6 +426,12 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
 
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
+  /** Pending attachments block Deep Research: shows why and returns true. */
+  researchBlocked: () => false,
+  /** Clears clarifications (and, turning research on, the slash menu). */
+  researchChanging: (_next: boolean) => {},
+  /** Documents Council can't read: shows the notice and returns true. */
+  councilBlocked: () => false,
   settingsOpened: () => {},
   settingsTabSelected: (_tab: string) => {},
   pendingNeedsVision: () => false,

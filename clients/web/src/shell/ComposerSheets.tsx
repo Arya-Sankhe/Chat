@@ -4,7 +4,7 @@
    rendered there through BodySheets and inline otherwise. */
 import { createPortal } from "react-dom";
 import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_LABELS } from "@klui/shared";
-import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, useApp } from "../state/app";
+import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
 import { homeModes } from "../state/homeModes";
 import { cx } from "./cx";
@@ -111,9 +111,22 @@ export function ActionMenu() {
   const researchAvailable = useApp((s) => Boolean((s.config as any)?.services?.research));
   const researchMode = useApp((s) => s.researchMode);
   const style = useApp((s) => normalizeWritingStyle(s.settings.writingStyle));
-  // Running state arrives with the message slice.
-  const running = false;
-  const imageDisabled = running || researchMode;
+  const running = useApp((s) => s.running);
+  // renderWebSearchToggle(), from the first renderShell(): until then the markup's own text.
+  const webSearchAvailable = useApp((s) => Boolean((s.config as any)?.services?.websearch));
+  const webSearchOn = useApp((s) => s.settings.webSearchMode !== "off");
+  const rendered = useApp((s) => s.shellRender > 0);
+  const webSearch = !rendered || !webSearchAvailable
+    ? { shown: false, pressed: true, label: "Web search auto", title: "Web search: Auto — the model searches the web when needed. Click to turn off." }
+    : {
+        shown: true,
+        pressed: webSearchOn,
+        label: webSearchOn ? "Web search auto (on)" : "Web search off",
+        title: webSearchOn
+          ? "Web search: Auto — the model searches the web when it needs to. Click to disable."
+          : "Web search: Off — click to let the model search when needed."
+      };
+  const imageDisabled = useApp((s) => s.imageToggleDisabled);
   const close = closeActionMenu;
   return (
         <div className={cx("composer-action-menu", { hidden: !open })} id="composerActionMenu" role="menu" aria-label="More actions" data-page={page}>
@@ -180,7 +193,7 @@ export function ActionMenu() {
             </svg>
           </button>
           {" "}
-          <button className="composer-action-menu-item web-search-toggle hidden" type="button" id="webSearchToggle" role="menuitem" aria-pressed="true" aria-label="Web search auto" title="Web search: Auto — the model searches the web when needed. Click to turn off." data-menu-page="more">
+          <button className={cx("composer-action-menu-item web-search-toggle", { hidden: !webSearch.shown })} type="button" id="webSearchToggle" role="menuitem" aria-pressed={webSearch.pressed} aria-label={webSearch.label} title={webSearch.title} data-menu-page="more" onClick={(event) => { event.stopPropagation(); updateSetting("webSearchMode", webSearchOn ? "off" : "auto"); }}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="10" />
               <line x1="2" y1="12" x2="22" y2="12" />

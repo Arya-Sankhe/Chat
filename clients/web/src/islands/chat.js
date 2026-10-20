@@ -153,6 +153,7 @@ function renderConversations() {
    prompt, send and stop buttons are the chat core's. */
 function setRunning(running) {
   state.running = running;
+  set({ imageToggleDisabled: state.temporaryChat || state.researchMode });
   els.promptInput?.setAttribute("contenteditable", "true");
   updateComposerPlaceholder();
   updateSendButton();
@@ -191,12 +192,17 @@ function isMobileLayout() {
 // The web build has no native keyboard to hide.
 async function hideNativeKeyboard() {}
 
-// React renders these from the store (temporary chat bar, composer Klui, profile menu).
-function renderTemporaryChatMode() {}
+// React renders these from the store (temporary chat bar, composer Klui, profile
+// menu). Both mode renders also wrote #imageToggle's disabled state.
+function renderTemporaryChatMode() {
+  set({ imageToggleDisabled: state.running });
+}
 function syncComposerKlui() {}
 function renderProfileMenu() {}
 function renderSearchResults() {}
-function renderResearchMode() {}
+function renderResearchMode() {
+  set({ imageToggleDisabled: state.running || state.researchMode });
+}
 
 // The storage meter renders from `me` in React (SettingsDrawer).
 function renderSettingsStorage() {}
@@ -3627,34 +3633,6 @@ function resolveCompareModelsForSend({ images = state.images, userContent = null
     || keepAttachments.some((item) => item.category === "image" || item.category === "document");
   if (isCouncilMode()) return needsVision ? COUNCIL_MEDIA_MODELS.slice() : DEFAULT_COUNCIL_MODELS.slice();
   return needsVision ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
-}
-
-function webSearchAvailable() {
-  return Boolean(state.config?.services?.websearch);
-}
-
-function renderWebSearchToggle() {
-  if (!els.webSearchToggle) return;
-  if (!webSearchAvailable()) {
-    els.webSearchToggle.classList.add("hidden");
-    return;
-  }
-  els.webSearchToggle.classList.remove("hidden");
-  const on = state.settings.webSearchMode !== "off";
-  els.webSearchToggle.setAttribute("aria-pressed", on ? "true" : "false");
-  els.webSearchToggle.setAttribute(
-    "title",
-    on
-      ? "Web search: Auto — the model searches the web when it needs to. Click to disable."
-      : "Web search: Off — click to let the model search when needed."
-  );
-  els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
-}
-
-function toggleWebSearchMode() {
-  const next = state.settings.webSearchMode === "off" ? "auto" : "off";
-  updateSetting("webSearchMode", next);
-  renderWebSearchToggle();
 }
 
 function pendingHasDocuments() {
@@ -7397,12 +7375,6 @@ function bindComposerEvents() {
     acceptPendingFiles(event.dataTransfer?.files || []);
   });
 
-  if (els.webSearchToggle) {
-    els.webSearchToggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleWebSearchMode();
-    });
-  }
   els.imagePreviews.addEventListener("click", (e) => {
     const removePaste = e.target.closest("[data-remove-paste]");
     if (removePaste) {
@@ -7804,6 +7776,21 @@ export function mountChat() {
   bindSettingsEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
+    // setResearchMode() and enterCouncilMode(): the checks that need the composer.
+    researchBlocked: () => {
+      if (!state.images.length) return false;
+      showToast("Remove attachments before starting Deep Research.");
+      return true;
+    },
+    researchChanging: (next) => {
+      clearClarification();
+      if (next) closeSkillMenu();
+    },
+    councilBlocked: () => {
+      const blocked = councilDocumentBlock();
+      if (blocked) showCouncilDocumentsNotice(blocked);
+      return Boolean(blocked);
+    },
     settingsOpened: syncSettingsInputs,
     settingsTabSelected,
     pendingNeedsVision: pendingPromptNeedsVision,
@@ -7847,9 +7834,10 @@ export function mountChat() {
   // renderShell() re-rendered the messages and the document viewer every time
   // it ran; a guest's first renderShell() can land before React mounts this.
   const renderChatShell = () => {
+    // renderShell() ran renderTemporaryChatMode() and then renderResearchMode().
+    renderResearchMode();
     renderAdminOnlyControls();
     syncComposerSkillState();
-    renderWebSearchToggle();
     renderMessages();
     renderDocumentViewer();
     updateComposerPlaceholder();
