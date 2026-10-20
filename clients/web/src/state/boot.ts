@@ -4,7 +4,7 @@
 import { api, session } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
-import { closeGuestContinue, handleSessionEnded, loadChatApp, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
+import { closeGuestContinue, handleSessionEnded, loadChatApp, loadPaymentRequests, refreshAfterMamoReturn, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -52,11 +52,6 @@ export async function loadMe() {
     set((s) => ({ settings: { ...s.settings, systemPrompt: (me as any).settings.systemPrompt } }));
   }
   loadPinnedChatIds();
-}
-
-async function loadPaymentRequests() {
-  if (!session.current()?.access_token) return;
-  await api.fetchPaymentRequests().catch(() => null);
 }
 
 /** The web build monitor: a newer deploy shows the "Klui has updated" toast. */
@@ -111,7 +106,7 @@ export async function bootstrap() {
     }
     if (signedIn) {
       try {
-        if (get().mobile) prefetchRecentChats(api.listConversations({ limit: 10 }).then((conversations) => ({ conversations })));
+        if (get().mobile) prefetchRecentChats(api.listConversations({ limit: 10 }).then((conversations) => ({ conversations })).catch(() => ({ conversations: [] })));
         await withTimeout(loadMe(), 8000, "Account load");
       } catch {
         await session.save(null);
@@ -124,7 +119,8 @@ export async function bootstrap() {
     whenIdle(() => {
       if (!get().signedIn) set({ authArtLoaded: true });
     });
-    if (signedIn) void loadPaymentRequests();
+    if (signedIn) trackPaymentRequests();
+    await refreshAfterMamoReturn();
     if (signedIn && get().me?.access?.active) {
       await loadChatApp();
       await restorePendingDocuments();
@@ -157,6 +153,7 @@ export async function signInWithGoogleCredential(credential: string) {
   }
   set({ signedIn: true, authNotice: "" });
   closeAuthDialog();
+  closeGuestContinue();
   renderShell();
   try {
     await withTimeout(loadMe(), 8000, "Account load");

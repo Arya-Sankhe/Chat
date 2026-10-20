@@ -17,6 +17,9 @@ export const openRouteResearchReport = core.openRouteResearchReport as () => Pro
 export const resumeGuestSend = core.resumeGuestSend as () => Promise<void>;
 export const closeGuestContinue = core.closeGuestContinue as () => void;
 export const handleSessionEnded = core.handleSessionEnded as () => void;
+export const loadPaymentRequests = core.loadPaymentRequests as () => Promise<void>;
+export const trackPaymentRequests = core.trackPaymentRequests as () => void;
+export const refreshAfterMamoReturn = core.refreshAfterMamoReturn as () => Promise<void>;
 export const prefetchRecentChats = core.prefetchRecentChats as (promise: Promise<unknown>) => void;
 
 /** Before boot: what index.html's script painted on a phone opened at "/". */

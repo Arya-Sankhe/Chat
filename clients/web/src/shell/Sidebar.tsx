@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import type { ConversationSummary } from "@klui/shared";
 import {
+  chatHooks,
   closeProfileMenu,
   hasUpgradePlans,
   openAuthDialog,
@@ -273,7 +274,7 @@ export function Sidebar() {
             <div className="profile-menu-email" id="profileMenuEmail">{signedIn ? email || "Signed in" : ""}</div>
             <div className="profile-menu-usage" id="profileMenuUsage">{signedIn && <AccountUsage />}</div>
             <div className="profile-menu-actions">
-              <button className={cx("profile-menu-item", { hidden: !signedIn || !hasUpgradePlans() })} type="button" id="profileMenuUpgrade" role="menuitem">
+              <button className={cx("profile-menu-item", { hidden: !signedIn || !hasUpgradePlans() })} type="button" id="profileMenuUpgrade" role="menuitem" onClick={() => chatHooks.openUpgradePlans()}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 19V5" />
                   <path d="m5 12 7-7 7 7" />

@@ -1,11 +1,20 @@
+import { useLayoutEffect, useRef } from "react";
+import { useApp } from "../state/app";
+
+/** The pricing screen; the chat core renders its plans and coupon (showPaywall()). */
 export function PaywallView() {
+  // showOnly(): React flips only .hidden, as for the research report.
+  const ref = useRef<HTMLElement>(null);
+  const view = useApp((s) => s.view);
+  useLayoutEffect(() => { ref.current!.classList.toggle("hidden", view !== "paywall"); }, [view]);
   return (
-    <section className="fullscreen-view hidden" id="paywallView">
+    <section ref={ref} className="fullscreen-view hidden" id="paywallView">
       <div className="paywall-panel">
         <button className="paywall-close hidden" id="paywallCloseButton" type="button" aria-label="Close pricing">x</button>
         {" "}
         <div className="paywall-hero">
           <div className="paywall-brand">Klui</div>
+          {" "}
           <div className="paywall-sticker">No 5 hour limits for all plans</div>
         </div>
         {" "}

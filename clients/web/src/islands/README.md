@@ -19,5 +19,7 @@ prompt and the send, stop and voice buttons: React renders them once with their
 markup classes, and sending, streaming (`streaming.js`, `reasoning.js`,
 `activityFeed.js`, `pendingTurns.js`), attachments, skills and follow-ups run
 here. The rest of the composer is React's; `chatHooks` in `state/app.ts` is how
-it asks the core about pending attachments and fills the prompt. Island changes are noted in
+it asks the core about pending attachments and fills the prompt. Settings
+(memory, storage, account) and the pricing screen (plans, coupons, checkout)
+are the core's too; React renders their markup and flips the views. Island changes are noted in
 a header comment where a file differs from its original.

@@ -25,6 +25,7 @@ import {
   closeSettings,
   dismissComposerKeyboard,
   hasChatAccess,
+  hasUpgradePlans,
   isCouncilMode,
   openAuthDialog,
   openDeleteConfirm,
@@ -65,13 +66,16 @@ import {
   cancelMamoSubscription,
   cancelPendingDocumentTurn,
   cancelResearch,
+  checkMamoCoupon,
   clearMemory,
   completeUpload,
   createContentReport,
   createConversation,
+  createMamoCheckout,
   createResearch,
   createStudyCard,
   createStudyNote,
+  createZiinaPaymentRequest,
   deleteAccount,
   deleteAttachment,
   deleteConversation,
@@ -90,6 +94,7 @@ import {
   fetchStorage,
   fetchStudyMaterials,
   fetchStudyPractice,
+  fetchZiinaPaymentRequests,
   listConversations,
   listProjects,
   presignUpload,
@@ -178,7 +183,8 @@ function resolvedAppearance() {
 
 /** showOnly(): the store picks the view. */
 function showOnly(view) {
-  set({ view: view === els.researchReportView ? "research" : "chat" });
+  const views = new Map([[els.researchReportView, "research"], [els.paywallView, "paywall"], [els.setupView, "setup"]]);
+  set({ view: views.get(view) || "chat" });
 }
 
 function focusPromptInput() {
@@ -212,8 +218,7 @@ function renderSettingsStorage() {}
 // The admin dashboard.
 const adminPanel = { saveGlobalSystemPrompt() {} };
 
-// Billing and projects.
-function openUpgradePlans() {}
+// Projects.
 function renderProjectChatCrumb() {}
 
 // The study hub loads on demand with its slice; until then this is the old placeholder.
@@ -5849,6 +5854,14 @@ async function resumeGuestSend() {
   }
 }
 
+/** bootstrap(): an open paywall redraws once the pending payment requests arrive. */
+function trackPaymentRequests() {
+  paymentRequestsPromise = loadPaymentRequests();
+  void paymentRequestsPromise.then(() => {
+    if (!els.paywallView.classList.contains("hidden")) renderPlans();
+  });
+}
+
 /** bootstrap() reopens a research report linked from the URL. */
 async function openRouteResearchReport() {
   const reportId = researchIdFromLocation();
@@ -6342,6 +6355,278 @@ function renderVoiceSettings() {
     onError: showToast,
     reducedMotion: prefersReducedMotion()
   });
+}
+
+let paymentRequestsPromise = Promise.resolve();
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out.`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function showPaywall({ allowReturn = false } = {}) {
+  els.paywallEmail.textContent = state.me?.user?.email || "";
+  renderPlans();
+  applyCouponFromUrl();
+  els.paywallBackButton?.classList.toggle("hidden", !allowReturn);
+  els.paywallCloseButton?.classList.toggle("hidden", !allowReturn);
+  showOnly(els.paywallView);
+}
+
+function openUpgradePlans() {
+  if (!state.session) return;
+  closeProfileMenu();
+  document.body.classList.remove("sidebar-open");
+  closeAllDrawers();
+  if (isNative()) {
+    showToast("Subscribe on the website.");
+    return;
+  }
+  if (!hasUpgradePlans()) return;
+  showPaywall({ allowReturn: true });
+}
+
+// Mirrors the home.klui.ai pricing cards. Prices exclude Mamo's processing fee, which is
+// added at checkout; `chargeAed` is the exact monthly card charge.
+function renderPlans() {
+  const requestsByPlan = new Map(
+    (state.paymentRequests || [])
+      .filter((request) => request.status === "pending")
+      .map((request) => [request.planId, request])
+  );
+  const planMeta = {
+    lite: { copy: "Simple access for light everyday use.", features: ["All Klui features included.", "Klui doesn't train on your chats.", "No ads."] },
+    pro: { tag: "The daily driver", copy: "Everyday access for regular users.", features: ["Everything in Lite.", "Klui doesn't train on your chats.", "3× usage."] },
+    max: { copy: "Higher capacity for heavier workflows.", features: ["Everything in Pro.", "Klui doesn't train on your chats.", "6× usage."] }
+  };
+  const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
+  renderCouponPanel();
+  els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
+    const id = String(plan.id || "").toLowerCase();
+    const planClass = id.replace(/[^a-z0-9_-]/g, "");
+    const meta = planMeta[id] || { copy: plan.description || "", features: [] };
+    const pending = requestsByPlan.get(plan.id);
+    const mamo = plan.checkout === "mamo";
+    const offer = mamo ? offers.get(plan.id) : null;
+    const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
+    const feeNote = fee ? " <small>+ processing fee</small>" : "";
+    const price = offer
+      ? `<div class="plan-price plan-price-offer">
+          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
+          <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
+          <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
+          <span>first month</span>
+        </div>
+        <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
+      : plan.amountAed
+        ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
+        : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
+    const chargeNote = !mamo ? ""
+      : offer
+        ? `${offer.initialChargeAed ? `AED ${escapeHtml(aed(offer.initialChargeAed))} today` : "Nothing charged today, card saved"}, then AED ${escapeHtml(aed(offer.renewalChargeAed))}/month from month two${fee ? ", processing fee included" : ""}.`
+        : `AED ${escapeHtml(aed(plan.chargeAed || plan.amountAed))} charged monthly${fee ? ", processing fee included" : ""}. Cancel anytime.`;
+    return `
+    <article class="plan-card plan-card-${escapeHtml(planClass)}">
+      ${meta.tag ? `<p class="plan-tag">${escapeHtml(meta.tag)}</p>` : ""}
+      <h3 class="plan-name">${escapeHtml(plan.name)}</h3>
+      ${price}
+      <p class="plan-copy">${escapeHtml(meta.copy)}</p>
+      <ul>
+        ${meta.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}
+      </ul>
+      ${mamo ? `
+      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
+      <p class="plan-payment-note">${chargeNote}</p>
+      ` : `
+      ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
+      <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
+        ${pending ? "Open Ziina payment" : "Pay with Ziina"}
+      </button>
+      ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? `<p class="plan-payment-note">Access activates after we verify your Ziina payment.</p>` : `<p class="plan-payment-note">Ziina link is not configured yet.</p>`}
+      `}
+    </article>
+  `;
+  }).join("");
+}
+
+function renderPendingPayment(request) {
+  return `
+    <div class="payment-pending">
+      <span>Pending verification</span>
+      <strong>${escapeHtml(request.referenceCode || "")}</strong>
+    </div>
+  `;
+}
+
+async function refreshAfterMamoReturn() {
+  const params = new URLSearchParams(window.location.search);
+  if (!state.session || !["captured", "card_verified"].includes(params.get("status")) || !params.get("transactionId")) return;
+  const planId = params.get("planId");
+  // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (state.me?.access?.active && (!planId || state.me?.subscription?.planId === planId)) return;
+    if (attempt === 0) showToast("Confirming your payment…");
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (!state.session) return;
+    await withTimeout(loadMe(), 4000, "Payment confirmation").catch(() => {});
+    renderShell();
+  }
+  if (!state.me?.access?.active) showToast("Payment confirmation is still pending. Refresh in a moment.");
+}
+
+async function loadPaymentRequests() {
+  if (!state.session?.access_token) {
+    state.paymentRequests = [];
+    return;
+  }
+  try {
+    const payload = await fetchZiinaPaymentRequests(state.session);
+    state.paymentRequests = payload.paymentRequests || [];
+  } catch {
+    state.paymentRequests = [];
+  }
+}
+
+async function startMamoPayment(planId) {
+  if (isNative()) return;
+  if (!requireAuth()) return;
+  try {
+    // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
+    await couponCheck;
+    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
+    if (payload.paymentUrl) await openExternal(payload.paymentUrl);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function couponSummary(percentOff) {
+  return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
+}
+
+// The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
+function renderCouponPanel() {
+  const available = !isNative() && (state.plans || []).some((plan) => plan.checkout === "mamo");
+  els.paywallCoupon?.classList.toggle("hidden", !available);
+  if (!available) return;
+  const applied = state.mamoCoupon?.coupon;
+  const open = !applied && els.paywallCouponToggle?.getAttribute("aria-expanded") === "true";
+  els.paywallCouponToggle?.classList.toggle("hidden", Boolean(applied) || open);
+  els.paywallCouponForm?.classList.toggle("hidden", !open);
+  els.paywallCouponApplied?.classList.toggle("hidden", !applied);
+  els.paywallCoupon?.classList.toggle("is-applied", Boolean(applied));
+  if (applied) {
+    if (els.paywallCouponCode) els.paywallCouponCode.textContent = applied.code;
+    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied.percentOff);
+  }
+}
+
+function openCouponForm() {
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
+  renderCouponPanel();
+  els.paywallCouponInput?.focus();
+}
+
+function removeMamoCoupon() {
+  state.mamoCoupon = null;
+  if (els.paywallCouponInput) els.paywallCouponInput.value = "";
+  if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = "";
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
+  renderPlans();
+  els.paywallCouponToggle?.focus();
+}
+
+let couponCheck = null;
+
+function applyMamoCoupon(event) {
+  event?.preventDefault();
+  couponCheck = checkCouponCode().finally(() => { couponCheck = null; });
+  return couponCheck;
+}
+
+async function checkCouponCode() {
+  if (!requireAuth()) return;
+  const code = String(els.paywallCouponInput?.value || "").trim().toUpperCase();
+  const setStatus = (text) => { if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = text; };
+  if (!code) {
+    setStatus("Enter a coupon code.");
+    els.paywallCouponInput?.focus();
+    return;
+  }
+  els.paywallCouponApply?.setAttribute("disabled", "");
+  try {
+    state.mamoCoupon = await checkMamoCoupon(state.session, code);
+    setStatus("");
+    els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
+  } catch (err) {
+    state.mamoCoupon = null;
+    setStatus(err.message || "That coupon code isn't valid.");
+  } finally {
+    els.paywallCouponApply?.removeAttribute("disabled");
+  }
+  renderPlans();
+}
+
+// klui.ai/?coupon=CODE applies a shared code the first time the paywall opens.
+// Read at load, before any route sync can rewrite the address.
+let couponFromUrl = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const code = String(params.get("coupon") || "").trim().toUpperCase().slice(0, 32);
+    if (!code) return "";
+    params.delete("coupon");
+    const query = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    return code;
+  } catch {
+    return "";
+  }
+})();
+
+function applyCouponFromUrl() {
+  if (!couponFromUrl || state.mamoCoupon || !els.paywallCouponInput || isNative()) return;
+  els.paywallCouponInput.value = couponFromUrl;
+  couponFromUrl = "";
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
+  void applyMamoCoupon();
+}
+
+async function startZiinaPayment(planId) {
+  if (isNative()) return;
+  if (!requireAuth()) return;
+  await paymentRequestsPromise;
+  const plan = state.plans.find((candidate) => candidate.id === planId);
+  if (!plan) return;
+  const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
+  if (existing) {
+    if (existing.paymentUrl) await openExternal(existing.paymentUrl);
+    return;
+  }
+
+  try {
+    const payload = await createZiinaPaymentRequest(state.session, planId);
+    const request = payload.paymentRequest;
+    state.paymentRequests = [request, ...(state.paymentRequests || [])];
+    renderPlans();
+    if (request.paymentUrl) await openExternal(request.paymentUrl);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap";
+
+function loadGoogleFonts() {
+  if (document.getElementById("kluiGoogleFonts")) return;
+  const link = document.createElement("link");
+  link.id = "kluiGoogleFonts";
+  link.rel = "stylesheet";
+  link.href = GOOGLE_FONTS_HREF;
+  document.head.appendChild(link);
 }
 
 /* ─── Events: the #messages parts of bindEvents() ─── */
@@ -7244,6 +7529,30 @@ function settingsTabSelected(selected) {
   }
 }
 
+/* ─── Events: the paywall (bindEvents) ─── */
+
+function bindPaywallEvents() {
+  els.paywallCouponForm?.addEventListener("submit", applyMamoCoupon);
+  els.paywallCouponToggle?.addEventListener("click", openCouponForm);
+  els.paywallCouponRemove?.addEventListener("click", removeMamoCoupon);
+  els.paywallPlans.addEventListener("click", (e) => {
+    const mamoButton = e.target.closest("[data-start-mamo]");
+    if (mamoButton) {
+      startMamoPayment(mamoButton.dataset.startMamo);
+      return;
+    }
+    const button = e.target.closest("[data-start-payment]");
+    if (!button) return;
+    startZiinaPayment(button.dataset.startPayment);
+  });
+  els.paywallBackButton?.addEventListener("click", () => {
+    renderShell();
+  });
+  els.paywallCloseButton?.addEventListener("click", () => {
+    renderShell();
+  });
+}
+
 /* ─── Events: back and forward (bindEvents) ─── */
 
 function bindHistoryEvents() {
@@ -7774,8 +8083,10 @@ export function mountChat() {
   bindComposerEvents();
   bindResearchEvents();
   bindSettingsEvents();
+  bindPaywallEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
+    openUpgradePlans,
     // setResearchMode() and enterCouncilMode(): the checks that need the composer.
     researchBlocked: () => {
       if (!state.images.length) return false;
@@ -7858,6 +8169,8 @@ export function mountChat() {
     lastShellRender = s.shellRender;
     if (s.view === "chat") renderChatShell();
   });
+  // The end of the old bindEvents().
+  loadGoogleFonts();
 }
 
 /** bootstrap() starts the phone's recent-chats request alongside the account load. */
@@ -7870,6 +8183,9 @@ export {
   applyComposerHeight,
   closeGuestContinue,
   handleSessionEnded,
+  loadPaymentRequests,
+  refreshAfterMamoReturn,
+  trackPaymentRequests,
   openRouteResearchReport,
   restorePendingDocuments,
   resumeGuestSend,

@@ -426,6 +426,7 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
 
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
+  openUpgradePlans: () => {},
   /** Pending attachments block Deep Research: shows why and returns true. */
   researchBlocked: () => false,
   /** Clears clarifications (and, turning research on, the slash menu). */

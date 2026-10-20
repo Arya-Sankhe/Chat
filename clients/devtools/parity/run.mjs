@@ -25,7 +25,8 @@ const SITES = {
   new: { origin: "http://localhost:5180", user: "new" }
 };
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, phone: { width: 412, height: 915 } };
-const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "cdn.jsdelivr.net"]);
+// Both sites load Orbitron from Google Fonts at runtime.
+const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"]);
 
 // Runs before any page script: a constant Math.random, and no motion. A
 // constant (not a seeded sequence) makes every random pick independent of how
