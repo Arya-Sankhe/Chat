@@ -11,7 +11,10 @@
 import { session } from "../app/runtime";
 import { state, els } from "../state/legacy";
 import {
+  applySpectrumLevel,
+  chatHooks,
   chatSurfaces,
+  closeActionMenu,
   closeAllDrawers,
   closeAuthDialog,
   closeConfirmDialog,
@@ -19,9 +22,6 @@ import {
   closePinnedPopup,
   closeProfileMenu,
   closeSearchDialog,
-  applySpectrumLevel,
-  chatHooks,
-  closeActionMenu,
   dismissComposerKeyboard,
   hasChatAccess,
   isCouncilMode,
@@ -42,6 +42,7 @@ import {
   VISUALIZE_REPAIRING_LABEL,
   applyVisualizeFrameMessage,
   compactModelDisplayName,
+  emailCardFields,
   escapeHtml,
   fileTypeIcon,
   getCodeSource,
@@ -86,6 +87,7 @@ import {
   putUploadContent,
   requestClarifications,
   reviseEditableDocument,
+  reviseEmailDraft,
   saveEditableDocument,
   streamCompareConversationMessage,
   streamConversationMessage,
@@ -102,6 +104,7 @@ import {
   stopHomeGreeting,
   updateKluiBar
 } from "./klui.js";
+import { replaceEmailFence } from "./email.js";
 import { renderMindMap } from "./mindMap.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
@@ -187,7 +190,6 @@ async function openVoiceMode() {}
 function openUpgradePlans() {}
 function renderProjectChatCrumb() {}
 
-async function submitEmailRevise() {}
 // Settings > Storage.
 function refreshAccountStorage() {}
 // The study hub loads on demand with its slice; until then this is the old placeholder.
@@ -2370,6 +2372,13 @@ function illustrationCaptionFromMessage(message) {
 function stopExtractedModulePollers() {
   researchController.abandonResearchPolling();
   stopPendingArtifactPolls();
+}
+
+/** The api client's onExpired(), also run on sign-out: stop the pollers while
+   the active conversation is still known, so its research run ends too. */
+function handleSessionEnded() {
+  studyHub.closeSession();
+  stopExtractedModulePollers();
 }
 
 async function loadActiveConversation() {
@@ -5850,6 +5859,61 @@ async function openRouteResearchReport() {
   if (reportId) await researchController.openResearchReport(reportId, { push: false });
 }
 
+function applyEmailSource(card, source) {
+  emailHistory(card);
+  const fields = emailCardFields(source);
+  card.querySelector('[data-email-field="to"]').value = fields.to;
+  card.querySelector('[data-email-field="subject"]').innerHTML = fields.subjectHtml;
+  card.querySelector('[data-email-field="body"]').innerHTML = fields.bodyHtml;
+  recordEmailEdit(card);
+}
+
+function persistEmailRevisionLocally(messageId, source, emailIndex) {
+  const message = state.messages.find((item) => String(item?.id || "") === String(messageId || ""));
+  if (!message) return;
+  message.content = replaceEmailFence(message.content, source, emailIndex);
+}
+
+async function submitEmailRevise(form) {
+  const input = form.querySelector("[data-email-revise-input]");
+  const instruction = input?.value.trim() || "";
+  const card = form.closest("[data-email-card]");
+  if (!instruction) { input?.focus(); return; }
+  if (!card || card.classList.contains("is-revising")) return;
+  if (state.running) { showToast("Wait for the current response to finish."); return; }
+  const article = card.closest("[data-message-id]");
+  const messageId = article?.dataset.messageId || "";
+  const emailIndex = article ? [...article.querySelectorAll("[data-email-card]")].indexOf(card) : 0;
+  const { to, subject, body } = emailCardValues(card);
+  card.classList.add("is-revising");
+  card.inert = true;
+  input.disabled = true;
+  form.querySelector("button[type='submit']")?.setAttribute("disabled", "");
+  try {
+    const result = await reviseEmailDraft(state.session, {
+      draft: `To: ${to}\nSubject: ${subject}\n\n${body}`,
+      instruction,
+      messageId: state.temporaryChat ? "" : messageId,
+      emailIndex
+    });
+    const source = String(result?.source || "").trim();
+    if (!source) throw new Error("No revision returned.");
+    applyEmailSource(card, source);
+    persistEmailRevisionLocally(messageId, source, emailIndex);
+    input.value = "";
+    card.classList.remove("is-revising");
+    setEmailEditing(card, false);
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    showToast(error.message || "Could not revise email.");
+  } finally {
+    card.classList.remove("is-revising");
+    card.inert = false;
+    input.disabled = false;
+    form.querySelector("button[type='submit']")?.removeAttribute("disabled");
+  }
+}
+
 /* ─── Events: the #messages parts of bindEvents() ─── */
 
 function bindMessageEvents() {
@@ -6634,8 +6698,8 @@ async function addConversation() {
 async function signOutAndReset() {
   // Save and close an open whiteboard while the session can still save it.
   await Promise.resolve(studyHub.closeWhiteboard?.()).catch(() => {});
+  // The session subscriber in boot.ts stops the pollers (handleSessionEnded).
   await session.signOut();
-  stopExtractedModulePollers();
   clearGuestSend();
   state.me = null;
   state.memory = null;
@@ -6654,6 +6718,35 @@ async function signOutAndReset() {
   syncConversationUrl({ replace: true });
   closeAllDrawers();
   renderShell();
+}
+
+/* ─── Events: the research report (bindEvents) ─── */
+
+function bindResearchEvents() {
+  els.researchReportBack?.addEventListener("click", () => researchController.closeResearchReport());
+  els.researchVisualTab?.addEventListener("click", () => researchController.setResearchReportView("visual"));
+  els.researchTextTab?.addEventListener("click", () => researchController.setResearchReportView("text"));
+  els.researchCopy?.addEventListener("click", () => {
+    const text = state.researchReport?.report || "";
+    copyText(text).then(() => flashCopySuccess(els.researchCopy)).catch(() => showToast("Copy failed."));
+  });
+  els.researchReportToc?.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href^='#']");
+    if (!link) return;
+    const heading = document.getElementById(link.getAttribute("href").slice(1));
+    if (!heading) return;
+    event.preventDefault();
+    const header = els.researchReportView.querySelector(".research-report-header");
+    const top = heading.getBoundingClientRect().top
+      - els.researchReportView.getBoundingClientRect().top
+      + els.researchReportView.scrollTop
+      - (header?.offsetHeight || 0)
+      - 20;
+    els.researchReportView.scrollTo({
+      top: Math.max(0, top),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+  });
 }
 
 /* ─── Events: back and forward (bindEvents) ─── */
@@ -7081,12 +7174,18 @@ const GUEST_CONTINUE_HTML = `<section class="message assistant guest-continue hi
 </section>`;
 
 const standIn = () => document.createElement("div");
-let mounted = false;
+let mountedMessages = null;
 
-/** Creates the controllers and binds #messages once; renders on every renderShell(). */
+/** Creates the controllers and binds the chat once per page, as bindEvents()
+   did; renders on every renderShell(). AppRoot is the root and never unmounts,
+   so there is no teardown. Only a development hot update can re-create the
+   elements, and then the page reloads rather than run on stale bindings. */
 export function mountChat() {
-  if (mounted) return;
-  mounted = true;
+  if (mountedMessages) {
+    if (mountedMessages !== els.messages && import.meta.hot) location.reload();
+    return;
+  }
+  mountedMessages = els.messages;
   els.messages.nextSibling.after(document.createRange().createContextualFragment(GUEST_CONTINUE_HTML), " ");
   createChatDocumentViewer();
   researchController = createResearchController({
@@ -7184,6 +7283,7 @@ export function mountChat() {
   });
   bindMessageEvents();
   bindComposerEvents();
+  bindResearchEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
     pendingNeedsVision: pendingPromptNeedsVision,
@@ -7234,6 +7334,14 @@ export function mountChat() {
     updateComposerPlaceholder();
     if (state.session && hasChatAccess()) compareController.syncCompareContextBanner();
   };
+  // applyAppearance() also switched the code highlight stylesheet.
+  let lastAppearance = resolvedAppearance();
+  useApp.subscribe(() => {
+    const appearance = resolvedAppearance();
+    if (appearance === lastAppearance) return;
+    lastAppearance = appearance;
+    applyCodeHighlightTheme(appearance);
+  });
   let lastShellRender = useApp.getState().shellRender;
   if (lastShellRender > 0 && useApp.getState().view === "chat") renderChatShell();
   useApp.subscribe((s) => {
@@ -7252,6 +7360,7 @@ export {
   addConversation,
   applyComposerHeight,
   closeGuestContinue,
+  handleSessionEnded,
   openRouteResearchReport,
   restorePendingDocuments,
   resumeGuestSend,

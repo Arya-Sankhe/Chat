@@ -4,7 +4,7 @@
 import { api, session } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
-import { closeGuestContinue, loadChatApp, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
+import { closeGuestContinue, handleSessionEnded, loadChatApp, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -139,6 +139,7 @@ export async function bootstrap() {
 
 // A dead refresh token (or another tab signing out) ends the session.
 session.subscribe((next) => {
+  if (!next) handleSessionEnded();
   if (!next && get().signedIn) {
     set({ signedIn: false, me: null, conversations: [], activeConversationId: "", pinnedChatIds: [] });
     renderShell();

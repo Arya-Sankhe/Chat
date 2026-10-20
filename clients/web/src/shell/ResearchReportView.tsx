@@ -1,6 +1,14 @@
+import { useLayoutEffect, useRef } from "react";
+import { useApp } from "../state/app";
+
 export function ResearchReportView() {
+  // showOnly(): the research controller also toggles .text-only on this
+  // section, so React flips only .hidden and leaves the class list alone.
+  const ref = useRef<HTMLElement>(null);
+  const view = useApp((s) => s.view);
+  useLayoutEffect(() => { ref.current!.classList.toggle("hidden", view !== "research"); }, [view]);
   return (
-    <section className="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
+    <section ref={ref} className="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
       <header className="research-report-header">
         <button className="research-report-back" id="researchReportBack" type="button" aria-label="Back to chat">
           <svg className="research-report-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

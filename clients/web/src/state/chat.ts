@@ -16,6 +16,7 @@ export const restorePendingDocuments = core.restorePendingDocuments as () => Pro
 export const openRouteResearchReport = core.openRouteResearchReport as () => Promise<void>;
 export const resumeGuestSend = core.resumeGuestSend as () => Promise<void>;
 export const closeGuestContinue = core.closeGuestContinue as () => void;
+export const handleSessionEnded = core.handleSessionEnded as () => void;
 export const prefetchRecentChats = core.prefetchRecentChats as (promise: Promise<unknown>) => void;
 
 /** Before boot: what index.html's script painted on a phone opened at "/". */

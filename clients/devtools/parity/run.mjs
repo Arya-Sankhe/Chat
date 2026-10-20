@@ -32,6 +32,11 @@ const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "cdn.jsdelivr.net"]);
 // many draws happened before it, so the two sites needn't draw in the same order.
 function determinism() {
   Math.random = () => 0.42;
+  // Scripts that have finished loading or failed: the apps render either way.
+  const settled = (globalThis.__paritySettledScripts = new Set());
+  const mark = (event) => { if (event.target?.tagName === "SCRIPT" && event.target.src) settled.add(event.target.src); };
+  document.addEventListener("load", mark, true);
+  document.addEventListener("error", mark, true);
   const style = "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;animation-iteration-count:1!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}";
   document.addEventListener("DOMContentLoaded", () => {
     const tag = document.createElement("style");
@@ -49,9 +54,14 @@ async function settle(page, scenario) {
   // Scenarios capturing transient UI (a toast) pass a shorter settleMs.
   await page.clock.runFor(scenario.settleMs ?? 30_000);
   // A conversation loads math and code highlighting from the CDN, then re-renders
-  // (loadRichTextAssets). Wait for the scripts, then let the queued render run.
-  await page.waitForFunction(() => !document.querySelector('script[src*="highlight.min.js"]') || (globalThis.hljs && globalThis.katex));
-  await page.clock.runFor(1000);
+  // (loadRichTextAssets, which goes on if a script fails). Wait for the scripts
+  // to load or fail, then let the queued render run.
+  const richText = await page.evaluate(() => Boolean(document.querySelector('script[src*="highlight.min.js"]')));
+  if (richText) {
+    await page.waitForFunction(() => [...document.querySelectorAll('script[src*="cdn.jsdelivr.net"]')]
+      .every((script) => globalThis.__paritySettledScripts.has(script.src)));
+    await page.clock.runFor(1000);
+  }
   await page.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].filter((img) => !img.complete).map((img) => new Promise((resolve) => { img.onload = img.onerror = resolve; })));
