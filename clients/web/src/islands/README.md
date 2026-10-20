@@ -21,5 +21,9 @@ markup classes, and sending, streaming (`streaming.js`, `reasoning.js`,
 here. The rest of the composer is React's; `chatHooks` in `state/app.ts` is how
 it asks the core about pending attachments and fills the prompt. Settings
 (memory, storage, account) and the pricing screen (plans, coupons, checkout)
-are the core's too; React renders their markup and flips the views. Island changes are noted in
+are the core's too; React renders their markup and flips the views. The Dojo
+(`studyHub.js` and its `study*.js` modules, loaded on demand) moves the
+composer, `#messages` and the document viewer into its own panels; React
+renders those nodes among static siblings only, so it never has to re-insert
+them. Island changes are noted in
 a header comment where a file differs from its original.

@@ -112,6 +112,17 @@ for (const site of SITES) {
         out.closed = await paywall("closed");
       }
     }
+    // Phones: a right swipe dismisses the pricing screen like any top surface.
+    if (viewport.width < 500) {
+      await send();
+      await page.evaluate(() => {
+        const target = document.querySelector("#paywallView .paywall-hero");
+        const touch = (x) => new Touch({ identifier: 1, target, clientX: x, clientY: 200 });
+        target.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, touches: [touch(80)], changedTouches: [touch(80)] }));
+        target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, touches: [], changedTouches: [touch(260)] }));
+      });
+      out.swiped = await paywall("swiped");
+    }
     await home("/?coupon=FIRST50");
     await send();
     await page.waitForTimeout(800);

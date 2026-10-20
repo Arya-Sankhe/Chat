@@ -4,6 +4,7 @@
 import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
 import { closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
+import { closeBetaWelcome } from "../state/betaWelcome";
 import { mountCameraSheet } from "../state/camera";
 import { mountChat } from "../state/chat";
 import { installGlobalEvents } from "../state/globalEvents";
@@ -55,14 +56,15 @@ const MOVED_NOTICE_CSS = `
         #movedNotice .moved-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
       `;
 
-/** The shared dimmer; a click closes whatever it is dimming for. Account,
-   welcome and app-update modes join with their slices. */
+/** The shared dimmer; a click closes whatever it is dimming for. Account and
+   app-update modes join with their slices. */
 function Overlay() {
   const mode = useApp((s) => s.overlay);
   const close = () => {
     if (mode === "confirm") closeConfirmDialog();
     else if (mode === "rename") closeRenameDialog();
     else if (mode === "auth") closeAuthDialog();
+    else if (mode === "welcome") closeBetaWelcome();
     else if (mode === "search") closeSearchDialog();
     else closeSettings();
   };

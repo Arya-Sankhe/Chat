@@ -90,10 +90,11 @@ export interface AppState {
   /** The auth dialog's artwork loads on first open (or when idle for guests). */
   authArtLoaded: boolean;
   /** openDeleteConfirm(): open when set. */
-  confirm: { title: string; body: string; confirmLabel: string; chatId: string; onConfirm: (() => Promise<void> | void) | null } | null;
+  confirm: { title: string; body: string; confirmLabel: string; chatId: string; attachmentId: string; projectId: string; onConfirm: (() => Promise<void> | void) | null } | null;
   /** openRenameDialog(): open when set; `onSave` renames something other than a chat. */
   rename: { title: string; value: string; chatId: string; onSave: ((title: string) => Promise<void>) | null } | null;
   overlay: OverlayMode;
+  betaWelcomeOpen: boolean;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
   /** Counts renderShell() calls. The old shell rebuilt the home greeting on
@@ -157,6 +158,7 @@ export const useApp = create<AppState>(() => ({
   confirm: null,
   rename: null,
   overlay: "",
+  betaWelcomeOpen: false,
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
   shellRender: 0
@@ -427,6 +429,9 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
   openUpgradePlans: () => {},
+  deletePendingAttachment: async (_id: string) => {},
+  deletePendingProject: async (_id: string) => {},
+  openStudyHub: () => {},
   /** Pending attachments block Deep Research: shows why and returns true. */
   researchBlocked: () => false,
   /** Clears clarifications (and, turning research on, the slash menu). */
@@ -446,16 +451,21 @@ export const chatHooks = {
 export const chatSurfaces = {
   emailMenu: () => false,
   emailEditing: () => false,
+  study: () => false,
+  skillMenu: () => false,
+  compareDropdown: () => false,
   lightbox: () => false,
   viewer: () => false,
   guestContinue: () => false
 };
 
 /** closeTopNativeSurface(): back gesture, sheet backdrop and Escape close the
-   topmost surface first. Returns whether something closed. Surfaces from
-   later slices join this list as they arrive, in the old order. */
+   topmost surface first. Returns whether something closed. The app update
+   dialog (native only) joins with the native slice. */
 export function closeTopNativeSurface() {
   if (closeCameraSheet()) return true;
+  const contextToggle = document.querySelector<HTMLElement>("[data-context-toggle][aria-expanded=true]");
+  if (contextToggle) { contextToggle.click(); return true; }
   const deckDialog = document.getElementById("deckPresetDialog") as HTMLDialogElement | null;
   if (deckDialog?.open) { deckDialog.close(); return true; }
   if (homeModes.closePicker()) return true;
@@ -463,8 +473,10 @@ export function closeTopNativeSurface() {
   if (s.modeSheetOpen) { closeMobileModeSheet(); return true; }
   if (s.actionMenu) { closeActionMenu(); return true; }
   if (s.spectrumOpen) { closeModelDropdown(); return true; }
+  if (chatSurfaces.study()) return true;
   if (chatSurfaces.lightbox()) return true;
   if (chatSurfaces.viewer()) return true;
+  if (s.view === "paywall") { renderShell(); return true; }
   if (s.settingsOpen) { closeSettings(); return true; }
   if (s.authOpen) { closeAuthDialog(); return true; }
   if (chatSurfaces.guestContinue()) return true;
@@ -565,13 +577,13 @@ export function closeAllDrawers() {
 
 /* ─── Confirm and rename dialogs ─── */
 
-export function openDeleteConfirm({ title, body, chatId = "", onConfirm = null, confirmLabel = "Delete" }: {
-  title: string; body: string; chatId?: string; onConfirm?: (() => Promise<void> | void) | null; confirmLabel?: string;
+export function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null, confirmLabel = "Delete" }: {
+  title: string; body: string; chatId?: string; attachmentId?: string; projectId?: string; onConfirm?: (() => Promise<void> | void) | null; confirmLabel?: string;
 }) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
-  set({ confirm: { title, body, chatId, onConfirm, confirmLabel }, overlay: "confirm" });
+  set({ confirm: { title, body, chatId, attachmentId, projectId, onConfirm, confirmLabel }, overlay: "confirm" });
 }
 
 export function openConfirmDialog(chatId: string) {
@@ -596,6 +608,17 @@ export async function confirmPendingDelete(removeConversation: (id: string) => P
     await pending.onConfirm();
     return;
   }
+  // Files and projects (Dojo courses) belong to the chat core.
+  if (pending.attachmentId) {
+    closeConfirmDialog();
+    await chatHooks.deletePendingAttachment(pending.attachmentId);
+    return;
+  }
+  if (pending.projectId) {
+    closeConfirmDialog();
+    await chatHooks.deletePendingProject(pending.projectId);
+    return;
+  }
   if (pending.chatId) await removeConversation(pending.chatId);
 }
 
@@ -606,6 +629,15 @@ export function openRenameDialog(chatId: string) {
   closePinnedPopup();
   closeProfileMenu();
   set({ rename: { title: "Rename chat", value: conversation.title || "New chat", chatId, onSave: null }, overlay: "rename" });
+}
+
+/** openRenameDialog() with { title, value, onSave }: renames something other
+   than a chat (Dojo courses, decks, notes). */
+export function openTitleRename({ title, value, onSave }: { title?: string; value?: string; onSave: (title: string) => Promise<void> }) {
+  closeConversationMenus();
+  closePinnedPopup();
+  closeProfileMenu();
+  set({ rename: { title: title || "Rename", value: value || "", chatId: "", onSave }, overlay: "rename" });
 }
 
 export function closeRenameDialog() {

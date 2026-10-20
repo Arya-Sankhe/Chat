@@ -4,6 +4,7 @@
 import { api, session } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
+import { maybeShowBetaWelcome } from "./betaWelcome";
 import { closeGuestContinue, handleSessionEnded, loadChatApp, loadPaymentRequests, refreshAfterMamoReturn, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 
 const set = useApp.setState;
@@ -52,6 +53,7 @@ export async function loadMe() {
     set((s) => ({ settings: { ...s.settings, systemPrompt: (me as any).settings.systemPrompt } }));
   }
   loadPinnedChatIds();
+  maybeShowBetaWelcome();
 }
 
 /** The web build monitor: a newer deploy shows the "Klui has updated" toast. */

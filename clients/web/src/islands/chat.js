@@ -30,6 +30,7 @@ import {
   openAuthDialog,
   openDeleteConfirm,
   openSettings,
+  openTitleRename,
   renderShell,
   savePinnedChatIds,
   setSettingsTab,
@@ -62,6 +63,34 @@ import {
   stripRedundantSourcesFooter
 } from "./render.js";
 import {
+  createProject,
+  deleteProject,
+  updateProject,
+  updateConversation,
+  generateStudyContent,
+  deleteStudyMaterial,
+  fetchStudyQueue,
+  updateStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
+  fetchStudyQuiz,
+  updateStudyQuiz,
+  deleteStudyQuiz,
+  fetchStudyPodcast,
+  updateStudyPodcast,
+  deleteStudyPodcast,
+  prepareStudyTutor,
+  fetchStudyTutor,
+  updateStudyTutor,
+  deleteStudyTutor,
+  transcribeTutorAudio,
+  streamTutorTurn,
+  endStudyTutor,
+  openTutorBoard,
+  submitStudyQuizAttempt,
+  exportStudyNote,
+  deleteStudyNote,
   askDocument,
   cancelMamoSubscription,
   cancelPendingDocumentTurn,
@@ -187,9 +216,9 @@ function showOnly(view) {
   set({ view: views.get(view) || "chat" });
 }
 
-function focusPromptInput() {
-  els.promptInput?.focus();
-}
+// The old focusPromptInput() only acted in the native app, where it also raised
+// the keyboard; on the web the click that got here already placed the caret.
+function focusPromptInput() {}
 
 function isMobileLayout() {
   return useApp.getState().mobile;
@@ -217,21 +246,6 @@ function renderSettingsStorage() {}
 
 // The admin dashboard.
 const adminPanel = { saveGlobalSystemPrompt() {} };
-
-// Projects.
-function renderProjectChatCrumb() {}
-
-// The study hub loads on demand with its slice; until then this is the old placeholder.
-let studyHub = {
-  closeSession() {},
-  handleEscape() { return false; },
-  render() {},
-  resetCourseCaches() {},
-  async loadCourse() {}
-};
-async function loadStudyHub() {
-  return studyHub;
-}
 
 /* ─── From public/js/app.js ─── */
 
@@ -6379,7 +6393,7 @@ function showPaywall({ allowReturn = false } = {}) {
 function openUpgradePlans() {
   if (!state.session) return;
   closeProfileMenu();
-  document.body.classList.remove("sidebar-open");
+  set({ sidebarOpen: false });
   closeAllDrawers();
   if (isNative()) {
     showToast("Subscribe on the website.");
@@ -6627,6 +6641,674 @@ function loadGoogleFonts() {
   link.rel = "stylesheet";
   link.href = GOOGLE_FONTS_HREF;
   document.head.appendChild(link);
+}
+
+let selectedTextContext = null;
+
+const sideChatState = {
+  context: "",
+  messages: [],
+  running: false,
+  abortController: null,
+  autoScroll: true,
+  touchY: 0,
+  flashcard: false,
+  role: "",
+  onAddToCard: null,
+  added: new Set(),
+  docked: false,
+  suggestions: [],
+  onClose: null
+};
+
+function selectionActionsEnabled() {
+  return !isNative() && window.matchMedia("(pointer: fine)").matches;
+}
+
+function hideSelectionActions() {
+  els.selectionActions?.classList.add("hidden");
+}
+
+function showSelectionActionsFromCurrentSelection() {
+  if (!selectionActionsEnabled() || !els.selectionActions) return hideSelectionActions();
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return hideSelectionActions();
+  const text = selection.toString().trim();
+  if (!text) return hideSelectionActions();
+
+  const range = selection.getRangeAt(0);
+  const node = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+  if (!(node instanceof Element) || !node.closest(".message.assistant .message-content")) {
+    return hideSelectionActions();
+  }
+
+  const rect = range.getBoundingClientRect();
+  if (!rect.width && !rect.height) return hideSelectionActions();
+  selectedTextContext = {
+    text: text.slice(0, LONG_PASTE_MAX_CHARS),
+    rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+  };
+  els.selectionActions.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const width = els.selectionActions.offsetWidth;
+    const height = els.selectionActions.offsetHeight;
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8);
+    const below = rect.bottom + 8;
+    const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 8);
+    els.selectionActions.style.left = `${left}px`;
+    els.selectionActions.style.top = `${top}px`;
+  });
+}
+
+function renderSideChat() {
+  if (!els.sideChatMessages) return;
+  const beforePinned = sideChatState.autoScroll && isNearBottom(els.sideChatMessages, 60);
+  const beforeScrollTop = els.sideChatMessages.scrollTop;
+  els.sideChatMessages.innerHTML = sideChatState.messages.map((message, index) => {
+    const text = rawTextContent(message.content);
+    const body = message.role === "assistant" ? renderContent(text) : renderPlainText(text);
+    const streaming = message.role === "assistant"
+      && sideChatState.running
+      && index === sideChatState.messages.length - 1;
+    const activity = message.role === "assistant"
+      ? renderAssistantActivity(message, { streaming })
+      : "";
+    const add = message.role === "assistant"
+      && sideChatState.onAddToCard
+      && !streaming
+      && !message.error
+      && text.trim()
+      ? `<button class="side-chat-add-card" type="button" data-add-to-card="${index}"${sideChatState.added.has(index) ? " disabled" : ""}>${sideChatState.added.has(index) ? "Added" : "Add to this card"}</button>`
+      : "";
+    return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}${add}</div>`;
+  }).join("");
+  hydrateKluiBars(els.sideChatMessages);
+  renderSideChatSuggestions();
+  // Context is always attached — empty prompt is still sendable.
+  els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
+  if (beforePinned) {
+    els.sideChatMessages.scrollTop = els.sideChatMessages.scrollHeight;
+  } else {
+    els.sideChatMessages.scrollTop = beforeScrollTop;
+  }
+}
+
+// One-tap prompts: stacked while the chat is empty, then a single scrolling row.
+function renderSideChatSuggestions() {
+  const box = els.sideChatSuggest;
+  if (!box) return;
+  const list = sideChatState.suggestions;
+  box.classList.toggle("hidden", !list.length);
+  box.classList.toggle("is-row", sideChatState.messages.length > 0);
+  const markup = list.map(([label], index) => `<button type="button" data-side-chat-suggest="${index}"${sideChatState.running ? " disabled" : ""}>${escapeHtml(label)}</button>`).join("");
+  if (box.innerHTML !== markup) box.innerHTML = markup;
+}
+
+function setSideChatDocked(docked) {
+  sideChatState.docked = docked;
+  els.sideChatPanel?.classList.toggle("is-docked", docked);
+  document.body.classList.toggle("side-chat-docked", docked);
+  if (docked && els.sideChatPanel) {
+    els.sideChatPanel.style.left = "";
+    els.sideChatPanel.style.top = "";
+  }
+}
+
+function closeSideChat() {
+  const onClose = sideChatState.onClose;
+  sideChatState.onClose = null;
+  sideChatState.suggestions = [];
+  setSideChatDocked(false);
+  if (els.sideChatTitle) els.sideChatTitle.textContent = "Side chat";
+  sideChatState.abortController?.abort();
+  sideChatState.abortController = null;
+  sideChatState.running = false;
+  sideChatState.context = "";
+  sideChatState.messages = [];
+  sideChatState.autoScroll = true;
+  sideChatState.flashcard = false;
+  sideChatState.role = "";
+  sideChatState.onAddToCard = null;
+  sideChatState.added = new Set();
+  els.sideChatPanel?.classList.add("hidden");
+  if (els.sideChatInput) {
+    els.sideChatInput.value = "";
+    els.sideChatInput.placeholder = "Ask about this";
+  }
+  onClose?.();
+}
+
+function openSideChat(context, anchorRect, options = {}) {
+  if (!selectionActionsEnabled() || !els.sideChatPanel) return;
+  sideChatState.abortController?.abort();
+  sideChatState.context = String(context || "").trim();
+  sideChatState.messages = [];
+  sideChatState.running = false;
+  sideChatState.abortController = null;
+  sideChatState.autoScroll = true;
+  sideChatState.flashcard = Boolean(options.flashcard);
+  sideChatState.role = options.role || "";
+  sideChatState.onAddToCard = typeof options.onAddToCard === "function" ? options.onAddToCard : null;
+  sideChatState.added = new Set();
+  sideChatState.suggestions = Array.isArray(options.suggestions) ? options.suggestions : [];
+  sideChatState.onClose = typeof options.onClose === "function" ? options.onClose : null;
+  if (els.sideChatTitle) els.sideChatTitle.textContent = options.title || "Side chat";
+  els.sideChatContext.textContent = sideChatState.context.replace(/\s+/g, " ").slice(0, 180);
+  if (els.sideChatInput) {
+    els.sideChatInput.value = options.initialText || "";
+    els.sideChatInput.placeholder = sideChatState.flashcard ? "Ask any doubts." : "Ask about this";
+  }
+  els.sideChatPanel.classList.remove("hidden");
+  setSideChatDocked(Boolean(options.docked));
+  if (sideChatState.docked) {
+    renderSideChat();
+    if (options.focus) els.sideChatInput?.focus();
+    if (options.send && els.sideChatInput?.value.trim()) void sendSideChatMessage();
+    return;
+  }
+  const panelWidth = els.sideChatPanel.offsetWidth || 380;
+  const panelHeight = els.sideChatPanel.offsetHeight || 480;
+  const preferredLeft = (anchorRect?.right || 12) + 14;
+  const left = preferredLeft + panelWidth <= window.innerWidth - 12
+    ? preferredLeft
+    : Math.max(12, (anchorRect?.left || 12) - panelWidth - 14);
+  const top = Math.min(Math.max(12, anchorRect?.top || 12), window.innerHeight - panelHeight - 12);
+  els.sideChatPanel.style.left = `${left}px`;
+  els.sideChatPanel.style.top = `${Math.max(12, top)}px`;
+  renderSideChat();
+  els.sideChatInput?.focus();
+  if (options.send && els.sideChatInput?.value.trim()) void sendSideChatMessage();
+}
+
+async function sendSideChatMessage() {
+  if (sideChatState.running || !sideChatState.context) return;
+  // Highlighted context is enough — empty input still asks about the selection.
+  const text = els.sideChatInput?.value.trim() || (sideChatState.flashcard ? "" : "Explain this.");
+  if (!text) return;
+
+  const lead = sideChatState.flashcard
+    ? "Use this flashcard as context for my questions:\n\n"
+    : "Use this selected excerpt from the main chat as context for my questions:\n\n";
+  const history = [
+    { role: "user", content: `${lead}${sideChatState.context}` },
+    ...sideChatState.messages.slice(-18).map((message) => ({
+      role: message.role,
+      content: rawTextContent(message.content)
+    }))
+  ];
+  const userMessage = { role: "user", content: text };
+  const assistantMessage = { role: "assistant", content: "", reasoning: "", toolCalls: [] };
+  sideChatState.messages.push(userMessage, assistantMessage);
+  els.sideChatInput.value = "";
+  sideChatState.running = true;
+  sideChatState.autoScroll = true;
+  const controller = new AbortController();
+  sideChatState.abortController = controller;
+  renderSideChat();
+
+  try {
+    await streamTemporaryChat(state.session, {
+      text,
+      messages: history,
+      role: sideChatState.role || selectedSingleRole(),
+      settings: chatRequestSettings(),
+      writingStyle: "concise",
+      agentMode: !sideChatState.flashcard,
+      webSearch: sideChatState.flashcard ? "off" : (state.settings.webSearchMode !== "off" ? "auto" : "off")
+    }, {
+      signal: controller.signal,
+      onEvent: (event) => {
+        applyStreamEvent(assistantMessage, event);
+        renderSideChat();
+      }
+    });
+    loadMe().catch(() => {});
+  } catch (error) {
+    if (error.name !== "AbortError") assistantMessage.error = error.message || "Side chat failed.";
+  } finally {
+    if (sideChatState.abortController === controller) {
+      sideChatState.abortController = null;
+      sideChatState.running = false;
+      renderSideChat();
+      els.sideChatInput?.focus();
+    }
+  }
+}
+
+let studyHub = {
+  closeSession() {},
+  handleEscape() { return false; },
+  render() {}
+};
+
+let studyHubPromise;
+
+function syncStudyUrl({ replace = false } = {}) {
+  if (suppressUrlSync) return;
+  const target = state.activeCourseId ? `/study/${encodeURIComponent(state.activeCourseId)}` : "/study";
+  if (window.location.pathname === target) return;
+  window.history[replace ? "replaceState" : "pushState"]({ courseId: state.activeCourseId || "" }, "", target);
+}
+
+function renderProjectChatCrumb() {
+  if (!els.projectChatCrumb) return;
+  const conversation = state.conversations.find((item) => item.id === state.activeConversationId);
+  const projectId = conversation?.project_id || "";
+  // Only while a project chat is open — not on the project home / normal chats.
+  const visible = Boolean(projectId && state.activeConversationId && !state.projectsOpen && !state.studyOpen && !state.temporaryChat);
+  els.projectChatCrumb.classList.toggle("hidden", !visible);
+  document.body.classList.toggle("project-chat-open", visible);
+  if (!visible) return;
+  const project = state.projects.find((item) => item.id === projectId)
+    || (state.activeProject?.project?.id === projectId ? state.activeProject.project : null);
+  const isCourse = project?.kind === "course";
+  if (!isCourse && !PROJECTS_ENABLED) {
+    els.projectChatCrumb.classList.add("hidden");
+    document.body.classList.remove("project-chat-open");
+    return;
+  }
+  const name = project?.name || (isCourse ? "Course" : "Project");
+  els.projectChatCrumb.dataset.projectId = isCourse ? "" : projectId;
+  els.projectChatCrumb.dataset.courseId = isCourse ? projectId : "";
+  els.projectChatCrumb.classList.toggle("study-chat-crumb", isCourse);
+  els.projectChatCrumb.setAttribute("aria-label", `Back to ${name}`);
+  if (els.projectChatCrumbName) els.projectChatCrumbName.textContent = name;
+}
+
+async function loadStudyHub() {
+  if (!studyHubPromise) {
+    studyHubPromise = import("./studyHub.js").then(({ createStudyHubController }) => {
+      studyHub = createStudyHubController({
+        state,
+        els,
+        // The sidebar is the store's (state/body.ts).
+        closeSidebar: () => set({ sidebarOpen: false }),
+        escapeHtml,
+        renderContent,
+        showToast,
+        requireAuth,
+        blockChatNavigationWhileRunning,
+        parkActiveConversationRun,
+        clearClarification,
+        closeDocumentViewer,
+        openDocumentViewer,
+        syncPagePicks,
+        renderShell,
+        renderImages,
+        openConversation,
+        openDeleteConfirm,
+        openTitleRename,
+        isSupportedDocumentFile,
+        fetchProject,
+        createProject,
+        updateProject,
+        updateConversation,
+        presignUpload,
+        putUploadContent,
+        completeUpload,
+        deleteAttachment,
+        fetchDocumentStatus,
+        fetchStudyMaterials,
+        generateStudyContent,
+        deleteStudyMaterial,
+        fetchStudyPractice,
+        fetchStudyQueue,
+        createStudyCard,
+        updateStudyCard,
+        deleteStudyCard,
+        updateStudyDeck,
+        deleteStudyDeck,
+        fetchStudyQuiz,
+        updateStudyQuiz,
+        deleteStudyQuiz,
+        fetchStudyPodcast,
+        updateStudyPodcast,
+        deleteStudyPodcast,
+        prepareStudyTutor,
+        fetchStudyTutor,
+        updateStudyTutor,
+        deleteStudyTutor,
+        transcribeTutorAudio,
+        transcribeDictation: async (blob) => String((await transcribeSpeech(state.session, await voiceRecordingWav(blob))).transcript || "").trim(),
+        speechEnabled: () => Boolean(state.config?.services?.speech),
+        streamTutorTurn,
+        endStudyTutor,
+        openTutorBoard,
+        submitStudyQuizAttempt,
+        exportStudyNote,
+        deleteStudyNote,
+        fetchDocumentJobStatus,
+        downloadAttachment,
+        flashCopySuccess,
+        syncStudyUrl,
+        loadProjects,
+        canUseSideChat: selectionActionsEnabled,
+        openSideChat,
+        closeSideChat
+      });
+      studyHub.bindEvents();
+      return studyHub;
+    });
+  }
+  return studyHubPromise;
+}
+
+function formatProjectBytes(bytes) {
+  const value = Math.max(0, Number(bytes || 0));
+  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
+  return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+function projectSourceRows(project = state.activeProject) {
+  return (project?.documents || []).map((document) => {
+    const attachment = Array.isArray(document.attachments) ? document.attachments[0] : document.attachments;
+    return { ...document, attachment: attachment || null };
+  }).filter((document) => document.attachment?.id);
+}
+
+function projectListMarkup() {
+  const search = state.projectSearch.trim().toLowerCase();
+  const projects = [...(state.projects || []).filter((project) => project.kind !== "course")].sort((a, b) => state.projectSort === "name"
+      ? a.name.localeCompare(b.name)
+      : new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+  const visibleCount = projects.filter((project) => !search || project.name.toLowerCase().includes(search)).length;
+  const rows = projects.map((project) => `
+        <button class="project-list-row" type="button" data-open-project-id="${escapeHtml(project.id)}" ${search && !project.name.toLowerCase().includes(search) ? "hidden" : ""}>
+          <span class="project-list-copy">
+            <strong>${escapeHtml(project.name)}</strong>
+            <small>Updated ${escapeHtml(formatChatAge(project.updated_at || project.created_at).toLowerCase())}</small>
+          </span>
+        </button>
+      `).join("");
+  const empty = `<div class="project-empty" ${visibleCount ? "hidden" : ""}><strong>${search ? "No matching projects" : "No projects yet"}</strong><p>${search ? "Try another search." : "Create one to keep related chats, instructions, and files together."}</p></div>`;
+
+  return `
+    <div class="projects-page">
+      <header class="projects-page-header">
+        <h1>Projects</h1>
+        <div class="projects-page-actions">
+          <label class="project-sort-control">Sort by
+            <select data-project-sort aria-label="Sort projects">
+              <option value="updated" ${state.projectSort === "updated" ? "selected" : ""}>Last updated</option>
+              <option value="name" ${state.projectSort === "name" ? "selected" : ""}>Name</option>
+            </select>
+          </label>
+          <button class="project-primary-button" type="button" data-create-project>New project</button>
+        </div>
+      </header>
+      <label class="project-search-control">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input type="search" data-project-search value="${escapeHtml(state.projectSearch)}" placeholder="Search projects..." aria-label="Search projects">
+      </label>
+      <div class="project-list">${rows}${empty}</div>
+    </div>`;
+}
+
+function projectDetailMarkup() {
+  const payload = state.activeProject;
+  if (!payload?.project) return `<div class="project-loading">Loading project...</div>`;
+  const project = payload.project;
+  const usage = payload.usage || { usedBytes: 0, maxBytes: state.me?.plan?.maxProjectBytes || 0, percent: 0 };
+  const conversations = payload.conversations || [];
+  const sources = projectSourceRows(payload);
+  const recentMarkup = conversations.length
+    ? conversations.slice(0, 6).map((conversation) => `
+        <div class="project-recent-row">
+          <button class="project-recent-open" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+            <span>${escapeHtml(conversation.title || "New chat")}</span>
+          </button>
+          <small class="project-recent-age">${escapeHtml(formatChatAge(conversation.updated_at || conversation.created_at))}</small>
+          <button class="project-recent-delete" type="button" data-delete-project-chat-id="${escapeHtml(conversation.id)}" aria-label="Delete ${escapeHtml(conversation.title || "chat")}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>`).join("")
+    : `<p class="project-section-empty">Your first conversation will appear here.</p>`;
+  const sourceMarkup = sources.length
+    ? sources.map((document) => {
+        const attachment = document.attachment;
+        const ready = Boolean(document.text_ready_at || document.visual_ready_at);
+        const status = ready ? "Ready" : document.processing_status === "failed" ? "Failed" : "Processing";
+        return `
+          <div class="project-source-row${ready ? " is-ready" : ""}" data-view-project-attachment="${escapeHtml(attachment.id)}" data-file-name="${escapeHtml(attachment.file_name || "Document")}" data-format="${escapeHtml(document.kind || "")}" data-ready="${ready ? "1" : "0"}" role="button" tabindex="${ready ? "0" : "-1"}" ${ready ? "" : 'aria-disabled="true"'}>
+            <button type="button" class="project-source-remove" data-remove-project-attachment="${escapeHtml(attachment.id)}" data-file-name="${escapeHtml(attachment.file_name || "Document")}" aria-label="Remove ${escapeHtml(attachment.file_name || "document")}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+            <span class="project-source-kind">${escapeHtml(String(document.kind || "file").toUpperCase())}</span>
+            <span class="project-source-copy"><strong>${escapeHtml(attachment.file_name || "Document")}</strong><small>${escapeHtml(formatProjectBytes(attachment.size_bytes))} · ${escapeHtml(status)}</small></span>
+          </div>`;
+      }).join("")
+    : `<p class="project-section-empty">Add files to give every chat in this project shared context.</p>`;
+
+  return `
+    <button class="project-back-button" type="button" data-projects-back>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      All projects
+    </button>
+    <div class="project-detail-page">
+      <div class="project-detail-layout">
+        <main class="project-detail-main">
+          <header class="project-detail-header">
+            <input class="project-title-input" value="${escapeHtml(project.name)}" maxlength="80" aria-label="Project name">
+            <div class="project-menu-wrap">
+              <button class="project-menu-btn" type="button" data-toggle-project-menu aria-label="Project options" aria-haspopup="menu" aria-expanded="false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </button>
+              <div class="project-menu hidden" data-project-menu role="menu">
+                <button class="project-menu-item project-menu-danger" type="button" role="menuitem" data-delete-project>Delete project</button>
+              </div>
+            </div>
+          </header>
+          <div class="project-composer-slot"></div>
+          <section class="project-recents-section">
+            <div class="project-section-heading"><h2>Recents</h2></div>
+            <div class="project-recent-list">${recentMarkup}</div>
+          </section>
+        </main>
+
+        <aside class="project-context-panel">
+          <section class="project-context-section project-instructions-section">
+            <div class="project-section-heading"><div><h2>Instructions</h2><p>Applied to every response in this project.</p></div><button type="button" data-save-project-instructions>Save</button></div>
+            <textarea class="project-instructions-input" maxlength="10000" placeholder="How should Klui help with this project?">${escapeHtml(project.instructions || "")}</textarea>
+          </section>
+
+          <section class="project-context-section project-files-section">
+            <div class="project-section-heading"><h2>Files</h2><button type="button" data-add-project-files ${state.projectUploading ? "disabled" : ""} aria-label="Add project files">${state.projectUploading ? "Uploading..." : "+"}</button></div>
+            <div class="project-capacity" aria-label="${escapeHtml(String(usage.percent || 0))}% of project knowledge used">
+              <div class="project-capacity-track"><span style="width:${Math.min(100, Number(usage.percent || 0))}%"></span></div>
+              <p>${escapeHtml(String(usage.percent || 0))}% of project capacity used</p>
+            </div>
+            <div class="project-source-list">${sourceMarkup}</div>
+          </section>
+        </aside>
+      </div>
+    </div>`;
+}
+
+function renderProjects() {
+  if (!els.projectView) return;
+  // Reuse the single composer DOM node instead of duplicating it: park it back
+  // next to #composerHomeAnchor when leaving a project, then move it into
+  // .project-composer-slot for project detail. Fragile if surrounding render
+  // order or markup around the anchor/slot changes — keep those stable.
+  if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
+    els.composerHomeAnchor.after(els.composerArea);
+  }
+  const visible = state.projectsOpen && !state.activeConversationId;
+  const detailReady = Boolean(visible && state.activeProjectId && state.activeProject?.project);
+  els.projectView.classList.toggle("hidden", !visible);
+  els.projectView?.classList.toggle("project-view--detail", Boolean(visible && state.activeProjectId));
+  els.messages?.classList.toggle("hidden", visible);
+  if (visible) els.chatPromptNav?.classList.add("hidden");
+  els.composerArea?.classList.toggle("hidden", visible && !detailReady);
+  document.body.classList.toggle("projects-open", visible);
+  els.projectsButton?.classList.toggle("active", state.projectsOpen);
+  renderProjectChatCrumb();
+  if (!visible) return;
+  els.projectView.innerHTML = state.activeProjectId ? projectDetailMarkup() : projectListMarkup();
+  const composerSlot = els.projectView.querySelector(".project-composer-slot");
+  if (composerSlot && els.composerArea) composerSlot.append(els.composerArea);
+}
+
+function formatChatAge(iso) {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const day = 86400000;
+  if (diff < day) return "Today";
+  if (diff < 7 * day) return "Past week";
+  if (diff < 30 * day) return "Past month";
+  if (diff < 365 * day) return "Past year";
+  return "Older";
+}
+
+function syncProjectsUrl({ replace = false } = {}) {
+  if (suppressUrlSync) return;
+  const target = state.activeProjectId ? `/projects/${encodeURIComponent(state.activeProjectId)}` : "/projects";
+  if (window.location.pathname === target) return;
+  window.history[replace ? "replaceState" : "pushState"]({ projectId: state.activeProjectId || "" }, "", target);
+}
+
+async function openProjects({ replace = false } = {}) {
+  if (!PROJECTS_ENABLED) return;
+  if (!requireAuth() || blockChatNavigationWhileRunning()) return;
+  if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+    showToast("Wait for the document upload to finish before opening projects.");
+    return;
+  }
+  parkActiveConversationRun();
+  clearClarification();
+  studyHub.closeSession();
+  state.temporaryChat = false;
+  state.projectsOpen = true;
+  state.studyOpen = false;
+  state.activeCourseId = "";
+  state.activeProjectId = "";
+  state.activeProject = null;
+  state.activeConversationId = "";
+  state.messages = [];
+  state.images = [];
+  renderImages();
+  closeDocumentViewer();
+  set({ sidebarOpen: false });
+  await loadProjects();
+  syncProjectsUrl({ replace });
+  renderShell();
+}
+
+async function openProject(projectId, { replace = false } = {}) {
+  if (!PROJECTS_ENABLED) return;
+  if (!projectId || !requireAuth() || blockChatNavigationWhileRunning()) return;
+  if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+    showToast("Wait for the document upload to finish before opening a project.");
+    return;
+  }
+  parkActiveConversationRun();
+  clearClarification();
+  studyHub.closeSession();
+  state.temporaryChat = false;
+  state.projectsOpen = true;
+  state.studyOpen = false;
+  state.activeCourseId = "";
+  state.activeProjectId = projectId;
+  state.activeProject = null;
+  state.activeConversationId = "";
+  state.messages = [];
+  state.images = [];
+  renderImages();
+  set({ sidebarOpen: false });
+  renderShell();
+  try {
+    await loadActiveProject();
+    syncProjectsUrl({ replace });
+    renderShell();
+    els.promptInput?.focus();
+  } catch (error) {
+    state.activeProjectId = "";
+    showToast(error.message || "Project could not be loaded.");
+    await openProjects({ replace: true });
+  }
+}
+
+// confirmPendingDelete(): the file and project branches. React's confirm dialog
+// closes itself and hands over the id it was opened with.
+async function deletePendingAttachment(attachmentId) {
+  const projectId = state.activeProjectId;
+  const projectDocuments = state.activeProject?.documents || [];
+  const removedDocumentIndex = projectDocuments.findIndex((document) => {
+    const attachment = Array.isArray(document.attachments) ? document.attachments[0] : document.attachments;
+    return attachment?.id === attachmentId;
+  });
+  const removedDocument = projectDocuments[removedDocumentIndex];
+  if (state.activeProject?.documents) {
+    state.activeProject = {
+      ...state.activeProject,
+      documents: state.activeProject.documents.filter((document) => {
+        const attachment = Array.isArray(document.attachments) ? document.attachments[0] : document.attachments;
+        return attachment?.id !== attachmentId;
+      })
+    };
+    renderProjects();
+  }
+  try {
+    await deleteAttachment(state.session, attachmentId);
+    if (state.activeProjectId === projectId) {
+      await loadActiveProject();
+      renderProjects();
+    }
+    void refreshAccountStorage();
+  } catch (error) {
+    if (state.activeProjectId === projectId && removedDocument) {
+      const documents = [...(state.activeProject?.documents || [])];
+      documents.splice(Math.min(removedDocumentIndex, documents.length), 0, removedDocument);
+      state.activeProject = { ...state.activeProject, documents };
+      renderProjects();
+    }
+    showToast(error.message || "File could not be removed.");
+  }
+}
+
+async function deletePendingProject(deletedProjectId) {
+  const deletedProject = state.projects.find((project) => project.id === deletedProjectId);
+  const deletedConversations = state.conversations.filter((conversation) => conversation.project_id === deletedProjectId);
+  const deletedConversationIds = new Set(deletedConversations.map((conversation) => conversation.id));
+  const deletedPinnedChatIds = state.pinnedChatIds.filter((id) => deletedConversationIds.has(id));
+  state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
+  state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
+  deletedConversationIds.forEach((cid) => conversationCache.delete(cid));
+  state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
+  savePinnedChatIds();
+  const isCourse = deletedProject?.kind === "course" || state.studyOpen;
+  state.activeProjectId = "";
+  state.activeProject = null;
+  if (isCourse) {
+    state.studyOpen = true;
+    state.projectsOpen = false;
+    if (state.activeCourseId === deletedProjectId) {
+      state.activeCourseId = "";
+      state.studyMaterials = null;
+      state.studyPractice = null;
+      state.studyProjectDetail = null;
+    }
+    syncStudyUrl({ replace: true });
+  } else {
+    syncProjectsUrl({ replace: true });
+  }
+  renderShell();
+  try {
+    await deleteProject(state.session, deletedProjectId);
+    void refreshAccountStorage();
+  } catch (error) {
+    if (deletedProject && !state.projects.some((project) => project.id === deletedProjectId)) {
+      state.projects = [deletedProject, ...state.projects];
+    }
+    const currentConversationIds = new Set(state.conversations.map((conversation) => conversation.id));
+    state.conversations = [...deletedConversations.filter((conversation) => !currentConversationIds.has(conversation.id)), ...state.conversations];
+    state.pinnedChatIds = [...new Set([...state.pinnedChatIds, ...deletedPinnedChatIds])];
+    savePinnedChatIds();
+    renderShell();
+    showToast(error.message || "Project could not be deleted.");
+  }
 }
 
 /* ─── Events: the #messages parts of bindEvents() ─── */
@@ -7553,6 +8235,119 @@ function bindPaywallEvents() {
   });
 }
 
+/* ─── Events: text selection and the side chat (bindEvents) ─── */
+
+function bindSelectionEvents() {
+  document.addEventListener("pointerup", (event) => {
+    if (event.target.closest("#selectionActions, #sideChatPanel")) return;
+    requestAnimationFrame(showSelectionActionsFromCurrentSelection);
+  });
+  els.selectionActions?.addEventListener("pointerdown", (event) => event.preventDefault());
+  els.selectionAddToChat?.addEventListener("click", () => {
+    if (selectedTextContext && addTextToComposerPaste(selectedTextContext.text)) {
+      hideSelectionActions();
+      window.getSelection()?.removeAllRanges();
+      selectedTextContext = null;
+      focusPromptInput();
+    }
+  });
+  els.selectionAskSideChat?.addEventListener("click", () => {
+    if (!selectedTextContext) return;
+    openSideChat(selectedTextContext.text, selectedTextContext.rect);
+    hideSelectionActions();
+    window.getSelection()?.removeAllRanges();
+    selectedTextContext = null;
+  });
+  els.sideChatClose?.addEventListener("click", closeSideChat);
+  els.sideChatContext?.addEventListener("click", () => openPastedTextDialog(sideChatState.context));
+  els.sideChatMessages?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-add-to-card]");
+    if (!btn || btn.disabled || !sideChatState.onAddToCard) return;
+    const index = Number(btn.dataset.addToCard);
+    const message = sideChatState.messages[index];
+    const text = message?.role === "assistant" ? rawTextContent(message.content).trim() : "";
+    if (!text) return;
+    btn.disabled = true;
+    btn.textContent = "Adding…";
+    if (await sideChatState.onAddToCard(text)) {
+      sideChatState.added.add(index);
+      btn.textContent = "Added";
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Add to this card";
+    }
+  });
+  els.sideChatSend?.addEventListener("click", () => { void sendSideChatMessage(); });
+  els.sideChatSuggest?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-side-chat-suggest]");
+    const prompt = sideChatState.suggestions[Number(button?.dataset.sideChatSuggest)]?.[1];
+    if (!prompt || sideChatState.running || !els.sideChatInput) return;
+    els.sideChatInput.value = prompt;
+    void sendSideChatMessage();
+  });
+  els.sideChatInput?.addEventListener("input", () => {
+    els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
+  });
+  els.sideChatInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendSideChatMessage();
+    }
+  });
+  els.sideChatMessages?.addEventListener("wheel", (event) => {
+    if (event.deltaY < 0) sideChatState.autoScroll = false;
+    else if (event.deltaY > 0 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
+  }, { passive: true });
+  els.sideChatMessages?.addEventListener("touchstart", (event) => {
+    sideChatState.touchY = event.touches?.[0]?.clientY ?? 0;
+  }, { passive: true });
+  els.sideChatMessages?.addEventListener("touchmove", (event) => {
+    const y = event.touches?.[0]?.clientY ?? sideChatState.touchY;
+    if (y > sideChatState.touchY + 2) sideChatState.autoScroll = false;
+    else if (y < sideChatState.touchY - 2 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
+    sideChatState.touchY = y;
+  }, { passive: true });
+  let sideChatDrag = null;
+  els.sideChatHeader?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button") || sideChatState.docked) return;
+    const rect = els.sideChatPanel.getBoundingClientRect();
+    sideChatDrag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    els.sideChatHeader.setPointerCapture(event.pointerId);
+  });
+  els.sideChatHeader?.addEventListener("pointermove", (event) => {
+    if (!sideChatDrag) return;
+    const panel = els.sideChatPanel;
+    const left = Math.min(Math.max(8, sideChatDrag.left + event.clientX - sideChatDrag.x), window.innerWidth - panel.offsetWidth - 8);
+    const top = Math.min(Math.max(8, sideChatDrag.top + event.clientY - sideChatDrag.y), window.innerHeight - panel.offsetHeight - 8);
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+  });
+  const stopSideChatDrag = () => { sideChatDrag = null; };
+  els.sideChatHeader?.addEventListener("pointerup", stopSideChatDrag);
+  els.sideChatHeader?.addEventListener("pointercancel", stopSideChatDrag);
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("#selectionActions")) hideSelectionActions();
+  });
+}
+
+/* ─── Events: the Dojo and the project crumb (bindEvents) ─── */
+
+function bindStudyEvents() {
+  els.studyHubButton?.addEventListener("click", () => {
+    set({ sidebarOpen: false });
+    void loadStudyHub().then((hub) => hub.openCourses());
+  });
+  els.projectChatCrumb?.addEventListener("click", () => {
+    const courseId = els.projectChatCrumb.dataset.courseId;
+    if (courseId) {
+      void loadStudyHub().then(() => studyHub.openCourse(courseId, { tab: "chat" }));
+      return;
+    }
+    const projectId = els.projectChatCrumb.dataset.projectId;
+    if (projectId) void openProject(projectId);
+  });
+}
+
 /* ─── Events: back and forward (bindEvents) ─── */
 
 function bindHistoryEvents() {
@@ -8084,9 +8879,14 @@ export function mountChat() {
   bindResearchEvents();
   bindSettingsEvents();
   bindPaywallEvents();
+  bindSelectionEvents();
+  bindStudyEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
     openUpgradePlans,
+    deletePendingAttachment,
+    deletePendingProject,
+    openStudyHub: () => { void loadStudyHub().then((hub) => hub.openCourses()); },
     // setResearchMode() and enterCouncilMode(): the checks that need the composer.
     researchBlocked: () => {
       if (!state.images.length) return false;
@@ -8126,6 +8926,17 @@ export function mountChat() {
       setEmailEditing(editingEmail, false);
       return true;
     },
+    study: () => Boolean(studyHub?.handleEscape?.()),
+    skillMenu: () => {
+      if (!state.skillMenu.open) return false;
+      closeSkillMenu();
+      return true;
+    },
+    compareDropdown: () => {
+      if (els.compareDropdown.classList.contains("hidden")) return false;
+      compareController.closeCompareDropdown();
+      return true;
+    },
     lightbox: () => {
       if (els.lightbox.classList.contains("hidden")) return false;
       closeLightbox();
@@ -8149,8 +8960,14 @@ export function mountChat() {
     renderResearchMode();
     renderAdminOnlyControls();
     syncComposerSkillState();
+    renderProjects();
+    studyHub?.render();
+    renderProjectChatCrumb();
     renderMessages();
     renderDocumentViewer();
+    // The old renderShell() rendered projects and the study hub again after the messages.
+    renderProjects();
+    studyHub?.render();
     updateComposerPlaceholder();
     if (state.session && hasChatAccess()) compareController.syncCompareContextBanner();
   };

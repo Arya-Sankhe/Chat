@@ -54,8 +54,7 @@ export function mountHomeModes() {
     exitCompareMode: cancelCompareMode,
     isCouncilMode,
     setResearchMode,
-    // The Study hub arrives with the study slice.
-    openStudyHub: () => {},
+    openStudyHub: () => chatHooks.openStudyHub(),
     showToast
   });
   controller.init();

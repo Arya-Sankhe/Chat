@@ -87,6 +87,16 @@ export async function session(name) {
   return { access_token: value.access_token, refresh_token: value.refresh_token, expires_at: value.expires_at, token_type: value.token_type };
 }
 
+/** Overrides one user's metadata until the next reset(), e.g. to see the beta welcome. */
+export async function setUserMetadata(name, metadata) {
+  const user = USERS[name];
+  const headers = { apikey: SERVICE, authorization: `Bearer ${SERVICE}`, "content-type": "application/json" };
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+    method: "PUT", headers, body: JSON.stringify({ user_metadata: { full_name: "Test Student", beta_welcome_seen: true, ...metadata } })
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
 export async function reset() {
   for (const user of Object.values(USERS)) {
     await ensureUser(user);
