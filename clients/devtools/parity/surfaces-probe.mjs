@@ -131,6 +131,65 @@ for (const site of SITES) {
   }
 
   {
+    step("temporary");
+    const { context, page } = await open({ width: 1440, height: 900 });
+    await page.goto(site.origin + "/");
+    await page.waitForSelector("#conversationList [data-open-chat-id]", { state: "attached" });
+    await page.waitForTimeout(800);
+    const temp = () => page.evaluate(() => {
+      const shown = (id) => {
+        const el = document.getElementById(id);
+        return el ? `${el.className}|${el.getAttribute("aria-pressed")}|${getComputedStyle(el).display !== "none" && el.offsetParent !== null}` : null;
+      };
+      return {
+        path: location.pathname,
+        temporary: document.body.classList.contains("temporary-chat"),
+        toggle: shown("temporaryChatToggle"),
+        label: shown("temporaryChatLabel"),
+        chats: document.querySelectorAll("#conversationList [data-open-chat-id]").length,
+        messages: document.querySelectorAll("#messages .message").length
+      };
+    });
+    await page.click("#temporaryChatToggle");
+    await page.waitForTimeout(500);
+    out.temporaryOn = await temp();
+    await page.click("#promptInput");
+    await page.keyboard.type("hello");
+    await page.keyboard.press("Enter");
+    await page.getByText("Done.").first().waitFor({ timeout: 15000 });
+    await page.waitForTimeout(1200);
+    out.temporarySent = await temp();
+    await page.click("#temporaryChatToggle");
+    await page.waitForTimeout(600);
+    out.temporaryOff = await temp();
+
+    // A long paste becomes a card; Escape closes its dialog.
+    await page.click("#promptInput");
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData("text/plain", Array.from({ length: 40 }, (_, i) => `Line ${i + 1}: the quick brown fox jumps over the lazy dog.`).join("\n"));
+      document.getElementById("promptInput").dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(500);
+    await page.click("[data-open-composer-paste]");
+    await page.waitForTimeout(400);
+    out.pasteDialog = await surface(page, "pastedTextDialog");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    out.pasteEscaped = (await surface(page, "pastedTextDialog"))?.className;
+
+    // The Dojo hides the temporary chat controls.
+    await page.click("[data-remove-paste]");
+    await page.click("#temporaryChatToggle");
+    await page.waitForTimeout(400);
+    await page.click("#studyHubButton");
+    await page.waitForSelector("#studyView:not(.hidden)");
+    await page.waitForTimeout(800);
+    out.temporaryDojo = await temp();
+    await context.close();
+  }
+
+  {
     step("welcome");
     await setUserMetadata(site.user, { beta_welcome_seen: false });
     const { context, page } = await open({ width: 1440, height: 900 });

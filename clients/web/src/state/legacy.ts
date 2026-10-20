@@ -25,6 +25,8 @@ const STORE_KEYS = new Set<keyof AppState>([
   "openConversationMenuId",
   "temporaryChat",
   "researchMode",
+  "projectsOpen",
+  "studyOpen",
   "composerSkillIds",
   "composerSkills",
   "running"
@@ -34,8 +36,6 @@ const STORE_KEYS = new Set<keyof AppState>([
 const local: Record<string, unknown> = {
   paymentRequests: [],
   mamoCoupon: null,
-  projectsOpen: false,
-  studyOpen: false,
   activeCourseId: "",
   activeCourseTab: "materials",
   studyMaterials: null,

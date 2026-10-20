@@ -49,6 +49,20 @@ for (const site of SITES) {
     const out = {};
     const snap = async (name) => {
       await page.waitForTimeout(700);
+      // Where a course chat ends up scrolled is a race in the old site too: the
+      // render pins it to the bottom, the Dojo's node move resets it to the top,
+      // and a late font load can pin it again. Settle, then start from the top.
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        const messages = document.getElementById("messages");
+        for (let last = -1, still = 0; still < 3; ) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          still = messages.scrollTop === last ? still + 1 : 0;
+          last = messages.scrollTop;
+        }
+        messages.scrollTop = 0;
+      });
+      await page.waitForTimeout(100);
       shots[name] = await page.screenshot({ animations: "disabled" });
       out[name] = await page.evaluate(() => {
         const shape = (el, depth = 0) => depth > 7 ? "" : `${el.tagName.toLowerCase()}.${[...el.classList].sort().join(".")}[${[...el.children].map((c) => shape(c, depth + 1)).join(",")}]`;

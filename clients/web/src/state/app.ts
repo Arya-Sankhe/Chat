@@ -61,6 +61,9 @@ export interface AppState {
   openConversationMenuId: string;
   temporaryChat: boolean;
   researchMode: boolean;
+  /** The projects view and the Dojo (the chat core opens them). */
+  projectsOpen: boolean;
+  studyOpen: boolean;
   /** Desktop rail vs. expanded sidebar. Guests always get it expanded. */
   sidebarExpanded: boolean;
   /** The phone navigation drawer. */
@@ -138,6 +141,8 @@ export const useApp = create<AppState>(() => ({
   openConversationMenuId: "",
   temporaryChat: false,
   researchMode: false,
+  projectsOpen: false,
+  studyOpen: false,
   sidebarExpanded: false,
   sidebarOpen: false,
   profileMenuOpen: false,

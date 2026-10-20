@@ -8,8 +8,11 @@ import { Messages } from "./Messages";
 export function ChatPanel() {
   const mobile = useApp((s) => s.mobile);
   const temporaryChat = useApp((s) => s.temporaryChat);
-  // renderTemporaryChatMode(): the toggle shows on an empty chat or while a temporary chat is on.
-  const showTempToggle = !useApp((s) => s.hasMessages) || temporaryChat;
+  // renderTemporaryChatMode(): the toggle shows on an empty chat or while a
+  // temporary chat is on, never over the projects view or the Dojo.
+  const elsewhere = useApp((s) => s.projectsOpen || s.studyOpen);
+  const hasMessages = useApp((s) => s.hasMessages);
+  const showTempToggle = !elsewhere && (!hasMessages || temporaryChat);
   return (
     <main className="chat-panel">
       <header className="native-mobile-bar" role="banner">
@@ -23,7 +26,7 @@ export function ChatPanel() {
         {" "}
         {!mobile && <NativeModeWrap />}
         {" "}
-        <div className={cx("temporary-chat-label", { hidden: !temporaryChat })} id="temporaryChatLabel">Temporary chat</div>
+        <div className={cx("temporary-chat-label", { hidden: elsewhere || !temporaryChat })} id="temporaryChatLabel">Temporary chat</div>
         {" "}
         <button className={cx("native-mobile-icon-btn temporary-chat-toggle", { hidden: !showTempToggle, active: temporaryChat })} id="temporaryChatToggle" type="button" aria-pressed={temporaryChat} aria-label="Temporary chat" title={temporaryChat ? "Temporary chat is on" : "Temporary chat"}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -7,7 +7,7 @@
 // Island changes, kept small so each function still diffs against app.js:
 // - writes to store-owned values replace them (`state.conversations = [...]`)
 //   instead of mutating, and body classes the store owns are set through it;
-// - pieces whose slice has not landed yet are listed under "Later slices".
+// - native-only pieces (app update, keyboard, text zoom) join with the Expo slice.
 import { session } from "../app/runtime";
 import { state, els } from "../state/legacy";
 import {
@@ -7356,6 +7356,52 @@ async function deletePendingProject(deletedProjectId) {
   }
 }
 
+function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
+  if (blockChatNavigationWhileRunning()) return;
+  const next = Boolean(enabled);
+  if (state.temporaryChat === next && !resetChat) {
+    renderTemporaryChatMode();
+    return;
+  }
+  if (resetChat) parkActiveConversationRun();
+  researchController.stopResearchPolling();
+  state.temporaryChat = next;
+  if (next) state.researchMode = false;
+  if (resetChat) {
+    clearClarification();
+    for (const message of state.messages) {
+      if (!Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        const url = part?.type === "image_url" ? part.image_url?.url : "";
+        if (String(url).startsWith("blob:")) URL.revokeObjectURL(url);
+      }
+    }
+    state.activeConversationId = "";
+    state.messages = [];
+    state.messagePage = { hasMore: false, cursor: null };
+    for (const item of state.images) forgetPendingDocument(item);
+    state.images = [];
+    state.pastedText = "";
+    state.compareDescribeImages = false;
+    stopPendingArtifactPolls();
+    clearComposerSkills();
+    clearFollowUps();
+    closeDocumentViewer();
+    compareController.closeCompareContextBanner();
+    closeSearchDialog();
+    closePinnedPopup();
+    closeConversationMenus();
+    renderImages();
+    syncConversationUrl({ replace: true });
+  }
+  if (next && state.settings.compareEnabled) {
+    compareController.cancelCompareMode();
+  }
+  syncActiveRunningUi();
+  renderTemporaryChatMode();
+  renderShell();
+}
+
 /* ─── Events: the #messages parts of bindEvents() ─── */
 
 function bindMessageEvents() {
@@ -8419,6 +8465,60 @@ function bindStudyEvents() {
   });
 }
 
+/* ─── Events: the temporary chat toggle (bindEvents) ─── */
+function bindTemporaryChatEvents() {
+  els.temporaryChatToggle?.addEventListener("click", () => {
+    if (!requireAuth()) return;
+    setTemporaryChatMode(!state.temporaryChat);
+    // Force-clear the press highlight so toggling off never leaves a stuck
+    // ring on the icon. (transitionend-based removal has a perceptible
+    // gap that the user noticed.)
+    els.temporaryChatToggle?.classList.remove("pressed");
+    if (!isNative()) els.promptInput?.focus();
+    else if (state.temporaryChat) focusPromptInput();
+  });
+  // Briefly show the .pressed highlight on the temporary-chat toggle and
+  // auto-remove it so the press feedback does not linger after the toggle.
+  els.temporaryChatToggle?.addEventListener("pointerdown", () => {
+    const btn = els.temporaryChatToggle;
+    if (!btn) return;
+    btn.classList.remove("pressed");
+    // Force a reflow so the class re-add restarts the transition.
+    void btn.offsetWidth;
+    btn.classList.add("pressed");
+  });
+  els.temporaryChatToggle?.addEventListener("transitionend", (event) => {
+    if (event.propertyName !== "background-color") return;
+    els.temporaryChatToggle.classList.remove("pressed");
+  });
+  els.temporaryChatToggle?.addEventListener("pointercancel", () => {
+    els.temporaryChatToggle.classList.remove("pressed");
+  });
+}
+
+/* ─── Events: outside clicks and Escape for the chat's own surfaces (bindEvents) ─── */
+// The store's document listeners (globalEvents.ts) close the shell's menus;
+// these are the old handlers' lines for surfaces inside #messages.
+function bindChatDismissEvents() {
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".sources-pill")) {
+      closeOpenSourcesPills();
+    }
+    if (!event.target.closest(".klui-email-send-wrap")) closeEmailMenus();
+    if (!event.target.closest("[data-email-revise-form], [data-email-edit]")) {
+      document.querySelectorAll("[data-email-card].is-editing").forEach((card) => setEmailEditing(card, false));
+    }
+  });
+  // Close dropdown on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closePastedTextDialog();
+      const card = document.querySelector(".visualize-card.is-expanded");
+      if (card) card.querySelector("[data-visualize-expand]")?.click();
+    }
+  });
+}
+
 /* ─── Events: back and forward (bindEvents) ─── */
 
 function bindHistoryEvents() {
@@ -8953,6 +9053,8 @@ export function mountChat() {
   bindSelectionEvents();
   bindStudyEvents();
   bindAccountEvents();
+  bindTemporaryChatEvents();
+  bindChatDismissEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
     openUpgradePlans,
