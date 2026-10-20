@@ -1,0 +1,20 @@
+/* The chat core's actions, for the shell. The core itself is the old app's
+   conversation code (islands/chat.js); these are its entry points. */
+import { launchGreetingHtml } from "../shell/launch";
+import * as core from "../islands/chat.js";
+import { els } from "./legacy";
+import { useApp } from "./app";
+
+export const openConversation = core.openConversation as (id: string) => Promise<void>;
+export const openNewChat = core.openNewChat as (options?: { replaceUrl?: boolean }) => void;
+export const addConversation = core.addConversation as () => Promise<void>;
+export const removeConversation = core.removeConversation as (id: string) => Promise<void>;
+export const signOutAndReset = core.signOutAndReset as () => Promise<void>;
+export const loadChatApp = core.loadChatApp as () => Promise<void>;
+export const prefetchRecentChats = core.prefetchRecentChats as (promise: Promise<unknown>) => void;
+
+/** Before boot: what index.html's script painted on a phone opened at "/". */
+export function mountChat() {
+  if (useApp.getState().shellRender === 0) els.messages.innerHTML = launchGreetingHtml();
+  core.mountChat();
+}

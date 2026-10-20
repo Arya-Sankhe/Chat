@@ -48,6 +48,10 @@ async function settle(page, scenario) {
   // lines for several seconds) so every capture lands on its settled frame.
   // Scenarios capturing transient UI (a toast) pass a shorter settleMs.
   await page.clock.runFor(scenario.settleMs ?? 30_000);
+  // A conversation loads math and code highlighting from the CDN, then re-renders
+  // (loadRichTextAssets). Wait for the scripts, then let the queued render run.
+  await page.waitForFunction(() => !document.querySelector('script[src*="highlight.min.js"]') || (globalThis.hljs && globalThis.katex));
+  await page.clock.runFor(1000);
   await page.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].filter((img) => !img.complete).map((img) => new Promise((resolve) => { img.onload = img.onerror = resolve; })));

@@ -52,8 +52,8 @@ export function Composer() {
   const temporaryChat = useApp((s) => s.temporaryChat);
   const researchMode = useApp((s) => s.researchMode);
   // Running state and messages arrive with the message slice.
-  const running = false;
-  const hasMessages = false;
+  const running = useApp((s) => s.running);
+  const hasMessages = useApp((s) => s.hasMessages);
   const composerRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLDivElement>(null);
 

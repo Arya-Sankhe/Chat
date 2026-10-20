@@ -1,9 +1,9 @@
 /* Document-level click and Escape handling from bindEvents() in
    public/js/app.js: an outside click closes open menus, and Escape closes the
-   topmost surface in the old order. Surfaces from later slices (email menus,
-   the study hub, the skill menu, the lightbox, the viewer, compare) join
-   these lists in their old positions. */
+   topmost surface in the old order. Surfaces from later slices (the study
+   hub, the skill menu, compare) join these lists in their old positions. */
 import {
+  chatSurfaces,
   closeActionMenu,
   closeAuthDialog,
   closeConfirmDialog,
@@ -34,15 +34,20 @@ function onKeydown(event: KeyboardEvent) {
   const s = useApp.getState();
   // The phone mode sheet has its own Escape listener in the old code and closes alongside.
   if (s.modeSheetOpen) closeMobileModeSheet();
+  if (chatSurfaces.emailMenu()) return;
+  if (chatSurfaces.emailEditing()) return;
   if (s.profileMenuOpen) return closeProfileMenu();
   if (s.searchOpen) return closeSearchDialog();
   if (s.pinnedPopupOpen) return closePinnedPopup();
   if (s.openConversationMenuId) return closeConversationMenus();
   if (s.rename) return closeRenameDialog();
   if (s.confirm) return closeConfirmDialog();
+  if (chatSurfaces.lightbox()) return;
+  if (chatSurfaces.viewer()) return;
   if (s.actionMenu) return closeActionMenu();
   if (s.spectrumOpen) return closeModelDropdown();
   if (s.authOpen) return closeAuthDialog();
+  if (chatSurfaces.guestContinue()) return;
   if (s.settingsOpen) return closeSettings();
 }
 

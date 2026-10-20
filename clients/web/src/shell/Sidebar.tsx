@@ -1,17 +1,13 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import type { ConversationSummary } from "@klui/shared";
-import { session } from "../app/runtime";
 import {
-  addConversation,
   closeProfileMenu,
   hasUpgradePlans,
   openAuthDialog,
   openConfirmDialog,
-  openConversation,
   openRenameDialog,
   openSearchDialog,
   openSettings,
-  signOutAndReset,
   sortedConversations,
   startSidebarLogin,
   toggleConversationMenu,
@@ -21,6 +17,7 @@ import {
   toggleSidebar,
   useApp
 } from "../state/app";
+import { addConversation, openConversation, signOutAndReset } from "../state/chat";
 import { cx } from "./cx";
 import { MOBILE_AT_LOAD } from "./launch";
 
@@ -68,6 +65,8 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
   const active = useApp((s) => s.activeConversationId === conversation.id);
   const pinned = useApp((s) => s.pinnedChatIds.includes(conversation.id));
   const menuOpen = useApp((s) => s.openConversationMenuId === conversation.id);
+  const running = useApp((s) => s.runningChatIds.includes(conversation.id));
+  const unread = useApp((s) => !running && s.unreadChatIds.includes(conversation.id));
   const menu = useRef<HTMLDivElement>(null);
 
   // Flip the menu upward when it would run past the bottom of the list.
@@ -85,6 +84,9 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
     <div className={`conversation-row ${active ? "active" : ""}`} data-chat-id={conversation.id}>
       <button className="conversation-item" type="button" data-open-chat-id={conversation.id}>
         <span className="conversation-title">{conversation.title || "New chat"}</span>
+        {running
+          ? <span className="conversation-activity is-running" title="Generating" aria-hidden="true" />
+          : unread && <span className="conversation-activity is-done" title="New reply" aria-hidden="true" />}
       </button>
       <div className="conversation-menu-wrap">
         <button className="conversation-menu-btn" type="button" data-toggle-menu-id={conversation.id} aria-label="Chat options" aria-haspopup="menu" aria-expanded={menuOpen ? "true" : "false"}>
@@ -311,7 +313,7 @@ export function Sidebar() {
                 <span>Admin</span>
               </button>
               {" "}
-              <button className="profile-menu-item profile-menu-danger" type="button" id="profileMenuSignOut" role="menuitem" onClick={() => { closeProfileMenu(); void signOutAndReset(() => session.signOut()); }}>
+              <button className="profile-menu-item profile-menu-danger" type="button" id="profileMenuSignOut" role="menuitem" onClick={() => { closeProfileMenu(); void signOutAndReset(); }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
                   <polyline points="16 17 21 12 16 7" />

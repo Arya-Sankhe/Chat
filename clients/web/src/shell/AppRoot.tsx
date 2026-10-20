@@ -5,6 +5,7 @@ import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
 import { closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
 import { mountCameraSheet } from "../state/camera";
+import { mountChat } from "../state/chat";
 import { installGlobalEvents } from "../state/globalEvents";
 import { homeModes, mountHomeModes } from "../state/homeModes";
 import { AccountDrawer } from "./AccountDrawer";
@@ -92,6 +93,7 @@ export function AppRoot() {
   // After BodySheets' backdrop has been appended.
   useLayoutEffect(mountCameraSheet, []);
   useLayoutEffect(installGlobalEvents, []);
+  useLayoutEffect(mountChat, []);
   useHomeModes();
   const view = useApp((s) => s.view);
   const settings = useApp((s) => s.settings);

@@ -41,6 +41,13 @@ export interface AppState {
   systemDark: boolean;
   /** body.chat-empty: no messages and no loading skeleton (renderMessages). */
   chatEmpty: boolean;
+  /** The open chat has messages (state.messages.length), published by the chat core. */
+  hasMessages: boolean;
+  /** A response is streaming in the open chat (state.running). */
+  running: boolean;
+  /** Chats with a response in flight, and chats whose response finished while away. */
+  runningChatIds: string[];
+  unreadChatIds: string[];
   view: View;
   conversations: ConversationSummary[];
   projects: Project[];
@@ -118,6 +125,10 @@ export const useApp = create<AppState>(() => ({
   systemDark: darkQuery.matches,
   // index.html's boot script marks phones' first frame as the empty home.
   chatEmpty: mobileQuery.matches,
+  hasMessages: false,
+  running: false,
+  runningChatIds: [],
+  unreadChatIds: [],
   view: "boot",
   conversations: [],
   projects: [],
@@ -190,8 +201,6 @@ export function renderShell() {
     // Guests always see the expanded sidebar; it stays expanded after sign-in.
     sidebarExpanded: signedIn ? s.sidebarExpanded : true,
     view: servicesReady(config) ? "chat" : "setup",
-    // Until the message slice lands, a routed chat shows its loading skeleton.
-    chatEmpty: !(signedIn && s.activeConversationId),
     ...(signedIn ? {} : { conversations: [], activeConversationId: "" })
   }));
 }
@@ -223,7 +232,7 @@ export function loadPinnedChatIds() {
   }
 }
 
-function savePinnedChatIds(ids: string[]) {
+export function savePinnedChatIds(ids: string[] = get().pinnedChatIds) {
   const key = pinnedStorageKey();
   if (key) localStorage.setItem(key, JSON.stringify(ids));
 }
@@ -411,6 +420,16 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
   applySpectrumLevel(mode === "nitro" ? 0 : mode === "pro" ? SPECTRUM_N - 1 : 1);
 }
 
+/** Surfaces the chat core owns (islands/chat.js), registered when it mounts.
+   Each closes itself and returns true when it was open. */
+export const chatSurfaces = {
+  emailMenu: () => false,
+  emailEditing: () => false,
+  lightbox: () => false,
+  viewer: () => false,
+  guestContinue: () => false
+};
+
 /** closeTopNativeSurface(): back gesture, sheet backdrop and Escape close the
    topmost surface first. Returns whether something closed. Surfaces from
    later slices join this list as they arrive, in the old order. */
@@ -423,8 +442,11 @@ export function closeTopNativeSurface() {
   if (s.modeSheetOpen) { closeMobileModeSheet(); return true; }
   if (s.actionMenu) { closeActionMenu(); return true; }
   if (s.spectrumOpen) { closeModelDropdown(); return true; }
+  if (chatSurfaces.lightbox()) return true;
+  if (chatSurfaces.viewer()) return true;
   if (s.settingsOpen) { closeSettings(); return true; }
   if (s.authOpen) { closeAuthDialog(); return true; }
+  if (chatSurfaces.guestContinue()) return true;
   if (s.confirm) { closeConfirmDialog(); return true; }
   if (s.rename) { closeRenameDialog(); return true; }
   if (s.searchOpen) { closeSearchDialog(); return true; }
@@ -494,7 +516,7 @@ export function toggleProfileMenu(openAuthDialog: () => void) {
   set((s) => ({ profileMenuOpen: !s.profileMenuOpen }));
 }
 
-/* ─── Auth dialog, new chat, sign-out ─── */
+/* ─── Auth dialog and drawers ─── */
 
 export function openAuthDialog() {
   set({ authOpen: true, authArtLoaded: true, overlay: "auth" });
@@ -507,48 +529,15 @@ export function closeAuthDialog() {
 /** startSidebarLogin(): the web build always signs in through the dialog. */
 export const startSidebarLogin = openAuthDialog;
 
-function syncConversationUrl({ replace = false } = {}) {
-  const id = get().activeConversationId;
-  const target = id ? `/c/${encodeURIComponent(id)}` : "/";
-  if (window.location.pathname === target) return;
-  window.history[replace ? "replaceState" : "pushState"]({ conversationId: id || "" }, "", target);
-}
-
-/** openNewChat(): the parts that belong to the shell; composer and message
-   state reset with their own slices. */
-export function openNewChat({ replaceUrl = false } = {}) {
-  set({ sendButtonSynced: true });
-  set({ activeConversationId: "", conversationLoading: false });
-  closeSearchDialog();
-  closePinnedPopup();
-  closeConversationMenus();
-  syncConversationUrl({ replace: replaceUrl });
-  renderShell();
-  document.getElementById("promptInput")?.focus();
-}
-
-/** addConversation(): guests are asked to sign in first. */
-export function addConversation() {
-  if (!get().signedIn) return openAuthDialog();
-  openNewChat();
-}
-
-function closeAllDrawers() {
+export function closeAllDrawers() {
   closeSettings();
   closeProfileMenu();
   closeAuthDialog();
+  closeConfirmDialog();
+  closeRenameDialog();
   closeSearchDialog();
   closePinnedPopup();
   closeConversationMenus();
-}
-
-export async function signOutAndReset(signOut: () => Promise<void>) {
-  set({ sendButtonSynced: true });
-  await signOut();
-  set({ signedIn: false, me: null, conversations: [], pinnedChatIds: [], temporaryChat: false, activeConversationId: "" });
-  syncConversationUrl({ replace: true });
-  closeAllDrawers();
-  renderShell();
 }
 
 /* ─── Confirm and rename dialogs ─── */
@@ -576,7 +565,7 @@ export function closeConfirmDialog() {
   }));
 }
 
-export async function confirmPendingDelete(deleteConversation: (id: string) => Promise<unknown>) {
+export async function confirmPendingDelete(removeConversation: (id: string) => Promise<void>) {
   const pending = get().confirm;
   if (!pending) return;
   if (pending.onConfirm) {
@@ -584,46 +573,7 @@ export async function confirmPendingDelete(deleteConversation: (id: string) => P
     await pending.onConfirm();
     return;
   }
-  if (pending.chatId) await removeConversation(pending.chatId, deleteConversation);
-}
-
-/** removeConversation(): optimistic, restored if the server refuses. */
-async function removeConversation(id: string, deleteConversation: (id: string) => Promise<unknown>) {
-  const { conversations, pinnedChatIds, activeConversationId } = get();
-  const index = conversations.findIndex((conversation) => conversation.id === id);
-  closeConfirmDialog();
-  if (index < 0) {
-    await deleteConversation(id).catch((error: Error) => showToast(error.message || "Chat could not be deleted."));
-    return;
-  }
-  const deleted = conversations[index]!;
-  const wasActive = activeConversationId === id;
-  closeConversationMenus();
-  set({ conversations: conversations.filter((conversation) => conversation.id !== id) });
-  unpinChat(id);
-  if (wasActive) {
-    set({ activeConversationId: "" });
-    syncConversationUrl({ replace: true });
-  }
-  renderShell();
-  try {
-    await deleteConversation(id);
-  } catch (error) {
-    const current = get().conversations;
-    if (!current.some((conversation) => conversation.id === id)) {
-      const restored = [...current];
-      restored.splice(Math.min(index, restored.length), 0, deleted);
-      set({ conversations: restored });
-    }
-    set({ pinnedChatIds });
-    savePinnedChatIds(pinnedChatIds);
-    if (wasActive && !get().activeConversationId && window.location.pathname === "/") {
-      set({ activeConversationId: id });
-      syncConversationUrl({ replace: true });
-    }
-    renderShell();
-    showToast((error as Error).message || "Chat could not be deleted.");
-  }
+  if (pending.chatId) await removeConversation(pending.chatId);
 }
 
 export function openRenameDialog(chatId: string) {
@@ -654,19 +604,4 @@ export async function saveRenameDialog(input: string, renameConversation: (id: s
   } catch (error) {
     showToast((error as Error).message || "Could not rename.");
   }
-}
-
-/* ─── Opening a conversation ─── */
-
-/** The shell half of openConversation(): select it, update the URL and show
-   its loading state. Loading and rendering its messages is the message slice. */
-export function openConversation(id: string) {
-  set({ sendButtonSynced: true });
-  if (!id) return;
-  set({ activeConversationId: id, sidebarOpen: false, conversationLoading: true });
-  closeSearchDialog();
-  closePinnedPopup();
-  closeConversationMenus();
-  syncConversationUrl();
-  renderShell();
 }

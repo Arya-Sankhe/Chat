@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { api } from "../app/runtime";
 import { closeConfirmDialog, confirmPendingDelete, useApp } from "../state/app";
+import { removeConversation } from "../state/chat";
 import { cx } from "./cx";
 
 export function ConfirmDialog() {
@@ -27,7 +27,7 @@ export function ConfirmDialog() {
       <div className="confirm-actions">
         <button className="confirm-cancel" id="confirmCancelButton" type="button" onClick={closeConfirmDialog}>Cancel</button>
         {" "}
-        <button className="confirm-danger" id="confirmDeleteButton" type="button" ref={deleteButton} onClick={() => void confirmPendingDelete((id) => api.deleteConversation(id))}>
+        <button className="confirm-danger" id="confirmDeleteButton" type="button" ref={deleteButton} onClick={() => void confirmPendingDelete(removeConversation)}>
           {confirm?.confirmLabel || "Delete"}
         </button>
       </div>
