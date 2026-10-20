@@ -107,7 +107,8 @@ function openPhotoPicker(disabled: boolean) {
 export function ActionMenu() {
   const mobile = useApp((s) => s.mobile);
   const open = useApp((s) => s.actionMenu === "root" || s.actionMenu === "more");
-  const page = useApp((s) => (s.actionMenu === "more" ? "more" : "root"));
+  // The style menu opens from More, which stays the (hidden) menu's page.
+  const page = useApp((s) => (s.actionMenu === "more" || s.actionMenu === "style" ? "more" : "root"));
   const researchAvailable = useApp((s) => Boolean((s.config as any)?.services?.research));
   const researchMode = useApp((s) => s.researchMode);
   const style = useApp((s) => normalizeWritingStyle(s.settings.writingStyle));
