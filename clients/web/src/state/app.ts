@@ -418,6 +418,8 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
 
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
+  settingsOpened: () => {},
+  settingsTabSelected: (_tab: string) => {},
   pendingNeedsVision: () => false,
   showAttachmentModelNotice: () => {},
   setComposerSkillIds: (_ids: string[]) => {},
@@ -476,17 +478,19 @@ export function closeSearchDialog() {
 export function openSettings() {
   dismissComposerKeyboard();
   set({ sidebarOpen: false });
+  chatHooks.settingsOpened();
   setSettingsTab("general");
   if (get().mobile) showMobileSettingsOverview();
   set({ settingsOpen: true, overlay: "settings" });
 }
 
-/** setSettingsTab(): voice, memory, storage and account load their data with their own slices. */
+/** setSettingsTab(): the chat core loads the tab's data, every time it is picked. */
 export function setSettingsTab(tab: string) {
   const selected = (["general", "voice", "memory", "storage", "account"] as const).find((t) => t === tab) || "general";
   const main = document.querySelector("#settingsDrawer .settings-main");
   if (main) main.scrollTop = 0;
   set({ settingsPage: "detail", settingsTab: selected });
+  chatHooks.settingsTabSelected(selected);
 }
 
 export function showMobileSettingsOverview() {
