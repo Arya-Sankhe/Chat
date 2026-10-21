@@ -91,3 +91,4 @@ rollback;
 \ir ../../supabase/tests/mamo_billing.sql
 \ir ../../supabase/tests/affiliate_tracking.sql
 \ir ../../supabase/tests/coupon_limits.sql
+\ir ../../supabase/tests/stripe_billing.sql

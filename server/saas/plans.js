@@ -121,7 +121,7 @@ export function loadPlans(env = process.env) {
 }
 
 // With Mamo, `chargeAed` is the monthly card charge: the plan price plus Mamo's processing fee.
-export function publicPlan(plan, mamoEnabled, fees = null) {
+export function publicPlan(plan, mamoEnabled, fees = null, provider = "mamo") {
   return {
     id: plan.id,
     name: plan.name,
@@ -132,7 +132,7 @@ export function publicPlan(plan, mamoEnabled, fees = null) {
     currency: "AED",
     ziinaPaymentUrl: plan.ziinaPaymentUrl,
     ziinaQrImageUrl: plan.ziinaQrImageUrl,
-    checkout: mamoEnabled ? "mamo" : (plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "ziina" : "none"),
+    checkout: mamoEnabled ? provider : (plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "ziina" : "none"),
     monthlyApiCreditLimit: plan.monthlyApiCreditLimit,
     maxImagesPerMessage: plan.maxImagesPerMessage,
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,
