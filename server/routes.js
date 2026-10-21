@@ -1,3 +1,4 @@
+import { handleRedeemInvite } from "./routes/invite.js";
 import { HttpError, sendProblem } from "./http/responses.js";
 import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
@@ -168,6 +169,15 @@ export async function handleApiRequest(req, res, url, config) {
     if (req.method === "GET" && url.pathname === "/api/plans") {
       handlePlans(req, res, config);
       return;
+    }
+
+    if (url.pathname === "/api/invite/redeem" && req.method === "POST") {
+      await handleRedeemInvite(req, res, config);
+      return;
+    }
+    if (config.access.mode === "testing" && req.method === "POST"
+      && /^\/api\/payments\/(mamo|ziina)(\/coupon)?$/.test(url.pathname)) {
+      throw new HttpError(403, "INVITE ONLY. Redeem an invite code for free Pro access.");
     }
 
     if (url.pathname === "/api/payments/mamo/webhook") {

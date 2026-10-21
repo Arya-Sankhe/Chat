@@ -66,3 +66,49 @@ test("the free day turns over at midnight in Dubai", () => {
   assert.equal(freeUsageDay(new Date("2026-10-21T20:00:00Z")), "2026-10-22");
   assert.equal(freeUsageResetsAt(new Date("2026-10-21T10:00:00Z")), "2026-10-21T20:00:00.000Z");
 });
+
+
+test("testing starts on Free, redeems TRYKLUI durably, and blocks paid checkout", async () => {
+  let subscription = null;
+  let writes = 0;
+  const db = {
+    async getApiWeeklyUsage() { return null; },
+    async getLatestSubscription() { return subscription; },
+    async upsertSubscription(row) { subscription = row; writes++; return row; },
+    async getFreeUsage() { return {}; },
+    async accountStorageUsed() { return 0; }
+  };
+  const env = { ACCESS_MODE: "testing" };
+  let me = (await dispatch(env, "/api/me", { db })).json();
+  assert.equal(me.plan.id, "free");
+  assert.deepEqual(me.access, { mode: "testing", active: false, free: true });
+  const restricted = await dispatch(env, "/api/projects", { method: "POST", db, body: {} });
+  assert.equal(restricted.statusCode, 402);
+  for (const provider of ["mamo", "ziina"]) {
+    assert.equal((await dispatch(env, `/api/payments/${provider}`, { method: "POST", db, body: { planId: "pro" } })).statusCode, 403);
+  }
+  const redeem = (coupon, config = env) => dispatch(config, "/api/invite/redeem", { method: "POST", db, body: { coupon } });
+  assert.equal((await redeem("WRONG")).statusCode, 400);
+  assert.equal(writes, 0);
+  assert.equal((await redeem(" tryklui ")).statusCode, 200);
+  assert.equal(subscription.provider, "invite");
+  assert.equal(subscription.current_period_end, null);
+  assert.equal((await redeem("TRYKLUI")).statusCode, 200);
+  assert.equal(writes, 1);
+  me = (await dispatch(env, "/api/me", { db })).json();
+  assert.equal(me.access.active, true);
+  assert.equal(me.plan.id, "pro");
+  assert.equal(me.subscription.provider, "invite");
+  assert.equal((await redeem("TRYKLUI", { ACCESS_MODE: "subscription" })).statusCode, 403);
+  me = (await dispatch({ ACCESS_MODE: "subscription" }, "/api/me", { db })).json();
+  assert.equal(me.plan.id, "free");
+
+  subscription = { provider: "mamo", status: "active", plan_id: "pro", current_period_end: "2099-01-01T00:00:00Z" };
+  me = (await dispatch(env, "/api/me", { db })).json();
+  assert.equal(me.plan.id, "lite");
+  assert.equal(me.plan.name, "Plus");
+  assert.equal(me.subscription.provider, "mamo");
+  assert.equal((await redeem("TRYKLUI")).statusCode, 409);
+  assert.equal(subscription.plan_id, "pro");
+  assert.equal(writes, 1);
+});

@@ -214,6 +214,7 @@ test("relay PUT strips GPS before R2 and shrinks the reserved size", async () =>
     overrides: {
       verifyUser: async () => ({ id: "user-1", email: "user@example.com", raw: {} }),
       createDb: () => ({
+        async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
         async upsertProfile() { return { id: "user-1", role: "user" }; },
         async getAttachment() {
           return {
@@ -258,6 +259,7 @@ test("complete overwrites a direct PUT that still has GPS", async () => {
     overrides: {
       verifyUser: async () => ({ id: "user-1", email: "user@example.com", raw: {} }),
       createDb: () => ({
+        async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
         async upsertProfile() { return { id: "user-1", role: "user" }; },
         async getAttachment() {
           return {

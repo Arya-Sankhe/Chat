@@ -518,6 +518,7 @@ test("the Windows beta explicitly disables the server-advertised computer-use ca
       getAccountIdentity: async () => ({ account_id: accountId }),
       getProfile: async () => ({ id: accountId }),
       getDesktopPrivacyConsent: async () => ({ accepted: true }),
+      getLatestSubscription: async () => ({ provider: "manual", status: "active", plan_id: "pro" }),
       getApiWeeklyUsage: async () => ({ api_credit_used: 0.2, api_credit_limit: 1 })
     }),
     createR2: () => ({}),

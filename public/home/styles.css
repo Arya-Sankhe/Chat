@@ -1476,3 +1476,5 @@ h2 {
 
 .pricing-subheadline { max-width: 52ch; margin: 28px auto 0; font-size: clamp(17px, 2vw, 21px); font-weight: 600; text-wrap: balance; }
 .plan-usage-tag { left: 18px; right: auto; background: var(--yellow); transform: rotate(-2deg); }
+
+.plan-cta:disabled { background: #ccc; color: #555; cursor: not-allowed; transform: none; box-shadow: none; }
