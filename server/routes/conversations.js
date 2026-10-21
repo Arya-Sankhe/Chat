@@ -34,7 +34,7 @@ export async function purgeMessageStorage(context, messageId, config, signal) {
 }
 
 export async function handleConversations(req, res, config) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   if (req.method === "GET") {
     const rawLimit = new URL(req.url, "http://localhost").searchParams.get("limit");
     const limit = rawLimit === null ? undefined : Number(rawLimit);
@@ -66,7 +66,7 @@ export async function handleConversations(req, res, config) {
 }
 
 export async function handleConversationSearch(req, res, config) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   if (req.method === "GET") {
     const q = String(new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams.get("q") || "").trim().slice(0, 200);
     if (q.length < 2) {
@@ -82,7 +82,7 @@ export async function handleConversationSearch(req, res, config) {
 }
 
 export async function handleConversationById(req, res, config, conversationId) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
 
   if (req.method === "GET") {
     const includeReasoning = context.profile?.role === "admin";
@@ -150,7 +150,7 @@ export async function handleConversationById(req, res, config, conversationId) {
 export async function handleMessageById(req, res, config, messageId) {
   if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
 
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const { message, attachmentCount } = await purgeMessageStorage(context, messageId, config, req.signal);
   if (!message) throw new HttpError(404, "Message not found.");
 

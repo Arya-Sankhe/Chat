@@ -1112,6 +1112,39 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 }
 
+.free-usage-row + .free-usage-row {
+  margin-top: 12px;
+}
+
+.free-usage .account-usage-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.free-usage .account-usage-label svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-secondary);
+}
+
+.free-usage .account-usage-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.account-usage-fill.is-spent {
+  background: var(--danger, #e5484d);
+}
+
+.free-usage .account-usage-note {
+  margin-top: 12px;
+}
+
 .storage-list {
 
   margin: 0 0 16px;

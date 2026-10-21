@@ -51,7 +51,7 @@ export async function handleCreateZiinaPaymentRequest(req, res, config) {
   if (config.mamo?.apiKey) throw new HttpError(410, "Ziina checkout has been retired. Choose a plan with Mamo.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
-  const plan = config.plans.find((candidate) => candidate.id === planId);
+  const plan = config.plans.find((candidate) => candidate.id === planId && candidate.active !== false);
   if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
 
   let row = null;
@@ -204,6 +204,7 @@ function publicCouponOffer(plan, coupon, config, firstRenewalAt = null) {
   return {
     code: coupon.code,
     percentOff: coupon.percentOff,
+    ...(coupon.trialDays ? { trialDays: coupon.trialDays } : {}),
     planId: plan.id,
     initialAmountAed: couponPrice(plan, coupon),
     renewalAmountAed: plan.amountAed,
@@ -217,8 +218,8 @@ export async function handleCheckMamoCoupon(req, res, config) {
   const context = await authContext(req, config);
   const body = await parseJsonBody(req, 16 * 1024);
   const coupon = await eligibleCoupon(context, config, body.coupon, req.signal);
-  sendJson(res, 200, { coupon: { code: coupon.code, percentOff: coupon.percentOff },
-    offers: config.plans.filter((plan) => plan.amountAed > 0).map((plan) => publicCouponOffer(plan, coupon, config)) });
+  sendJson(res, 200, { coupon: { code: coupon.code, percentOff: coupon.percentOff, ...(coupon.trialDays ? { trialDays: coupon.trialDays } : {}) },
+    offers: config.plans.filter((plan) => plan.amountAed > 0 && plan.active !== false).map((plan) => publicCouponOffer(plan, coupon, config)) });
 }
 
 export async function handleCreateMamoPayment(req, res, config) {
@@ -226,7 +227,7 @@ export async function handleCreateMamoPayment(req, res, config) {
   if (!config.mamo?.apiKey || !config.mamo?.webhookAuth) throw new HttpError(503, "Mamo is not configured.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
-  const plan = config.plans.find((candidate) => candidate.id === planId);
+  const plan = config.plans.find((candidate) => candidate.id === planId && candidate.active !== false);
   if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
   const coupon = String(body.coupon || "").trim() ? await eligibleCoupon(context, config, body.coupon, req.signal) : null;
   const current = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });

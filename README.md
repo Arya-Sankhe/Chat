@@ -4,9 +4,9 @@ Klui Chat is a Dockerized managed B2C SaaS chat app using OpenRouter. Users sign
 
 ## What Is Included
 
-- Testing access mode for local/MVP testing, plus subscription access mode for paid users.
+- Testing access mode for local/MVP testing, plus subscription access mode with paid plans and a basic [free tier](docs/FREE_TIER.md).
 - Supabase Auth with Google sign-in. The client uses Google Identity Services plus Supabase `signInWithIdToken`; enable it with `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID` after configuring the Google provider in Supabase.
-- Supabase Postgres persistence for profiles, Lite/Pro/Max plans, manual Ziina payment requests, subscriptions, conversations, messages, usage, and attachments.
+- Supabase Postgres persistence for profiles, Plus/Pro plans, manual Ziina payment requests, subscriptions, conversations, messages, usage, and attachments.
 - Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only OpenRouter API key.
 - Streaming chat responses with usage metering and plan limits.
@@ -65,7 +65,7 @@ Model provider and usage billing:
 
 Payments:
 
-- Plans are Lite (`10 AED`), Pro (`30 AED`), and Max (`50 AED`).
+- Plans are Plus (`15 AED`) and Pro (`30 AED`). Plus retains the internal `lite` ID and `PLAN_LITE_*` settings; retired Max remains available only to historical entitlements.
 - `PLAN_LITE_ZIINA_PAYMENT_URL`, `PLAN_PRO_ZIINA_PAYMENT_URL`, and `PLAN_MAX_ZIINA_PAYMENT_URL` point users to your Ziina payment links. Optional `PLAN_*_ZIINA_QR_IMAGE_URL` values show QR codes on the plan cards.
 - Ziina personal QR/link payments are activated by admin verification: the user creates a pending payment request with a Klui reference code, pays through Ziina, then an admin approves the request in the lightweight admin dashboard. Approval creates the active subscription.
 

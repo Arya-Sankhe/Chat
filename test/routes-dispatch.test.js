@@ -289,7 +289,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const plans = await dispatch(bareConfig, { path: "/api/plans" });
   assert.equal(plans.statusCode, 200);
   const planIds = plans.json().plans.map((plan) => plan.id);
-  assert.deepEqual(planIds, ["lite", "pro", "max"]);
+  assert.deepEqual(planIds, ["lite", "pro"]);
 });
 
 test("stale web API builds are rejected before route effects", async () => {

@@ -1262,14 +1262,13 @@ h2 {
 }
 
 .screen.plans-screen::before { background: var(--dots) 0 0 / 6px 6px; }
-.pricing-hero > p:last-child { margin: 24px auto 0; max-width: 46ch; font-size: 19px; font-weight: 650; }
 
 .screen.plans-screen { padding: 110px 24px 120px; }
 
 .plans-wrap {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  width: min(1180px, 100%);
+  grid-template-columns: repeat(2, 1fr);
+  width: min(860px, 100%);
   margin: 0 auto;
   align-items: stretch;
 }
@@ -1291,16 +1290,15 @@ h2 {
 .plan {
   position: relative;
   display: flex;
-  min-height: 570px;
+  min-height: 480px;
   flex-direction: column;
   padding: 32px;
   border: 2px solid var(--ink);
   background-color: var(--cream);
-  background-image: var(--dots);
-  background-size: 6px 6px;
+  background-image: none;
 }
 
-.plan + .plan { border-left: 0; }
+.plan-plus { background-color: #efb5ff; }
 .plan-pro { margin: -22px 0 22px; background-color: var(--sky); box-shadow: 7px 7px 0 var(--ink); z-index: 1; }
 .plan-max { background-color: var(--yellow); }
 
@@ -1322,8 +1320,9 @@ h2 {
 .plan-price strong { font-family: var(--display); font-size: 4.5rem; line-height: 0.8; letter-spacing: -0.06em; }
 .plan-price span { display: block; margin-top: 8px; font-size: 14px; }
 .plan-price small { margin-left: 6px; font-size: 12px; font-weight: 650; opacity: 0.72; }
-.plan-copy { min-height: 54px; margin: 0; font-weight: 650; }
-.plan ul { display: grid; gap: 12px; padding: 24px 0 28px 20px; margin: 24px 0 0; border-top: 2px solid var(--ink); font-size: 16px; }
+.plan ul { display: grid; gap: 14px; padding: 24px 0 30px; margin: 0; border-top: 2px solid var(--ink); font-size: 16px; font-weight: 650; list-style: none; }
+.plan-features li { display: flex; align-items: center; gap: 12px; }
+.plan-features svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .plan-cta { margin-top: auto; background: var(--coral); }
 
 /* 404 */
@@ -1436,8 +1435,7 @@ h2 {
 .legal-hub .policy-groups span { color: rgb(11 27 58 / 0.7); font-size: 14px; font-weight: 600; line-height: 1.35; }
 
 @media (max-width: 900px) {
-  .plans-wrap { width: min(620px, 100%); grid-template-columns: 1fr; gap: 18px; }
-  .plan + .plan { border-left: 2px solid var(--ink); }
+  .plans-wrap { width: min(620px, 100%); grid-template-columns: 1fr; gap: 36px; }
   .plan-pro { margin: 0; }
 }
 
@@ -1460,7 +1458,7 @@ h2 {
   .screen.pricing-hero { margin-top: 0; padding: 136px 18px 82px; }
   .screen.plans-screen { padding: 70px 18px 84px; }
   .pricing-hero h1 { font-size: clamp(3rem, 14vw, 4.3rem); }
-  .plan { min-height: 520px; padding: 28px; }
+  .plan { min-height: 0; padding: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1475,3 +1473,6 @@ h2 {
 @media (prefers-reduced-transparency: reduce) {
   .grain { opacity: 0.08; mix-blend-mode: normal; }
 }
+
+.pricing-subheadline { max-width: 52ch; margin: 28px auto 0; font-size: clamp(17px, 2vw, 21px); font-weight: 600; text-wrap: balance; }
+.plan-usage-tag { left: 18px; right: auto; background: var(--yellow); transform: rotate(-2deg); }

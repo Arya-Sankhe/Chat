@@ -25,15 +25,17 @@ const authRuntime = {
   onSession: null,
   onExpired: null,
   buildCheck: null,
+  onUpgradeRequired: null,
   buildId: ""
 };
 
-export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, buildId } = {}) {
+export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, onUpgradeRequired, buildId } = {}) {
   authRuntime.getSession = typeof getSession === "function" ? getSession : null;
   authRuntime.refresh = typeof refresh === "function" ? refresh : null;
   authRuntime.onSession = typeof onSession === "function" ? onSession : null;
   authRuntime.onExpired = typeof onExpired === "function" ? onExpired : null;
   authRuntime.buildCheck = typeof buildCheck === "function" ? buildCheck : null;
+  authRuntime.onUpgradeRequired = typeof onUpgradeRequired === "function" ? onUpgradeRequired : null;
   authRuntime.buildId = String(buildId || "");
 }
 
@@ -67,8 +69,19 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
   }
 
   if (!response.ok && [404, 410, 426].includes(response.status)) void authRuntime.buildCheck?.();
+  if ((response.status === 402 || response.status === 429) && authRuntime.onUpgradeRequired) {
+    void notifyUpgradeRequired(response, options.method || "GET");
+  }
 
   return response;
+}
+
+// A paid feature (402 upgrade_required) or a spent free allowance (429 free_limit).
+async function notifyUpgradeRequired(response, method) {
+  const problem = await response.clone().json().catch(() => null);
+  const code = problem?.details?.code;
+  if (code !== "upgrade_required" && code !== "free_limit") return;
+  authRuntime.onUpgradeRequired?.({ message: problem.error || "", code, kind: problem.details.kind || "", method: String(method).toUpperCase() });
 }
 
 // A boot request index.html already started, handed out once so later calls fetch fresh data.

@@ -196,7 +196,7 @@ const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
-const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
 const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
 // Text compare: DeepSeek and Solar Pro (Solar runs at medium effort).
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_SOLAR_PRO];
@@ -209,7 +209,7 @@ const DEFAULT_COUNCIL_MODELS = [
 ];
 const COUNCIL_MEDIA_MODELS = [
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_MIMO_V25_MODEL,
+  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_VISION_L3,
   OPENROUTER_VISION_L2
 ];
@@ -1751,6 +1751,7 @@ function selectComposerSkill(skill, fromEl) {
 
 function setResearchMode(enabled) {
   const next = Boolean(enabled);
+  if (next && blockedOnFree("Deep Research is on Plus and Pro.")) return;
   if (next && state.temporaryChat) {
     showToast("Deep Research is not available in temporary chat.");
     return;
@@ -1776,6 +1777,7 @@ function setResearchMode(enabled) {
 function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   if (blockChatNavigationWhileRunning()) return;
   const next = Boolean(enabled);
+  if (next && blockedOnFree("Temporary chat is on Plus and Pro.")) return;
   if (state.temporaryChat === next && !resetChat) {
     renderTemporaryChatMode();
     return;
@@ -2336,7 +2338,7 @@ function renderWebSearchToggle() {
     return;
   }
   els.webSearchToggle.classList.remove("hidden");
-  const on = state.settings.webSearchMode !== "off";
+  const on = state.settings.webSearchMode !== "off" && !isFreeAccount();
   els.webSearchToggle.setAttribute("aria-pressed", on ? "true" : "false");
   els.webSearchToggle.setAttribute(
     "title",
@@ -2348,6 +2350,7 @@ function renderWebSearchToggle() {
 }
 
 function toggleWebSearchMode() {
+  if (blockedOnFree("Web search is on Plus and Pro.")) return;
   const next = state.settings.webSearchMode === "off" ? "auto" : "off";
   updateSetting("webSearchMode", next);
   renderWebSearchToggle();
@@ -2460,7 +2463,71 @@ function servicesReady() {
 }
 
 function hasChatAccess() {
-  return Boolean(state.me?.access?.active);
+  return Boolean(state.me?.access?.active || state.me?.access?.free);
+}
+
+// Free accounts chat with Think and attach images. Every other feature still opens; using it
+// asks them to upgrade.
+function isFreeAccount() {
+  return Boolean(state.me?.access?.free);
+}
+
+function promptUpgrade(message) {
+  if (message) showToast(message);
+  openUpgradePlans();
+}
+
+function blockedOnFree(message) {
+  if (!isFreeAccount()) return false;
+  promptUpgrade(message);
+  return true;
+}
+
+// The server refused a paid feature or a spent free allowance. Something the user did
+// (anything but a read) opens the plans; a read only says why.
+function handleUpgradeRequired({ message, code, kind, method }) {
+  if (!isFreeAccount()) return;
+  const item = code === "free_limit" ? state.me?.usage?.free?.[kind] : null;
+  if (item) countFreeUse(kind, item.limit);
+  const now = Date.now();
+  if (now - (handleUpgradeRequired.at || 0) < 1500) return;
+  handleUpgradeRequired.at = now;
+  if (method === "GET") showToast(message);
+  else promptUpgrade(message);
+}
+
+function freeAllowance(kind) {
+  const item = state.me?.usage?.free?.[kind];
+  return item ? Math.max(0, Number(item.remaining) || 0) : Infinity;
+}
+
+function countFreeUse(kind, amount = 1) {
+  const item = state.me?.usage?.free?.[kind];
+  if (!item) return;
+  item.used = Math.min(item.limit, item.used + amount);
+  item.remaining = Math.max(0, item.limit - item.used);
+  renderProfileMenu();
+}
+
+// Why a free account can't send this, or "" when it can.
+function freeSendBlock({ role, skillIds = [], images = [], voice = null }) {
+  if (!isFreeAccount()) return "";
+  if (voice) return "Voice is on Plus and Pro. Upgrade to talk with Klui.";
+  if (state.temporaryChat) return "Temporary chat is on Plus and Pro.";
+  if (role === "compare" || role === "council") return `${role === "compare" ? "Compare" : "Council"} is on Plus and Pro. Upgrade to use it.`;
+  if (role !== "think") return "The free plan chats with Think. Upgrade to use other models.";
+  if (skillIds.length) return "Tools like slides, docs and visuals are on Plus and Pro.";
+  if (state.researchMode) return "Deep Research is on Plus and Pro.";
+  if (state.studyOpen || state.activeProjectId) return "Dojo and projects are on Plus and Pro.";
+  if (images.some((img) => img.category === "document")) return "Documents are on Plus and Pro. The free plan can attach images.";
+  if (freeAllowance("messages") < 1) {
+    return `You've used today's ${state.me.usage.free.messages.limit} free messages. Upgrade for more, or come back tomorrow.`;
+  }
+  const newImages = images.filter((img) => img.category === "image" && img.file).length;
+  if (newImages > freeAllowance("images")) {
+    return `You've used today's ${state.me.usage.free.images.limit} free image uploads. Upgrade for more, or come back tomorrow.`;
+  }
+  return "";
 }
 
 function hasUpgradePlans() {
@@ -2617,10 +2684,19 @@ function renderPlans() {
       .filter((request) => request.status === "pending")
       .map((request) => [request.planId, request])
   );
+  // Lucide-style 24px stroke icons; keep in sync with home/pricing/index.html.
+  const icon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+  const features = [
+    [icon('<path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/>'), "Notes, flashcards & tests"],
+    [icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>'), "Compare AI answers"],
+    [icon('<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>'), "Slides, docs & visuals"],
+    [icon('<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>'), "Web search & Deep Research"],
+    [icon('<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/>'), "Voice chat & course memory"],
+    [icon('<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'), "No ads"]
+  ];
   const planMeta = {
-    lite: { copy: "Simple access for light everyday use.", features: ["All Klui features included.", "Klui doesn't train on your chats.", "No ads."] },
-    pro: { tag: "The daily driver", copy: "Everyday access for regular users.", features: ["Everything in Lite.", "Klui doesn't train on your chats.", "3× usage."] },
-    max: { copy: "Higher capacity for heavier workflows.", features: ["Everything in Pro.", "Klui doesn't train on your chats.", "6× usage."] }
+    lite: { features },
+    pro: { features, usage: "4× usage" }
   };
   const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
@@ -2628,7 +2704,7 @@ function renderPlans() {
   els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
     const id = String(plan.id || "").toLowerCase();
     const planClass = id.replace(/[^a-z0-9_-]/g, "");
-    const meta = planMeta[id] || { copy: plan.description || "", features: [] };
+    const meta = planMeta[id] || { features: [] };
     const pending = requestsByPlan.get(plan.id);
     const mamo = plan.checkout === "mamo";
     const offer = mamo ? offers.get(plan.id) : null;
@@ -2636,31 +2712,25 @@ function renderPlans() {
     const feeNote = fee ? " <small>+ processing fee</small>" : "";
     const price = offer
       ? `<div class="plan-price plan-price-offer">
-          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
+          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.trialDays ? "Free trial" : offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
           <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
           <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          <span>first month</span>
+          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}</span>
         </div>
         <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
       : plan.amountAed
         ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
         : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
-    const chargeNote = !mamo ? ""
-      : offer
-        ? `${offer.initialChargeAed ? `AED ${escapeHtml(aed(offer.initialChargeAed))} today` : "Nothing charged today, card saved"}, then AED ${escapeHtml(aed(offer.renewalChargeAed))}/month from month two${fee ? ", processing fee included" : ""}.`
-        : `AED ${escapeHtml(aed(plan.chargeAed || plan.amountAed))} charged monthly${fee ? ", processing fee included" : ""}. Cancel anytime.`;
     return `
     <article class="plan-card plan-card-${escapeHtml(planClass)}">
-      ${meta.tag ? `<p class="plan-tag">${escapeHtml(meta.tag)}</p>` : ""}
+      ${meta.usage ? `<p class="plan-tag plan-usage-tag">${escapeHtml(meta.usage)}</p>` : ""}
       <h3 class="plan-name">${escapeHtml(plan.name)}</h3>
       ${price}
-      <p class="plan-copy">${escapeHtml(meta.copy)}</p>
-      <ul>
-        ${meta.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}
+      <ul class="plan-features">
+        ${meta.features.map(([svg, label]) => `<li>${svg}${escapeHtml(label)}</li>`).join("")}
       </ul>
       ${mamo ? `
       <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
-      <p class="plan-payment-note">${chargeNote}</p>
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
@@ -2854,6 +2924,7 @@ function renderAccountUsageMarkup() {
   const plan = state.me?.plan;
   const usage = state.me?.usage || {};
   if (!plan) return "";
+  if (plan.free) return renderFreeUsageMarkup(usage.free);
 
   const api = usage.api || {};
   const percent = Math.max(0, Math.min(100, Math.floor(Number(api.percent || 0))));
@@ -2873,6 +2944,41 @@ function renderAccountUsageMarkup() {
       <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
     </div>
   `;
+}
+
+function renderFreeUsageMarkup(free) {
+  if (!free) return "";
+  const icons = {
+    messages: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    images: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'
+  };
+  const row = (kind, label) => {
+    const item = free[kind];
+    const percent = item.limit > 0 ? Math.min(100, Math.round((item.used / item.limit) * 100)) : 100;
+    return `
+      <div class="free-usage-row">
+        <div class="account-usage-head">
+          <span class="account-usage-label"><svg viewBox="0 0 24 24" aria-hidden="true">${icons[kind]}</svg>${escapeHtml(label)}</span>
+          <span class="account-usage-value">${item.remaining ? escapeHtml(`${item.remaining} left`) : "Used up"}</span>
+        </div>
+        <div class="account-usage-track" role="progressbar" aria-label="${escapeHtml(label)} used today" aria-valuemin="0" aria-valuemax="${item.limit}" aria-valuenow="${item.used}">
+          <span class="account-usage-fill${item.remaining ? "" : " is-spent"}" style="width: ${percent}%"></span>
+        </div>
+      </div>`;
+  };
+  return `
+    <div class="account-usage free-usage">
+      ${row("messages", "Messages")}
+      ${row("images", "Image uploads")}
+      <p class="account-usage-note">Free plan · ${escapeHtml(freeResetLabel(free.resetsAt))}</p>
+    </div>
+  `;
+}
+
+function freeResetLabel(resetsAt) {
+  const minutes = Math.max(1, Math.round((Date.parse(resetsAt) - Date.now()) / 60_000));
+  if (!Number.isFinite(minutes)) return "Resets daily";
+  return minutes < 60 ? `Resets in ${minutes}m` : `Resets in ${Math.round(minutes / 60)}h`;
 }
 
 /* Rough chars-per-token ratio for English-ish text. Only used to
@@ -4056,7 +4162,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_PRO_MODEL) return "GPT-6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";
-  if (id === OPENROUTER_MIMO_V25_MODEL) return "MiMo 2.5";
+  if (id === OPENROUTER_GLM_FLASH_MODEL) return "GLM 5.3 Flash";
   return compactModelDisplayName(id) || id;
 }
 
@@ -6821,6 +6927,18 @@ function acceptPendingFiles(files) {
     allFiles = imagesOnly;
     if (!allFiles.length) return;
   }
+  if (isFreeAccount()) {
+    const imagesOnly = allFiles.filter((file) => fileCategory(file) === "image");
+    if (imagesOnly.length < allFiles.length) {
+      const notice = "Documents are on Plus and Pro. The free plan can attach images.";
+      if (!imagesOnly.length) {
+        promptUpgrade(notice);
+        return;
+      }
+      showToast(notice);
+    }
+    allFiles = imagesOnly;
+  }
   const imagesOnly = state.temporaryChat || isCouncilMode();
   const accepted = allFiles.filter((file) => imagesOnly
     ? fileCategory(file) === "image"
@@ -7829,6 +7947,7 @@ async function openVoiceMode() {
     openUpgradePlans();
     return;
   }
+  if (blockedOnFree("Voice is on Plus and Pro. Upgrade to talk with Klui.")) return;
   if (!voiceModeSupported()) {
     showToast("Voice mode is not supported in this browser.");
     return;
@@ -8081,6 +8200,7 @@ function toggleVoiceRecording() {
     stopVoiceRecording({ commit: false });
     return;
   }
+  if (blockedOnFree("Dictation is on Plus and Pro.")) return;
   startVoiceRecording();
 }
 
@@ -9000,7 +9120,12 @@ async function startMamoPayment(planId) {
   }
 }
 
-function couponSummary(percentOff) {
+function trialLength(days) {
+  return days % 7 === 0 ? `${days / 7} week${days === 7 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"}`;
+}
+
+function couponSummary({ percentOff, trialDays }) {
+  if (trialDays) return `${trialLength(trialDays)} free`;
   return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
 }
 
@@ -9017,7 +9142,7 @@ function renderCouponPanel() {
   els.paywallCoupon?.classList.toggle("is-applied", Boolean(applied));
   if (applied) {
     if (els.paywallCouponCode) els.paywallCouponCode.textContent = applied.code;
-    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied.percentOff);
+    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied);
   }
 }
 
@@ -9514,6 +9639,7 @@ function maybeAutoRepairVisualization({ messageId, message } = {}) {
   if (!normalizeClientSkillIds(userMsg?.metadata?.skillIds).includes("visualize")) return false;
   if (!visualizeSourceFromContent(assistant.content)) return false;
 
+  if (isFreeAccount()) return false;
   const attemptKey = `${conversationId}:${userMsg.id}`;
   const attempts = visualizeRepairCount(attemptKey);
   if (attempts >= VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS) return false;
@@ -9539,6 +9665,11 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
   const failed = state.messages[index];
   const userMsg = state.messages[index - 1];
   if (failed?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(failed)) return;
+  const freeBlock = freeSendBlock({ role: selectedSingleRole(), skillIds: userMsg.metadata?.skillIds || [] });
+  if (freeBlock) {
+    promptUpgrade(freeBlock);
+    return;
+  }
 
   const repairSource = visualizeRuntimeError ? visualizeSourceFromContent(failed.content) : "";
   const localAssistant = {
@@ -9570,6 +9701,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
   let repairErrored = false;
 
   try {
+    countFreeUse("messages");
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
@@ -9716,6 +9848,11 @@ async function executeSend({ text, images, compareModels, council = false, descr
   if (visualizeSendBlocked(sendSkillIds, compareModels)) {
     showToast("Visualize works with one model at a time.");
     return;
+  }
+  const freeBlock = freeSendBlock({ role: voice ? "think" : selectedChatRole(), skillIds: sendSkillIds, images, voice });
+  if (freeBlock) {
+    promptUpgrade(freeBlock);
+    return voice ? { error: freeBlock } : null;
   }
 
   const temporaryChat = state.temporaryChat;
@@ -9878,6 +10015,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }
 
       const uploadedFile = await uploadFile(state.session, img.file);
+      if (uploadedFile.category !== "document") countFreeUse("images");
       if (uploadedFile.category === "document") {
         await waitForDocumentReady(uploadedFile.id, img.file.name);
       }
@@ -9947,6 +10085,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         }
       });
     } else {
+      countFreeUse("messages");
       await streamConversationMessage(state.session, conversationId, payload, {
         signal: abortController.signal,
         onEvent: (event) => {
@@ -10192,6 +10331,7 @@ async function bootstrap() {
     await setupNativeLifecycle();
     configureApiAuth({
       getSession: () => state.session,
+      onUpgradeRequired: handleUpgradeRequired,
       refresh: (session, options) => refreshSession(state.config, session, options),
       onSession: (session) => {
         state.session = session;

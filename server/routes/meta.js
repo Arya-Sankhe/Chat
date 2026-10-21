@@ -2,6 +2,7 @@ import { configuredServices } from "../config.js";
 import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
+import { freeUsageSummary, isFreePlan } from "../saas/freePlan.js";
 import { cancelMamoRenewal, mamoFetch, stopAllMamoSchedules } from "../saas/mamo.js";
 import { publicPlan } from "../saas/plans.js";
 import { storageUsage } from "../saas/storageQuota.js";
@@ -35,9 +36,11 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings }
     } : null,
     plan: plan ? publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees) : null,
     usage: usage || {},
+    // `active` means a paid (or testing) plan; free accounts chat with `free` instead.
     access: {
       mode: config.access.mode,
-      active: Boolean(plan)
+      active: Boolean(plan) && !isFreePlan(plan),
+      free: isFreePlan(plan)
     },
     settings: settings || {},
     services: configuredServices(config)
@@ -77,7 +80,7 @@ export function handleConfig(req, res, config) {
 }
 
 export function handlePlans(req, res, config) {
-  sendJson(res, 200, { plans: config.plans.map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees)) });
+  sendJson(res, 200, { plans: config.plans.filter((plan) => plan.active !== false).map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees)) });
 }
 
 export async function handleMe(req, res, config) {
@@ -127,8 +130,13 @@ export async function handleMe(req, res, config) {
     access: config.access,
     signal: req.signal
   });
-  const window = entitlement.plan ? apiUsageWindow(entitlement.subscription, entitlement.plan) : null;
-  const [apiUsageRow, usedBytes, systemPrompt] = await Promise.all([
+  // Without a subscription, a signed-in account is on the free plan (when it's offered).
+  if (!entitlement.plan && config.freePlan && config.access.mode === "subscription") {
+    Object.assign(entitlement, { subscription: null, plan: config.freePlan });
+  }
+  const free = isFreePlan(entitlement.plan);
+  const window = entitlement.plan && !free ? apiUsageWindow(entitlement.subscription, entitlement.plan) : null;
+  const [apiUsageRow, usedBytes, systemPrompt, freeUsage] = await Promise.all([
     window ? context.db.getApiWeeklyUsage(context.user.id, {
       periodStart: window.periodStart,
       weekIndex: window.weekIndex,
@@ -139,7 +147,8 @@ export async function handleMe(req, res, config) {
       : null,
     context.profile?.role === "admin"
       ? loadGlobalSystemPrompt(context.db, { signal: req.signal })
-      : null
+      : null,
+    free ? freeUsageSummary({ db: context.db, userId: context.user.id, plan: entitlement.plan, signal: req.signal }) : null
   ]);
   const used = Number(apiUsageRow?.api_credit_used || 0);
   const reserved = Number(apiUsageRow?.api_credit_reserved || 0);
@@ -161,7 +170,8 @@ export async function handleMe(req, res, config) {
     : null;
   const usage = {
     ...(apiUsage ? { api: apiUsage } : {}),
-    ...(storageUsageRow ? { storage: storageUsageRow } : {})
+    ...(storageUsageRow ? { storage: storageUsageRow } : {}),
+    ...(freeUsage ? { free: freeUsage } : {})
   };
   sendJson(res, 200, publicMe({
     ...context,

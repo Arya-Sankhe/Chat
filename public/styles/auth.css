@@ -213,6 +213,7 @@
   --pay-ink: #0b1b3a;
   --pay-cream: #fff8e9;
   --pay-sky: #79cfff;
+  --pay-pink: #efb5ff;
   --pay-yellow: #ffd43b;
   --pay-coral: #ff623f;
   --pay-dots: radial-gradient(circle, rgb(11 27 58 / 0.2) 0 1px, transparent 1.2px);
@@ -273,10 +274,11 @@
 }
 
 .paywall-brand {
+  margin: 0;
   font-family: var(--pay-display);
   font-size: clamp(54px, 8vw, 88px);
   font-weight: 600;
-  line-height: 0.9;
+  line-height: 1;
   letter-spacing: -0.05em;
   color: var(--pay-ink);
 }
@@ -301,7 +303,7 @@
 
 .plan-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   margin-top: 64px;
 }
@@ -309,18 +311,17 @@
 .plan-card {
   position: relative;
   display: flex;
-  min-height: 560px;
+  min-height: 480px;
   flex-direction: column;
   padding: 32px;
   border: 2px solid var(--pay-ink);
   background-color: var(--pay-cream);
-  background-image: var(--pay-dots);
-  background-size: 6px 6px;
+  background-image: none;
   text-align: left;
 }
 
-.plan-card + .plan-card {
-  border-left: 0;
+.plan-card-lite {
+  background-color: var(--pay-pink);
 }
 
 .plan-card-pro {
@@ -449,19 +450,32 @@
   margin-top: 12px;
 }
 
-.plan-copy {
-  min-height: 54px;
-  margin: 0;
-  font-weight: 650;
-}
-
 .plan-card ul {
   display: grid;
-  gap: 12px;
-  margin: 24px 0 0;
-  padding: 24px 0 28px 20px;
+  gap: 14px;
+  margin: 0;
+  padding: 24px 0 30px;
   border-top: 2px solid var(--pay-ink);
   font-size: 16px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.plan-features li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.plan-features svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .plan-qr {
@@ -688,13 +702,9 @@
 @media (max-width: 980px) {
   .plan-grid {
     grid-template-columns: 1fr;
-    gap: 22px;
+    gap: 36px;
     max-width: 620px;
     margin-inline: auto;
-  }
-
-  .plan-card + .plan-card {
-    border-left: 2px solid var(--pay-ink);
   }
 
   .plan-card-pro {
@@ -764,3 +774,6 @@
   letter-spacing: 0.02em;
 
 }
+
+.paywall-subheadline { max-width: 52ch; margin: 0; font-size: clamp(17px, 2vw, 21px); font-weight: 600; text-wrap: balance; }
+#paywallView .plan-usage-tag { left: 18px; right: auto; background: var(--pay-yellow); transform: rotate(-2deg); }

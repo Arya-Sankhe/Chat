@@ -2151,3 +2151,42 @@ test("a reconnecting client replays the running turn and follows it to the end",
   assert.equal(content, "Hello world");
   assert.equal(resumedRes.writableEnded, true);
 });
+
+test("free accounts chat with Think without tools, counted daily, and are asked to upgrade for anything else", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: (body) => {
+      assert.equal(body.model, TEXT_MODEL);
+      assert.equal(body.tools, undefined);
+      return [contentDelta("Free answer."), usageChunk()];
+    }
+  });
+  const config = loadConfig({ ...CONFIG_ENV, ACCESS_MODE: "subscription" });
+  const db = makeDb({ conversation: conversationRow });
+  let allowed = true;
+  Object.assign(db, {
+    async getLatestSubscription() { return null; },
+    async consumeFreeUsage(params) {
+      db.calls.push({ op: "consumeFreeUsage", params });
+      return { allowed, used: allowed ? 1 : params.limit, limit: params.limit };
+    }
+  });
+  const send = (body) => dispatchChat(config, db, { path: "/api/conversations/conv-1/messages", body: { text: "hi", ...body } });
+  const consumed = () => db.calls.filter((call) => call.op === "consumeFreeUsage");
+
+  const ok = await send({ role: "think", agentMode: true, webSearch: "auto" });
+  assert.equal(ok.statusCode, 200, ok.body);
+  assert.deepEqual(consumed().map((call) => [call.params.kind, call.params.limit]), [["messages", 15]]);
+
+  for (const body of [{ role: "compare" }, { role: "council" }, { role: "pro" }, { role: "think", voice: true }, { role: "think", skillIds: ["slides"] }]) {
+    const res = await send(body);
+    assert.equal(res.statusCode, 402, JSON.stringify(body));
+    assert.equal(JSON.parse(res.body).details.code, "upgrade_required");
+  }
+  assert.equal(consumed().length, 1);
+
+  allowed = false;
+  const spent = await send({ role: "think" });
+  assert.equal(spent.statusCode, 429);
+  assert.equal(JSON.parse(spent.body).details.code, "free_limit");
+});

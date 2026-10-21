@@ -1,4 +1,5 @@
 import { HttpError } from "../http/responses.js";
+import { freeSubscription, upgradeRequired } from "./freePlan.js";
 import { findPlanById } from "./plans.js";
 
 const activeStatuses = new Set(["active", "trialing"]);
@@ -54,8 +55,15 @@ export async function getCurrentEntitlement({ db, userId, plans, access, signal 
   };
 }
 
-export async function requireActiveEntitlement({ db, userId, plans, access, signal }) {
+// `freePlan` is passed only by routes the free plan may use; anywhere else an account
+// without a subscription is asked to choose a plan.
+// A free account outside those routes is told the feature is paid (`upgrade_required`).
+export async function requireActiveEntitlement({ db, userId, plans, access, freePlan = null, freePlanOffered = false, signal }) {
   const entitlement = await getCurrentEntitlement({ db, userId, plans, access, signal });
+  if (!entitlement.active && access?.mode === "subscription") {
+    if (freePlan) return { subscription: freeSubscription(), plan: freePlan };
+    if (freePlanOffered) throw upgradeRequired();
+  }
   if (!entitlement.active || !entitlement.subscription) {
     throw new HttpError(402, "Choose a Klui plan to start chatting.");
   }

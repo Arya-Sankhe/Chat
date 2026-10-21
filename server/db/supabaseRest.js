@@ -750,6 +750,9 @@ export class SupabaseRest {
     return billing.recordApiUsageCost(this, params, options);
   }
 
+  async consumeFreeUsage(params, options) { return billing.consumeFreeUsage(this, params, options); }
+  async getFreeUsage(userId, day, options) { return billing.getFreeUsage(this, userId, day, options); }
+
   async getApiWeeklyUsage(userId, options) {
     return billing.getApiWeeklyUsage(this, userId, options);
   }

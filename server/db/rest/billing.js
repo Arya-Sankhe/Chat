@@ -138,3 +138,21 @@ export async function listSubmittedApiUsage(client, { olderThan, limit = 100, si
     signal
   });
 }
+
+export async function consumeFreeUsage(client, { userId, day, kind, amount = 1, limit }, { signal } = {}) {
+  return client.rpc("klui_consume_free_usage", {
+    p_user_id: userId,
+    p_day: day,
+    p_kind: kind,
+    p_amount: amount,
+    p_limit: limit
+  }, { signal });
+}
+
+export async function getFreeUsage(client, userId, day, { signal } = {}) {
+  const rows = await client.request("free_daily_usage", {
+    query: { user_id: `eq.${userId}`, usage_day: `eq.${day}`, select: "messages,images", limit: "1" },
+    signal
+  });
+  return single(rows);
+}

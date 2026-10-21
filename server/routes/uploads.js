@@ -13,6 +13,7 @@ import { runEditorModel } from "../documents/editorModel.js";
 import { transcribeCourseImage } from "../study/generate.js";
 import { isAudioUpload } from "../study/audio.js";
 import { requireChatContext } from "./context.js";
+import { consumeFreeAllowance, isFreePlan, upgradeRequired } from "../saas/freePlan.js";
 
 const REVISE_SELECTION_MAX = 24_000;
 const REVISE_DOC_MAX = 120_000;
@@ -53,7 +54,7 @@ function documentExtractionLimits(config, plan) {
 }
 
 export async function handlePresignUpload(req, res, config) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   enforceRateLimit(req, "uploads-presign", 30, 60_000, context.user.id);
   const body = await parseJsonBody(req);
   const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
@@ -61,6 +62,11 @@ export async function handlePresignUpload(req, res, config) {
     ? await context.db.getProject(context.user.id, projectId, { signal: req.signal })
     : null;
   if (projectId && !project) throw new HttpError(404, "Project not found.");
+  const free = isFreePlan(context.plan);
+  if (free && (body.category === "document" || !String(body.contentType || "").startsWith("image/"))) {
+    throw upgradeRequired("Documents are on Plus and Pro. The free plan can attach images.");
+  }
+  if (free && projectId) throw upgradeRequired("Dojo and projects are on Plus and Pro.");
 
   const category = assertUpload({
     category: body.category,
@@ -76,6 +82,10 @@ export async function handlePresignUpload(req, res, config) {
   }
   if (category === "document" && !configuredServices(config).documents) {
     throw new HttpError(503, "Document uploads are not configured.");
+  }
+  if (free) {
+    if (category !== "image") throw upgradeRequired("Documents are on Plus and Pro. The free plan can attach images.");
+    await consumeFreeAllowance({ db: context.db, userId: context.user.id, plan: context.plan, kind: "images", signal: req.signal });
   }
 
   const objectKey = context.r2.objectKey({ userId: context.user.id, fileName: body.fileName });
@@ -113,7 +123,7 @@ export async function handlePresignUpload(req, res, config) {
 }
 
 export async function handleUploadContent(req, res, config, uploadId) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const attachment = await context.db.getAttachment(context.user.id, uploadId, { signal: req.signal });
   if (!attachment) throw new HttpError(404, "Upload not found.");
   if (attachment.status !== "pending") throw new HttpError(400, "Upload was already completed.");
@@ -165,7 +175,7 @@ export async function handleUploadContent(req, res, config, uploadId) {
 }
 
 export async function handleCompleteUpload(req, res, config) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const body = await parseJsonBody(req);
   const attachment = await context.db.getAttachment(context.user.id, body.uploadId, { signal: req.signal });
   if (!attachment) throw new HttpError(404, "Upload not found.");
@@ -317,7 +327,7 @@ function storageConversation(row) {
 
 export async function handleStorage(req, res, config) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const [usedBytesRaw, items, totals] = await Promise.all([
     context.db.accountStorageUsed(context.user.id, { signal: req.signal }),
     context.db.listUserStorageAttachments(context.user.id, { limit: STORAGE_LIST_LIMIT, signal: req.signal }),
@@ -369,7 +379,7 @@ export async function handleStorage(req, res, config) {
 
 export async function handleAttachmentDownload(req, res, config, attachmentId, url) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
 
@@ -584,7 +594,7 @@ async function viewerActions(context, attachment, doc, signal) {
 
 export async function handleAttachmentView(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
 
@@ -1072,7 +1082,7 @@ export async function handleDocumentAsk(req, res, config, attachmentId) {
 
 export async function handleAttachmentDelete(req, res, config, attachmentId) {
   if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment) throw new HttpError(404, "Attachment not found.");
   if (attachment.conversation_id || attachment.message_id) {

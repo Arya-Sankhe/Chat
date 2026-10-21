@@ -10,13 +10,13 @@ const app = readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8"
 const start = app.indexOf("function renderPlans(");
 const render = app.slice(start, app.indexOf("\n}\n", start) + 3);
 const config = loadConfig({ MAMO_API_KEY: "test-only" });
-const plans = config.plans.map((plan) => publicPlan(plan, true, config.mamo.fees));
+const plans = config.plans.filter((plan) => plan.active !== false).map((plan) => publicPlan(plan, true, config.mamo.fees));
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 for (const percentOff of [30, 50, 100]) {
   test(`${percentOff}% coupon shows original, introductory and exact renewal prices on every card`, () => {
     const coupon = { code: "TEST", percentOff };
-    const offers = config.plans.map((plan) => {
+    const offers = config.plans.filter((plan) => plan.active !== false).map((plan) => {
       const charges = mamoCharges(plan, coupon, config);
       return { planId: plan.id, code: coupon.code, initialAmountAed: couponPrice(plan, coupon), initialChargeAed: charges.initialAmount, renewalChargeAed: charges.renewalAmount };
     });
@@ -25,7 +25,9 @@ for (const percentOff of [30, 50, 100]) {
     const context = { state, els, escapeHtml, renderCouponPanel() {} };
     runInNewContext(`${render}; renderPlans();`, context);
     const cards = els.paywallPlans.innerHTML.split('<article ').slice(1);
-    assert.equal(cards.length, 3);
+    assert.equal(cards.length, 2);
+    assert.ok(cards[1].includes("4× usage"));
+    assert.ok(!els.paywallPlans.innerHTML.includes("3× usage."));
     for (const [index, card] of cards.entries()) {
       const plan = plans[index];
       const offer = offers[index];
@@ -33,13 +35,12 @@ for (const percentOff of [30, 50, 100]) {
       assert.match(card, new RegExp(`<strong>${percentOff === 100 ? "FREE" : offer.initialAmountAed}</strong>`));
       assert.ok(card.includes(`Then ${plan.amountAed} AED / month + processing fee</p>`));
       assert.ok(card.includes(`plan-discount-code">TEST<`));
-      assert.ok(card.includes(`then AED ${offer.renewalChargeAed}/month from month two`));
-      assert.ok(card.includes(percentOff === 100 ? "Nothing charged today, card saved" : `AED ${offer.initialChargeAed} today`));
       assert.ok(card.includes(percentOff === 100 ? "First month on us" : `${percentOff}% off`));
     }
     state.mamoCoupon = null;
     runInNewContext("renderPlans();", context);
     assert.doesNotMatch(els.paywallPlans.innerHTML, /<del|plan-discount-label|FREE|first month/);
-    assert.match(els.paywallPlans.innerHTML, /AED 32\.19 charged monthly/);
+    assert.match(els.paywallPlans.innerHTML, />Get Plus<\/button>[\s\S]*>Get Pro<\/button>/);
+    assert.doesNotMatch(els.paywallPlans.innerHTML, /plan-payment-note/);
   });
 }

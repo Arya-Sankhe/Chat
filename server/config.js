@@ -1,4 +1,4 @@
-import { loadPlans } from "./saas/plans.js";
+import { loadFreePlan, loadPlans } from "./saas/plans.js";
 import { normalizeAllowedOrigins } from "./http/cors.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,13 +49,18 @@ function readBoolean(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
-// MAMO_COUPONS=FIRST50:50,FIRSTFREE:100 — percent off the first month only.
+// MAMO_COUPONS=FIRST50:50,FIRSTFREE:100,TRYKLUI:100:14 — percent off the first month, or a
+// free trial of N days (100% only) before the first full-price charge.
 function parseMamoCoupons(value) {
   const coupons = new Map();
   for (const entry of clean(value).split(",")) {
-    const match = /^([A-Z0-9_-]{3,32}):(\d{1,3})$/i.exec(entry.trim());
+    const match = /^([A-Z0-9_-]{3,32}):(\d{1,3})(?::(\d{1,2}))?$/i.exec(entry.trim());
     const percentOff = Number(match?.[2]);
-    if (match && percentOff >= 1 && percentOff <= 100) coupons.set(match[1].toUpperCase(), { code: match[1].toUpperCase(), percentOff });
+    const trialDays = match?.[3] ? Number(match[3]) : null;
+    if (!match || percentOff < 1 || percentOff > 100) continue;
+    if (trialDays != null && (percentOff !== 100 || trialDays < 1 || trialDays > 28)) continue;
+    const code = match[1].toUpperCase();
+    coupons.set(code, { code, percentOff, ...(trialDays ? { trialDays } : {}) });
   }
   return coupons;
 }
@@ -187,9 +192,14 @@ export function loadConfig(env = process.env) {
       }
     },
     plans,
+    freePlan: loadFreePlan(env),
     access: {
       mode: accessMode,
       testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
+    },
+    billingEmail: {
+      apiKey: clean(env.BREVO_API_KEY),
+      enabledAt: clean(env.BILLING_EMAIL_ENABLED_AT)
     },
     mamo: {
       apiKey: clean(env.MAMO_API_KEY),

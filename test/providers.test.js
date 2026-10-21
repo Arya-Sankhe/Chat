@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ALLOWED_CHAT_MODELS, DEFAULT_PROVIDER_ID, OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, adaptChatRequestForProvider, normalizeProviderId, resolveProvider } from "../server/providers.js";
+import { ALLOWED_CHAT_MODELS, DEFAULT_PROVIDER_ID, OPENROUTER_GLM_FLASH_MODEL, OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, adaptChatRequestForProvider, normalizeProviderId, resolveProvider } from "../server/providers.js";
 import { chatCompletion, imageGeneration, streamChatCompletion } from "../server/model-api/client.js";
 import { loadConfig } from "../server/config.js";
 import { resolveChatRole } from "../server/models.js";
@@ -74,4 +74,21 @@ test("environment settings cannot introduce custom models", () => {
   assert.equal(config.documents.deckModel, undefined);
   assert.equal(config.documents.deckAuditModel, undefined);
   assert.equal(config.visionDescribeModel, undefined);
+});
+
+test("GLM Council routing enforces price ceilings and prefers throughput, including sticky retries", () => {
+  for (const sticky_provider of [undefined, "Reka"]) {
+    const request = adaptChatRequestForProvider({
+      model: OPENROUTER_GLM_FLASH_MODEL,
+      messages: [],
+      sticky_provider,
+      tools: [{ type: "function", function: { name: "lookup" } }],
+      provider: { max_price: { prompt: 99, completion: 99 }, sort: "price" }
+    }, "openrouter");
+    assert.deepEqual(request.provider.max_price, { prompt: 0.15, completion: 0.50 });
+    assert.equal(request.provider.sort, "throughput");
+    assert.equal(request.provider.allow_fallbacks, true);
+    assert.equal(request.provider.require_parameters, true);
+  }
+  assert.throws(() => adaptChatRequestForProvider({ model: "xiaomi/mimo-v2.5", messages: [] }, "openrouter"), /not approved/);
 });

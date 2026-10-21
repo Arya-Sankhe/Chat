@@ -188,8 +188,8 @@ test("publicPlan checkout is mamo when enabled, never leaks the api key", () => 
   assert.equal(enabled.checkout, "mamo");
   assert.equal(ziina.checkout, "ziina");
   assert.equal(none.checkout, "none");
-  assert.equal(publicPlan(plans[0], true, loadConfig({}).mamo.fees).chargeAed, 11.46);
-  assert.equal(ziina.chargeAed, 10);
+  assert.equal(publicPlan(plans[0], true, loadConfig({}).mamo.fees).chargeAed, 16.65);
+  assert.equal(ziina.chargeAed, 15);
   assert.equal("apiKey" in enabled, false);
   assert.equal("mamoApiKey" in enabled, false);
   assert.doesNotMatch(JSON.stringify(enabled), /mamo-test-key|apiKey/);
@@ -285,6 +285,14 @@ test("POST /api/payments/mamo is 503 when Mamo is not configured", async () => {
   assert.equal(res.json().error, "Mamo is not configured.");
 });
 
+test("retired Max cannot start a Mamo checkout", async () => {
+  const res = await dispatch(loadConfig(mamoEnv()), {
+    method: "POST", path: "/api/payments/mamo", body: { planId: "max" }, overrides: stubbedDeps()
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "Choose a valid Klui plan.");
+});
+
 test("POST /api/payments/mamo creates a monthly Mamo link that adds the processing fee", {
   concurrency: false
 }, async () => {
@@ -314,15 +322,19 @@ test("POST /api/payments/mamo creates a monthly Mamo link that adds the processi
     assert.equal(String(calls[0].options.method || "POST").toUpperCase(), "POST");
     assert.match(requestHeader(calls[0].options, "authorization"), new RegExp(`^Bearer\\s+${MAMO_KEY}$`, "i"));
     const body = jsonBody(calls[0].options);
+    assert.equal(body.title, "Klui Plus");
     assert.equal(body.amount_currency, "AED");
-    // 10 + 3.4% + AED 1 + 5% VAT on the fee nets Klui exactly AED 10.
-    assert.equal(Number(body.amount), 11.46);
-    assert.equal(body.description, "AED 10/month + AED 1.46 fee");
+    // Processing fee grosses up the AED 15 Plus price.
+    assert.equal(Number(body.amount), 16.65);
+    assert.equal(body.description, "AED 15/month + AED 1.65 fee");
     assert.equal(body.custom_data?.userId, "user-1");
     assert.equal(body.external_id, "user-1");
     assert.equal(body.subscription?.frequency, "monthly");
     assert.equal(body.link_type, "standalone");
     assert.equal(body.send_customer_receipt, true);
+    assert.equal(body.email, "user@example.com");
+    assert.equal(Object.hasOwn(body, "first_name"), false);
+    assert.equal(Object.hasOwn(body, "last_name"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -744,10 +756,40 @@ test("processing fee gross-up nets the plan price after Mamo's fee and VAT", () 
   assert.equal(withProcessingFee(0, fees), 0);
 });
 
-test("MAMO_COUPONS parses first-month percentages and ignores malformed entries", () => {
-  const { coupons } = loadConfig(mamoEnv({ MAMO_COUPONS: "first50:50, FIRSTFREE:100,BAD:0,NOPE,X:150" })).mamo;
-  assert.deepEqual([...coupons.keys()], ["FIRST50", "FIRSTFREE"]);
+test("MAMO_COUPONS parses first-month percentages and free trials, ignoring malformed entries", () => {
+  const { coupons } = loadConfig(mamoEnv({ MAMO_COUPONS: "first50:50, FIRSTFREE:100,tryklui:100:14,HALF:50:14,BAD:0,NOPE,X:150" })).mamo;
+  assert.deepEqual([...coupons.keys()], ["FIRST50", "FIRSTFREE", "TRYKLUI"]);
   assert.equal(coupons.get("FIRSTFREE").percentOff, 100);
+  assert.equal(coupons.get("FIRSTFREE").trialDays, undefined);
+  assert.equal(coupons.get("TRYKLUI").trialDays, 14);
+});
+
+test("free-trial coupon starts the full-price subscription when the trial ends", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "TRYKLUI:100:14" }));
+  let sent;
+  try {
+    globalThis.fetch = async (url, options) => {
+      sent = jsonBody(options);
+      return Response.json({ id: "MB-LINK-TRIAL", payment_url: PAYMENT_URL, subscription: { identifier: "MPB-SUB-TRIAL" } });
+    };
+    const { state, db } = couponDb();
+    const before = Date.now();
+    const res = await dispatch(config, {
+      method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+      body: { planId: "lite", coupon: "tryklui" }, overrides: stubbedDeps({ db })
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().offer.trialDays, 14);
+    assert.equal(res.json().offer.initialChargeAed, 0);
+    assert.equal(sent.save_card, "required");
+    assert.match(sent.title, /14-day free trial/);
+    // Access runs through the Dubai day billing starts: 14-16 days out, never a month.
+    const days = (Date.parse(state.links[0].first_renewal_at) - before) / 86_400_000;
+    assert.ok(days > 14 && days <= 16, String(days));
+    const [y, m, d] = sent.subscription.start_date.split("/").map(Number);
+    assert.equal(Date.UTC(y, m - 1, d + 1) - 4 * 3600_000, Date.parse(state.links[0].first_renewal_at));
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("coupon identities survive recreated accounts, normalize Gmail aliases, and trust verified auth only", () => {
@@ -810,6 +852,9 @@ test("coupon checkout saves the card for a full-price subscription starting next
     assert.equal(sent.save_card, "required");
     assert.equal(sent.subscription_id, undefined);
     assert.match(sent.subscription.start_date, /^\d{4}\/\d{2}\/\d{2}$/);
+    assert.equal(sent.title, "Klui Pro · AED 16.65 today");
+    assert.ok(sent.title.length <= 50);
+    assert.match(sent.description, /^Total below: AED 32\.19\/month from \d{4}\/\d{2}\/\d{2}\. Today: AED 16\.65\.$/);
     assert.ok(sent.description.length <= 75);
     assert.equal(state.links[0].coupon_code, "FIRST50");
     assert.equal(state.links[0].initial_amount_aed, 16.65);

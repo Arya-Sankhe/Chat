@@ -238,6 +238,13 @@ subscriber's renewal amount, so a cheaper first charge cannot simply be lowered 
      future renewal and releases the coupon so the user can retry.
 4. Month two renews automatically at the full plan price through the normal renewal path.
 
+Mamo's hosted subtotal/total shows the subscription's renewal amount, even during card
+verification for a coupon. Its documented API has no separate first-payment display amount.
+The checkout title states today's charge and the description explains when the total below
+starts. Do not lower the link amount to the coupon price: that also lowers future renewals.
+Klui omits `first_name` and `last_name`; the payer enters their cardholder name. Existing
+checkout links retain their original text and prefill, so open a new checkout to see changes.
+
 A second coupon checkout that completes after a coupon was redeemed is unsubscribed before
 it can renew. Cancelling during the free or discounted month keeps access until that month
 ends and stops the first full-price charge.
@@ -269,13 +276,50 @@ sandbox API, temporary Cloudflare tunnel and sandbox webhook, Mamo's published f
 Fixed during this run:
 
 - Mamo rejects link descriptions over 75 characters (422); the coupon description is now short.
-- Mamo's card form rejects cardholder names with digits or symbols, and it prefills the name
-  from Klui. Names are now reduced to letters before they are sent.
+- Mamo's card form rejects cardholder names with digits or symbols. Klui now leaves the
+  cardholder name empty instead of sending the profile name or inventing a fallback.
 - `next_payment_date` is a date with no time. Access used to end at 00:00 UTC on the renewal day,
   before Mamo charges, which would lock users out for part of every renewal day. Access now
   lasts through the end of that day in Dubai time (20:00 UTC).
 
 Still not verifiable in sandbox: a real calendar-month renewal, a renewal that fails at Mamo
 (renewal failures are covered by contract/SQL tests), a displayed 3DS challenge, and live
-acquiring/settlement. A full refund revokes access but does not stop the future renewal; the
-user (or support) must cancel it, same as for standard plans.
+acquiring/settlement. The deployed full-refund handler now revokes access and stops future
+renewals; delayed success events cannot reactivate the refunded subscription. A real live
+purchase/refund test is still needed.
+
+
+## Plus / Pro pricing — 20 October 2026
+
+The website now sells only Plus (15 AED/month) and Pro (30 AED/month), plus the
+existing processing fee. Plus keeps the `lite` ID and `PLAN_LITE_*` settings so
+subscription ownership, webhook matching, coupon history, and usage stay intact.
+Max is excluded from listings, coupon offers, and new checkouts; its definition
+and database row remain for historical subscriptions. Every allowance is unchanged.
+
+The hosted database was updated with `20261020163058_plus_pro_pricing.sql` and
+verified. Production source and `PLAN_LITE_PRICE_LABEL` / `PLAN_LITE_AMOUNT_AED`
+were updated and the API container rebuilt. Live pricing and health passed;
+every Plus/Pro allowance matched the previous live API response. Mamo's live
+`GET /links` returned zero links and Supabase held zero Mamo subscriptions, so
+there were no existing Lite renewal schedules to reprice. New monthly Mamo
+checkouts use the Plus title and 15 AED base price (16.65 AED with current fees).
+No real card payment was made. Rollback source, environment, and proxy backups
+are on the VPS under `/root/klui-deploy-backups/plus-pro-20261020`, with image
+`klui-chat:before-plus-pro-20261020`.
+
+
+### Pro usage increase — 20 October 2026
+
+The homepage starting-price headline is 15 AED. Pro now advertises 4× Plus usage:
+Plus remains USD 1.36 per billing month (four USD 0.34 buckets); Pro increases from
+USD 4.08 to USD 5.44 (four USD 1.36 buckets, previously USD 1.02). These are shared
+API-cost allowances, not customer subscription prices. Pro stays 30 AED/month.
+The production API and research worker must both use
+`PLAN_PRO_MONTHLY_API_CREDITS=5.44`; usage already consumed is preserved.
+
+Deployed and verified the API and research worker. All 10 current Pro rows in
+`usage_api_weekly` were raised from 1.02 to 1.36 without changing `api_credit_used`.
+A live text audit of all 11 public marketing/policy pages found no stale pricing,
+plan names, or multipliers. The mobile build and 1,336 tests passed. Rollback
+backups are under `/root/klui-deploy-backups/pro4x-20261020` on the VPS.

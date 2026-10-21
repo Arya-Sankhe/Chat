@@ -23,7 +23,7 @@ test("normalizePastedTextRange stores only a validated range marker", () => {
 
 test("loadPlans maps Klui payment tiers from env", () => {
   const plans = loadPlans({
-    PLAN_LITE_PRICE_LABEL: "10 AED / month",
+    PLAN_LITE_PRICE_LABEL: "15 AED / month",
     PLAN_LITE_MONTHLY_API_CREDITS: "3.5",
     PLAN_LITE_MAX_DOCUMENTS_PER_MESSAGE: "5",
     PLAN_LITE_MAX_DOCUMENT_FILE_BYTES: "52428800",
@@ -32,8 +32,10 @@ test("loadPlans maps Klui payment tiers from env", () => {
   });
 
   assert.equal(plans[0].id, "lite");
-  assert.equal(plans[0].priceLabel, "10 AED / month");
-  assert.equal(plans[0].amountAed, 10);
+  assert.equal(plans[0].name, "Plus");
+  assert.equal(plans.find((plan) => plan.id === "max").active, false);
+  assert.equal(plans[0].priceLabel, "15 AED / month");
+  assert.equal(plans[0].amountAed, 15);
   assert.equal(plans[0].ziinaPaymentUrl, "https://ziina.com/pay/lite");
   assert.equal(publicPlan(plans[0], true).checkout, "mamo");
   assert.equal(publicPlan(plans[0], false).checkout, "ziina");
@@ -51,7 +53,7 @@ test("loadPlans maps Klui payment tiers from env", () => {
     loadPlans({}).map(({ id, monthlyApiCreditLimit }) => ({ id, monthlyApiCreditLimit })),
     [
       { id: "lite", monthlyApiCreditLimit: 1.36 },
-      { id: "pro", monthlyApiCreditLimit: 4.08 },
+      { id: "pro", monthlyApiCreditLimit: 5.44 },
       { id: "max", monthlyApiCreditLimit: 8.16 }
     ]
   );
@@ -67,6 +69,38 @@ test("loadPlans maps Klui payment tiers from env", () => {
       { id: "max", maxDocumentFileBytes: 150 * 1024 * 1024, maxDocumentBytesPerMessage: 150 * 1024 * 1024 }
     ]
   );
+});
+
+test("existing subscriptions use the configured Plus, Pro and retired Max allowances", async () => {
+  const plans = loadPlans({});
+  for (const [id, credits] of [["lite", 1.36], ["pro", 5.44], ["max", 8.16]]) {
+    const entitlement = await getCurrentEntitlement({
+      db: { async getLatestSubscription() {
+        return { provider: "mamo", status: "active", plan_id: id, current_period_end: "2099-01-01T00:00:00Z" };
+      } },
+      userId: "user-1", plans, access: { mode: "subscription" }
+    });
+    assert.equal(entitlement.active, true);
+    assert.equal(entitlement.plan.monthlyApiCreditLimit, credits);
+    if (id === "lite") assert.equal(entitlement.plan.name, "Plus");
+  }
+});
+
+test("Pro has four times the Plus budget in every monthly usage bucket", () => {
+  const plans = loadPlans({});
+  const plus = plans.find((plan) => plan.id === "lite");
+  const pro = plans.find((plan) => plan.id === "pro");
+  assert.equal(plus.monthlyApiCreditLimit, 1.36);
+  assert.equal(pro.monthlyApiCreditLimit, plus.monthlyApiCreditLimit * 4);
+  const subscription = { current_period_end: "2026-11-01T00:00:00Z" };
+  for (const day of [1, 9, 17, 25]) {
+    const now = new Date(`2026-10-${String(day).padStart(2, "0")}T12:00:00Z`);
+    const plusBucket = apiUsageWindow(subscription, plus, now);
+    const proBucket = apiUsageWindow(subscription, pro, now);
+    assert.equal(plusBucket.weeklyLimit, 0.34);
+    assert.equal(proBucket.weeklyLimit, 1.36);
+    assert.equal(proBucket.weeklyLimit, plusBucket.weeklyLimit * 4);
+  }
 });
 
 test("applyEditedUserText rewrites plain text messages", () => {
@@ -697,4 +731,9 @@ test("fallback cost estimate uses MiMo 2.6 Flash's own prices", () => {
   const usage = { promptTokens: 100_000, completionTokens: 10_000 };
   const credits = estimateOpenRouterCostCredits({ model: "xiaomi/mimo-v2.6-flash", usage });
   assert.ok(Math.abs(credits - 0.0168) < 1e-9, `expected 0.0168, got ${credits}`);
+});
+
+test("GLM fallback cost estimate uses the enforced provider price ceiling", () => {
+  const credits = estimateOpenRouterCostCredits({ model: "z-ai/glm-5.3-flash", usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 } });
+  assert.equal(credits, 0.65);
 });
