@@ -42,6 +42,20 @@ reusable on web; React Native needs native rendering or a deliberate isolated
 WebView adapter. Rich editors/canvases may use that adapter without making the
 entire mobile app a website wrapper.
 
+## Native decision (2026-10-21)
+
+The parity goal (every screen and behaviour 1:1 with the current apps) settled
+the mobile architecture: the Expo app hosts the rebuilt web client
+(`clients/web`) in one persistent WebView, as the Capacitor app hosted
+`public/`. Native code is limited to adapters the page calls over a small
+bridge (`clients/shared/src/nativeHost.ts`): secure storage and preferences,
+the system browser for Google sign-in, deep links, Back, resume, the keyboard
+and system-bar insets, text zoom, file sharing and downloads, the voice
+foreground service and the mail composer. The page is served from the APK at
+`https://localhost`, the origin the API's CORS already allows for the app. A
+fully native React Native UI would be a second implementation of every screen
+and could not be held to pixel parity; it stays an option per screen later.
+
 ## Execution sequence
 
 1. **Isolation and inventory.** Create a dedicated rebuild worktree and development

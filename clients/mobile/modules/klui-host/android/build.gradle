@@ -1,0 +1,30 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'tech.klui.host'
+version = '0.1.0'
+
+android {
+  namespace "tech.klui.host"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  implementation "androidx.webkit:webkit:1.12.1"
+  implementation "androidx.core:core-ktx:1.13.1"
+}
+
+// The web client is the app: build it into this module's assets before every
+// build, as the Capacitor app's mobile:sync did. KLUI_SKIP_WEB_BUNDLE=1 keeps
+// the assets already there.
+def bundleWeb = tasks.register("bundleKluiWeb", Exec) {
+  workingDir file("../../..")
+  commandLine "node", "scripts/bundle-web.mjs"
+  onlyIf { System.getenv("KLUI_SKIP_WEB_BUNDLE") != "1" }
+}
+tasks.named("preBuild") { dependsOn bundleWeb }

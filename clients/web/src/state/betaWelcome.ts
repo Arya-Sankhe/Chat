@@ -1,7 +1,7 @@
 /* The beta thank-you from public/js/app.js: once per account, on desktop web,
    right after the account loads. The canvas scene is islands/betaWelcome.js. */
 import { session } from "../app/runtime";
-import { useApp } from "./app";
+import { NATIVE_APP, useApp } from "./app";
 
 const get = useApp.getState;
 const set = useApp.setState;
@@ -23,7 +23,7 @@ async function markBetaWelcomeSeen() {
 export function maybeShowBetaWelcome() {
   const me = get().me as { user?: { id?: string; betaWelcomeSeen?: boolean } } | null;
   const userId = me?.user?.id;
-  if (!userId || betaWelcomeTriedFor === userId || !session.current()) return;
+  if (!userId || betaWelcomeTriedFor === userId || !session.current() || NATIVE_APP) return;
   if (me?.user?.betaWelcomeSeen !== false) return;
   if (!matchMedia("(min-width: 721px)").matches || get().overlay) return;
   betaWelcomeTriedFor = userId;

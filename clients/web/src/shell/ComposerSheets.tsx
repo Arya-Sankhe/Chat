@@ -4,7 +4,7 @@
    rendered there through BodySheets and inline otherwise. */
 import { createPortal } from "react-dom";
 import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_LABELS } from "@klui/shared";
-import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
+import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, dismissComposerKeyboard, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
 import { homeModes } from "../state/homeModes";
 import { cx } from "./cx";
@@ -140,7 +140,7 @@ export function ActionMenu() {
             <span>{mobile ? "Files" : "Add photos & files"}</span>
           </button>
           {" "}
-          <button className={cx("composer-action-menu-item mobile-camera-action", { hidden: !mobile })} type="button" id="cameraAction" onClick={() => { closeActionMenu(); void openCameraSheet(); }} role="menuitem" data-menu-page="root">
+          <button className={cx("composer-action-menu-item mobile-camera-action", { hidden: !mobile })} type="button" id="cameraAction" onClick={() => { closeActionMenu(); dismissComposerKeyboard(); void openCameraSheet(); }} role="menuitem" data-menu-page="root">
             <svg width="19" height="19" viewBox="-1 -1 26 26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
               <circle cx="12" cy="13" r="4" />

@@ -18,6 +18,7 @@ import {
   closeAllDrawers,
   closeAuthDialog,
   closeConfirmDialog,
+  closeTopNativeSurface,
   closeConversationMenus,
   closePinnedPopup,
   closeProfileMenu,
@@ -33,6 +34,7 @@ import {
   openTitleRename,
   renderShell,
   savePinnedChatIds,
+  saveSettings as saveStoreSettings,
   setSettingsTab,
   showToast,
   startSidebarLogin,
@@ -161,7 +163,6 @@ import { renderMindMap } from "./mindMap.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
-import { SETTINGS_KEY } from "@klui/shared";
 import { createAdminPanel } from "./adminPanel.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
@@ -176,13 +177,23 @@ import {
   voiceModeSupported,
   voicePickerMarkup
 } from "./voiceMode.js";
-import { composeEmailNatively, copyText, isNative, keepVoiceSessionAlive, openExternal } from "./platform/index.js";
+import {
+  composeEmailNatively,
+  copyText,
+  exitApp,
+  hideNativeKeyboard as hideNativeKeyboardNow,
+  isNative,
+  keepVoiceSessionAlive,
+  keyboardHiddenOnPurposeAt,
+  openExternal,
+  showNativeKeyboard as showNativeKeyboardInstant
+} from "./platform/index.js";
 
 /* ─── Bridges: the React store's versions of old functions ─── */
 
 const set = useApp.setState;
 let suppressUrlSync = false;
-// Deep links from the native app; the web build has none.
+// A /c/<id> deep link that opened the packaged app, until the chats load.
 let pendingNativeConversationId = "";
 
 /** The sidebar renders from the store; publish what only the chat core knows. */
@@ -224,16 +235,30 @@ function showOnly(view) {
   set({ view: views.get(view) || "chat" });
 }
 
-// The old focusPromptInput() only acted in the native app, where it also raised
-// the keyboard; on the web the click that got here already placed the caret.
-function focusPromptInput() {}
+// Normal taps use Android's editor focus. Only startup/new-chat/pill actions
+// need an explicit request; one bridge call, without timers or a second path.
+function showNativeKeyboard() {
+  return showNativeKeyboardInstant().catch(() => {});
+}
+
+// Only acts in the packaged app, where it also raises the keyboard; on the web
+// the click that got here already placed the caret.
+function focusPromptInput() {
+  if (!els.promptInput || !isNative()) return;
+  if (els.chatView?.classList.contains("hidden") || !els.researchReportView?.classList.contains("hidden")) return;
+  els.composer?.classList.remove("compact");
+  els.promptInput.focus({ preventScroll: true });
+  if (!document.body.classList.contains("keyboard-open")) void showNativeKeyboard();
+}
 
 function isMobileLayout() {
   return useApp.getState().mobile;
 }
 
-// The web build has no native keyboard to hide.
-async function hideNativeKeyboard() {}
+// The temporary chat home keeps its composer open. Menus, sheets and
+// navigation still close the keyboard through hideNativeKeyboard; any other
+// dismissal (the IME's own hide key, back, a stray tap) reopens it.
+const hideNativeKeyboard = hideNativeKeyboardNow;
 
 // React renders these from the store (temporary chat bar, composer Klui, profile
 // menu). Both mode renders also wrote #imageToggle's disabled state.
@@ -270,7 +295,7 @@ const adminPanel = createAdminPanel({
   isAdminUser: () => isAdminUser(),
   showToast: (message) => showToast(message),
   // saveSettings(); the store keeps the settings, this persists them.
-  saveSettings: () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)),
+  saveSettings: () => saveStoreSettings(state.settings),
   syncSettingsInputs: () => syncSettingsInputs()
 });
 
@@ -9174,6 +9199,110 @@ export function mountChat() {
 }
 
 /** bootstrap() starts the phone's recent-chats request alongside the account load. */
+/* ─── The packaged app (public/js/app.js setupNativeLifecycle and friends) ─── */
+
+function onTemporaryChatHome() {
+  return state.temporaryChat && !state.messages.length && !state.projectsOpen && !state.studyOpen;
+}
+
+function keepTemporaryComposerOpen() {
+  if (!isNative() || !onTemporaryChatHome()) return;
+  if (document.body.classList.contains("keyboard-open")) return;
+  if (document.visibilityState !== "visible" || document.body.classList.contains("sidebar-open")) return;
+  if (Date.now() - keyboardHiddenOnPurposeAt() < 800) return;
+  focusPromptInput();
+}
+
+// Mark the composer while it morphs between the full box and the scrolling
+// pill so its contents stay clipped inside the moving outline.
+function setupComposerMorph() {
+  const composer = els.composer;
+  if (!composer) return;
+  let wasCompact = composer.classList.contains("compact");
+  let settleTimer = null;
+  new MutationObserver(() => {
+    const compact = composer.classList.contains("compact");
+    if (compact === wasCompact) return;
+    wasCompact = compact;
+    composer.classList.add("is-morphing");
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => composer.classList.remove("is-morphing"), 520);
+  }).observe(composer, { attributes: true, attributeFilter: ["class"] });
+}
+
+function setupTemporaryComposerPin() {
+  let keyboardWasOpen = document.body.classList.contains("keyboard-open");
+  new MutationObserver(() => {
+    const keyboardOpen = document.body.classList.contains("keyboard-open");
+    if (keyboardOpen === keyboardWasOpen) return;
+    keyboardWasOpen = keyboardOpen;
+    // Let a tap that opened a menu finish before deciding the hide was stray.
+    if (!keyboardOpen) setTimeout(keepTemporaryComposerOpen, 120);
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+}
+
+/** setupNativeLifecycle()'s composer half; needs the mounted composer. */
+export function setupNativeComposer() {
+  if (!isNative()) return;
+  setupTemporaryComposerPin();
+  setupComposerMorph();
+}
+
+export async function handleNativeBack() {
+  if (closeTopNativeSurface()) return;
+  // The temporary chat home cannot close its composer; back leaves the mode.
+  if (onTemporaryChatHome()) {
+    setTemporaryChatMode(false);
+    return;
+  }
+  if (document.body.classList.contains("keyboard-open")) {
+    dismissComposerKeyboard();
+    return;
+  }
+  if (state.activeConversationId || window.location.pathname !== "/") {
+    openNewChat({ replaceUrl: true });
+    return;
+  }
+  await exitApp();
+}
+
+/** A klui.ai/c/<id> link: opened now if signed in, else after the chats load. */
+export function openNativeConversation(conversationId) {
+  pendingNativeConversationId = conversationId;
+  if (session.current()?.access_token) openConversation(pendingNativeConversationId).catch(() => {});
+}
+
+/* Back from the background: a stream that went quiet while the app was away
+   is rejoined, and a chat that lost its connection is reloaded. */
+export function rejoinTurnsAfterResume() {
+  const run = getConversationRun();
+  if (run) {
+    if (!run.turnRunId || !run.abortController || run.cancelRequested) return;
+    const resumedAt = Date.now();
+    setTimeout(() => {
+      if (conversationRuns.get(run.key) !== run || run.cancelRequested) return;
+      if ((run.lastEventAt || 0) >= resumedAt) return;
+      run.reattaching = true;
+      run.abortController.abort();
+    }, 5000);
+    return;
+  }
+  const conversationId = state.activeConversationId;
+  if (!conversationId || state.temporaryChat || !state.messages.some((message) => message?.connectionLost)) return;
+  const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+  const scrollTop = els.messages.scrollTop;
+  void loadActiveConversation().then((loaded) => {
+    if (loaded === "applied" && state.activeConversationId === conversationId) settleLiveMessages({ pinned, scrollTop });
+  }).catch(() => {});
+}
+
+/** focusPromptInputSoon(): start the editor/IME as the app opens. */
+export function focusPromptInputSoon() {
+  if (!isNative() || location.hash === "#settings") return;
+  if (studyRouteFromLocation() || projectsRouteFromLocation() || researchIdFromLocation()) return;
+  focusPromptInput();
+}
+
 export function prefetchRecentChats(promise) {
   mobileRecentChats = promise;
 }

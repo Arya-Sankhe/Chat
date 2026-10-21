@@ -3,9 +3,11 @@
    page shows (and how many times the home greeting restarts) depends on them. */
 import { api, session, webBuild } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
+import { isNative } from "../islands/platform/index.js";
 import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
-import { closeGuestContinue, handleSessionEnded, loadChatApp, loadPaymentRequests, refreshAfterMamoReturn, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
+import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, loadPaymentRequests, openNativeConversation, refreshAfterMamoReturn, rejoinTurnsAfterResume, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
+import { checkAndShowAppUpdate, hideLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -52,6 +54,7 @@ export async function loadMe() {
   if (typeof (me as any)?.settings?.systemPrompt === "string") {
     set((s) => ({ settings: { ...s.settings, systemPrompt: (me as any).settings.systemPrompt } }));
   }
+  await restoreNativePins();
   loadPinnedChatIds();
   maybeShowBetaWelcome();
 }
@@ -62,7 +65,8 @@ let buildPoll: ReturnType<typeof setInterval> | undefined;
 let buildCheck: Promise<void> | null = null;
 // A stale response forces a check even from a hidden tab.
 function checkWebBuild({ force = false } = {}) {
-  if (!get().buildId || (!force && document.visibilityState !== "visible")) return;
+  // The app ships its build inside the APK; its updates come from the app update check.
+  if (isNative() || !get().buildId || (!force && document.visibilityState !== "visible")) return;
   buildCheck ??= api.fetchBuild().then((payload) => {
     const next = String(payload?.buildId || "");
     if (next && next !== get().buildId) set({ appUpdateAvailable: true });
@@ -70,7 +74,7 @@ function checkWebBuild({ force = false } = {}) {
 }
 
 function startWebBuildMonitor() {
-  if (buildPoll) return;
+  if (isNative() || buildPoll) return;
   const checkWhenVisible = () => checkWebBuild();
   document.addEventListener("visibilitychange", checkWhenVisible);
   window.addEventListener("focus", checkWhenVisible);
@@ -78,10 +82,26 @@ function startWebBuildMonitor() {
   checkWebBuild();
 }
 
+/** refreshAccountAfterResume(): the app came back from the background. */
+async function refreshAccountAfterResume() {
+  if (session.current()?.access_token) {
+    rejoinTurnsAfterResume();
+    try {
+      await Promise.all([loadMe(), loadPaymentRequests()]);
+      renderShell();
+    } catch {
+      // Normal request/session handling will surface any actionable error.
+    }
+  }
+  await checkAndShowAppUpdate();
+}
+
 export async function bootstrap() {
+  await hydrateNativeSettings();
+  installNativeChrome();
   try {
     const urlSession = sessionFromUrl();
-    const [config, plansPayload] = await Promise.all([api.fetchConfig(), api.fetchPlans()]);
+    const [config, plansPayload] = await loadBootData(() => Promise.all([api.fetchConfig(), api.fetchPlans()]));
     session.setConfig(config);
     configureUploadLimit(config);
     const saved = urlSession ? (await session.save(urlSession), urlSession) : await session.load();
@@ -90,6 +110,12 @@ export async function bootstrap() {
       buildId: String((config as any)?.buildId || ""),
       plans: plansPayload.plans || [],
       composerSkills: Array.isArray((config as any)?.skills) ? (config as any).skills : []
+    });
+    await setupNativeLifecycle({
+      onSession: handleAuthenticatedSession,
+      onResume: refreshAccountAfterResume,
+      openConversation: openNativeConversation,
+      back: handleNativeBack
     });
     webBuild.id = get().buildId;
     webBuild.check = () => checkWebBuild({ force: true });
@@ -103,7 +129,8 @@ export async function bootstrap() {
     startWebBuildMonitor();
     const authError = authErrorFromUrl();
     if (authError) showToast(authError);
-    let signedIn = Boolean(saved);
+    // A Google sign-in that relaunched the app finishes during setupNativeLifecycle().
+    let signedIn = Boolean(saved || session.current());
     if (signedIn) {
       try {
         signedIn = Boolean(await withTimeout(session.ensureFresh(), 8000, "Session refresh"));
@@ -123,6 +150,7 @@ export async function bootstrap() {
     }
     set({ signedIn });
     renderShell();
+    hideLaunchScreenWaiting();
     // Guests are likely to open the sign-in dialog: fetch its art when idle.
     whenIdle(() => {
       if (!get().signedIn) set({ authArtLoaded: true });
@@ -134,6 +162,8 @@ export async function bootstrap() {
       await restorePendingDocuments();
       await openRouteResearchReport();
     }
+    reassertNativeTextZoom();
+    void checkAndShowAppUpdate();
   } catch (error) {
     set({ signedIn: false, me: null, conversations: [] });
     renderShell();
@@ -159,6 +189,17 @@ export async function signInWithGoogleCredential(credential: string) {
     set({ authNotice: (error as Error).message || "Google sign-in failed." });
     return;
   }
+  await afterSignIn();
+}
+
+/** handleAuthenticatedSession(): the packaged app's Google sign-in returns a session. */
+async function handleAuthenticatedSession(next: { access_token: string }) {
+  if (!next?.access_token) return;
+  await session.save(next as any);
+  await afterSignIn();
+}
+
+async function afterSignIn() {
   set({ signedIn: true, authNotice: "" });
   closeAuthDialog();
   closeGuestContinue();

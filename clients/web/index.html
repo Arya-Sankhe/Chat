@@ -8,10 +8,10 @@
     <title>Klui AI</title>
     <script>
       // Styles meant only for the packaged app (not the mobile website) key off this class.
-      if (window.androidBridge || window.Capacitor) document.documentElement.classList.add("native-app");
+      if (window.__kluiNative) document.documentElement.classList.add("native-app");
       // Start the app's two boot requests with the page rather than after its scripts load.
       // api.js takes each response once; the packaged app ignores them and asks its API origin.
-      if (/^https?:$/.test(location.protocol) && !window.androidBridge && !window.Capacitor) {
+      if (/^https?:$/.test(location.protocol) && !window.__kluiNative) {
         window.__kluiBoot = {
           config: fetch("/api/config", { cache: "no-store" }).catch(function () { return null; }),
           plans: fetch("/api/plans").catch(function () { return null; })
@@ -71,7 +71,7 @@
   </head>
   <body>
     <script>
-      if (window.androidBridge || window.matchMedia("(max-width: 860px)").matches) {
+      if (window.__kluiNative || window.matchMedia("(max-width: 860px)").matches) {
         document.body.classList.add("capacitor-native", "mobile-ui");
         try {
           const appearance = JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}").appearance || "system";

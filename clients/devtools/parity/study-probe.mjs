@@ -95,12 +95,16 @@ for (const site of SITES) {
     };
     const click = (selector) => page.locator(`${selector} >> visible=true`).first().click({ timeout: 8000 });
     // Phones show one course panel at a time behind tabs.
+    // A tap can land while the course is still re-rendering; make sure the tab took.
     const tab = async (name) => {
       const button = page.locator(`[data-study-tab=${name}] >> visible=true`);
-      if (await button.count()) {
+      if (!(await button.count())) return;
+      for (let attempt = 0; attempt < 3; attempt++) {
         await button.first().click();
-        await page.waitForTimeout(500);
+        const active = await page.waitForFunction((name) => document.querySelector(`[data-study-tab=${name}]`)?.classList.contains("active"), name, { timeout: 2000 }).then(() => true, () => false);
+        if (active) break;
       }
+      await page.waitForTimeout(500);
     };
 
     await page.goto(site.origin + "/");

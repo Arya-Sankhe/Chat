@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { renderGoogleSignInButton } from "../islands/googleButton";
-import { useApp } from "../state/app";
+import { googleContinueButtonHtml, renderGoogleSignInButton } from "../islands/googleButton";
+import { signInWithGoogle } from "../islands/platform/index.js";
+import { NATIVE_APP, useApp } from "../state/app";
 import { signInWithGoogleCredential } from "../state/boot";
 import { cx } from "./cx";
 
@@ -16,7 +17,7 @@ export function AuthDialog() {
   const booted = useApp((s) => s.shellRender > 0);
   const button = useRef<HTMLDivElement>(null);
   const auth = (config?.auth || {}) as { googleEnabled?: boolean; googleClientId?: string };
-  const googleReady = Boolean(auth.googleEnabled && auth.googleClientId);
+  const googleReady = Boolean(auth.googleEnabled && (NATIVE_APP || auth.googleClientId));
   const shownNotice = notice || (auth.googleEnabled && !googleReady ? NEEDS_CLIENT_ID : "");
 
   // renderAuthOptions(): the Google button renders while the dialog is open,
@@ -29,6 +30,14 @@ export function AuthDialog() {
       return;
     }
     if (!open) return;
+    // The packaged app signs in through the system browser (auth.js renderGoogleSignInButton).
+    if (NATIVE_APP) {
+      el.innerHTML = googleContinueButtonHtml();
+      el.querySelector(".google-continue")?.addEventListener("click", () => {
+        signInWithGoogle(config).catch((error: Error) => useApp.setState({ authNotice: error?.message || "Google sign-in failed." }));
+      });
+      return;
+    }
     renderGoogleSignInButton(
       { supabaseUrl: String(config?.supabaseUrl || ""), googleClientId: auth.googleClientId! },
       el,

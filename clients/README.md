@@ -5,8 +5,8 @@ The rebuilt Klui frontends, per `docs/CROSS_PLATFORM_REBUILD_PLAN.md`:
 | Package | What it is |
 | --- | --- |
 | `shared/` (`@klui/shared`) | TypeScript domain layer: API client, SSE parser, stream reducer, session manager, chat store/run controller, design tokens. No DOM or React Native imports. |
-| `web/` (`@klui/web`) | React 19 + Vite + React Router website. |
-| `mobile/` (`@klui/mobile`) | Expo SDK 58 / React Native app for Android and iOS (Expo Router). |
+| `web/` (`@klui/web`) | React 19 + Vite website; the same build runs inside the mobile app. |
+| `mobile/` (`@klui/mobile`) | Expo SDK 58 app: one WebView hosting the web build, plus native adapters (`modules/klui-host`). Android only for now, like the Capacitor app. |
 | `devtools/mock-api.mjs` | A stand-in backend that speaks the real wire contract, for testing without production data. |
 
 This is its own npm workspace root with its own lockfile. The server at the
@@ -14,18 +14,17 @@ repository root, its `package-lock.json` and its Docker image are untouched.
 The old frontend (`public/`) and the Capacitor Android project keep shipping
 until these clients reach parity.
 
-## Status: milestone 1 (chat slice)
+## Status
 
-Done on web and Android:
-
-- Sign in (web: Google Identity Services; native: Supabase PKCE through the system browser), session refresh, sign out.
-- Conversation list, open a conversation, load earlier messages.
-- Send and stream a reply (markdown, code, tables), stop, retry a reply.
-- Replies are owned by the store, not the screen: leaving a chat never cancels its reply, and the list shows which chats are replying.
-- Reload/relaunch rejoins a reply the server is still writing (`pendingTurns`); a dropped or silent connection is reattached and the server's replay rebuilds the reply without duplicate text.
-
-Not yet: attachments, settings, compare/council, research, projects, study,
-documents, voice, illustrations. iOS needs an EAS build or Xcode to verify.
+The web client reproduces the current site screen for screen except Projects,
+which is out of scope for now (Dojo courses are in). `devtools/parity/` holds
+the probes that compare it with the old site against a local backend
+(`devtools/local-backend/`): chat, turns, composer, settings, modes, paywall,
+surfaces, study, voice and admin. The Android app runs the same build, so it
+inherits all of that; its native adapters are compared with the Capacitor app
+by `devtools/parity/native-probe.mjs`. There is no iOS host yet: `klui-host`
+registers only Android, so an iOS build fails at launch until a WKWebView host
+implementing the same contract exists.
 
 ## Commands
 
@@ -64,19 +63,34 @@ seed a session.
 
 ### Android
 
+The app is the web build in one WebView (`mobile/modules/klui-host`), served
+from the APK at `https://localhost`. The page calls the host through
+`KluiNativeHost.postMessage` (contract: `shared/src/nativeHost.ts`; page side:
+`web/src/islands/platform/nativeHost.js`; host side: `mobile/src/host/`).
+
 ```sh
 source "$HOME/.klui/android-env.sh"
 cd mobile
-EXPO_PUBLIC_KLUI_API_ORIGIN=http://10.0.2.2:5199 npx expo prebuild --platform android --clean
-npx expo run:android            # or: cd android && ./gradlew :app:assembleDebug
-npx expo start --dev-client     # Metro for the dev build
+export APP_VARIANT=production EXPO_PUBLIC_KLUI_API_ORIGIN=https://klui.ai   # read again by Gradle
+npx expo prebuild --platform android --clean
+cd android && KLUI_VERSION_CODE=… KLUI_VERSION_NAME=… \
+  KLUI_KEYSTORE_PATH=… KLUI_KEYSTORE_PASSWORD=… KLUI_KEY_ALIAS=… KLUI_KEY_PASSWORD=… \
+  ./gradlew assembleRelease
 ```
 
-`EXPO_PUBLIC_KLUI_API_ORIGIN` defaults to `https://klui.ai`. Against the mock,
-"Continue with Google" runs the real PKCE code path end to end (the mock's
-`/auth/v1/authorize` redirects straight back with a code). The dev client's
-floating tools button sits over the header's Sign out; hide it from the dev
-menu (Tools button) when testing.
+Every Gradle build first runs `scripts/bundle-web.mjs`, building the web client
+into the host module's assets (`KLUI_SKIP_WEB_BUNDLE=1` reuses the last one).
+`plugins/withKluiRelease.js` gives the generated Gradle file the Capacitor
+build's release setup: `KLUI_VERSION_CODE`/`KLUI_VERSION_NAME` are read when
+Gradle runs (a release must carry a higher code than the installed app), the
+`KLUI_KEYSTORE_*` values sign it with the existing key, and a production
+release without them fails rather than using the debug key.
+
+A parity build for testing against the local backend sets
+`EXPO_PUBLIC_KLUI_API_ORIGIN=http://localhost:55600 KLUI_PARITY_BUILD=1`
+(plain http to localhost and WebView debugging; never for a release) and
+needs `adb reverse tcp:55600 tcp:55600` (also 55421 and 55900).
+`devtools/parity/native-probe.mjs` compares it with the Capacitor app.
 
 ## Decisions worth knowing
 
@@ -86,9 +100,22 @@ menu (Tools button) when testing.
   Its OAuth callback `tech.klui.app.dev://auth/callback` must be added to the
   Supabase Auth redirect allow list before Google sign-in works in dev builds
   against real Supabase.
-- **Sign-in after upgrading from Capacitor.** The Capacitor app keeps its session
-  in `@aparajita/capacitor-secure-storage`, which Expo SecureStore cannot read.
-  Users sign in once after the upgrade unless a migration bridge is added.
+- **Upgrading from Capacitor.** On first launch the host reads what the
+  Capacitor app stored (`KluiLegacyStorage.kt`: the secure-storage session and
+  update-check stamp, the Preferences values), copies them into SecureStore and
+  the preferences file, then deletes the old copies, so users stay signed in.
+  The page's localStorage carries over by itself (same `https://localhost` origin).
+  A parity build with `KLUI_PARITY_APP_ID=tech.klui.app.ref` installs over the
+  Capacitor test build to exercise this.
+- **System bar icons** keep the Capacitor app's on-device result: light status
+  icons in light mode, dark in dark mode (its `StatusBar.setStyle` call was
+  inverted), and a dark gesture handle in both (its navigation bar call never
+  took effect).
+- **Launch insets.** The Capacitor app sometimes misses the system bar insets at
+  launch (its first pass lands before the page listens), leaving its top bar
+  under the status bar until something resends them. The host sends them once
+  the page is up, so the new app does not copy that; `native-probe` has the old
+  app resend before comparing.
 - **Web session.** Same `klui.auth.v1` localStorage key as the current site, so
   switching the site over keeps people signed in.
 - **Stop.** Stopping a durable turn calls the cancel endpoint, which withdraws the
@@ -96,16 +123,6 @@ menu (Tools button) when testing.
   back to the composer. Same as the current app.
 - **Retry** streams directly without a durable turn (server behavior), so a retry
   cannot be rejoined after a disconnect. Same as the current app.
-- **Streaming on native** uses `expo/fetch`; React Native's own fetch buffers bodies.
-  Its errors are plain `Error`s with native messages, so the API client turns
-  every transport failure into one `NetworkError` that the run controller
-  rejoins on, on every platform.
-- **PKCE on native.** Hermes has no Web Crypto, and supabase-js then silently
-  falls back to a `Math.random()` verifier with a `plain` challenge.
-  `mobile/src/lib/webCrypto.ts` supplies `getRandomValues` and SHA-256 from
-  expo-crypto so sign-in uses S256.
-- **Markdown on native** is rendered from `marked`'s lexer (the same parser as web),
-  memoized per block so a streaming reply re-renders only its last block.
 - **No server keepalive.** The server sends no SSE heartbeat, so the client treats
   45 s of silence on a durable turn as a half-open connection and reattaches.
   A server-side `: ping` every ~15 s would let that timeout drop.

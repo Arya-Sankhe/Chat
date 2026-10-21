@@ -20,10 +20,18 @@ export const handleSessionEnded = core.handleSessionEnded as () => void;
 export const loadPaymentRequests = core.loadPaymentRequests as () => Promise<void>;
 export const trackPaymentRequests = core.trackPaymentRequests as () => void;
 export const refreshAfterMamoReturn = core.refreshAfterMamoReturn as () => Promise<void>;
+export const handleNativeBack = core.handleNativeBack as () => Promise<void>;
+export const openNativeConversation = core.openNativeConversation as (id: string) => void;
+export const rejoinTurnsAfterResume = core.rejoinTurnsAfterResume as () => void;
+export const setupNativeComposer = core.setupNativeComposer as () => void;
+export const focusPromptInputSoon = core.focusPromptInputSoon as () => void;
 export const prefetchRecentChats = core.prefetchRecentChats as (promise: Promise<unknown>) => void;
 
 /** Before boot: what index.html's script painted on a phone opened at "/". */
 export function mountChat() {
   if (useApp.getState().shellRender === 0) els.messages.innerHTML = launchGreetingHtml();
   core.mountChat();
+  core.setupNativeComposer();
+  // Start the editor/IME as the app opens (bindEvents' focusPromptInputSoon).
+  core.focusPromptInputSoon();
 }

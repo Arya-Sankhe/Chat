@@ -4,7 +4,7 @@
    React commits and before anything measures. Only the names listed here are touched; the
    pre-React boot script in index.html sets the same ones for the first frame. */
 import { appearanceAttributes } from "@klui/shared";
-import { useApp, type AppState } from "./app";
+import { NATIVE_APP, useApp, type AppState } from "./app";
 
 /** documentViewer.js setDocumentViewerWidth/initDocumentViewerWidth (run once at load). */
 const VIEWER_WIDTH_KEY = "klui.documentViewer.width.v1";
@@ -28,7 +28,7 @@ export function initDocumentViewerWidth() {
 const WALLPAPER_VARS = ["--home-wallpaper-image", "--chat-outline-image", "--home-wallpaper-base"];
 
 function apply(state: AppState) {
-  const { accent, mode, wallpaper, style } = appearanceAttributes(state.settings, state.systemDark);
+  const { accent, mode, wallpaper, style } = appearanceAttributes(state.settings, state.systemDark, NATIVE_APP);
   const body = document.body;
   body.dataset.accent = accent;
   body.dataset.mode = mode;

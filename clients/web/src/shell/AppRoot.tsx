@@ -3,7 +3,7 @@
 // stylesheets, :has() rules included, depend on that exact tree.
 import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
-import { chatSurfaces, closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
+import { NATIVE_APP, chatSurfaces, closeAppUpdate, closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
 import { closeBetaWelcome } from "../state/betaWelcome";
 import { mountCameraSheet } from "../state/camera";
 import { mountChat } from "../state/chat";
@@ -56,8 +56,7 @@ const MOVED_NOTICE_CSS = `
         #movedNotice .moved-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
       `;
 
-/** The shared dimmer; a click closes whatever it is dimming for. The
-   app-update mode joins with the native slice. */
+/** The shared dimmer; a click closes whatever it is dimming for. */
 function Overlay() {
   const mode = useApp((s) => s.overlay);
   const close = () => {
@@ -67,6 +66,7 @@ function Overlay() {
     else if (mode === "welcome") closeBetaWelcome();
     else if (mode === "search") closeSearchDialog();
     else if (mode === "account") chatSurfaces.account();
+    else if (mode === "app-update") closeAppUpdate();
     else closeSettings();
   };
   return <div className="overlay" id="overlay" hidden={!mode} data-mode={mode || undefined} onClick={close} />;
@@ -101,7 +101,7 @@ export function AppRoot() {
   const view = useApp((s) => s.view);
   const settings = useApp((s) => s.settings);
   const systemDark = useApp((s) => s.systemDark);
-  const wallpaperSrc = appearanceAttributes(settings, systemDark).wallpaperSrc;
+  const wallpaperSrc = appearanceAttributes(settings, systemDark, NATIVE_APP).wallpaperSrc;
   return (
     <>
       <SetupView />

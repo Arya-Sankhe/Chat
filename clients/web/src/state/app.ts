@@ -21,12 +21,13 @@ import {
   type Plan,
   type Project
 } from "@klui/shared";
+import { hideNativeKeyboard, preferences, signInWithGoogle } from "../islands/platform/index.js";
 import { closeCameraSheet } from "./camera";
 import { homeModes } from "./homeModes";
 
 export type View = "boot" | "setup" | "paywall" | "chat" | "research";
 export type SettingsTab = "general" | "voice" | "memory" | "storage" | "account";
-export type OverlayMode = "" | "search" | "settings" | "account" | "confirm" | "rename" | "auth" | "welcome";
+export type OverlayMode = "" | "search" | "settings" | "account" | "confirm" | "rename" | "auth" | "welcome" | "app-update";
 
 export interface AppState {
   config: KluiConfig | null;
@@ -100,6 +101,8 @@ export interface AppState {
   betaWelcomeOpen: boolean;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
+  /** The packaged app's update dialog (checkAndShowAppUpdate). */
+  appUpdate: { body: string; required: boolean; apkUrl: string } | null;
   /** Counts renderShell() calls. The old shell rebuilt the home greeting on
      every call, which restarts its animation and draws new random lines, so
      the greeting remounts on each increment to play out the same way. */
@@ -114,6 +117,7 @@ const settingsFromStorage = () => {
 };
 
 const mobileQuery = window.matchMedia("(max-width: 860px)");
+export const NATIVE_APP = Boolean((window as any).__kluiNative);
 const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
 export const useApp = create<AppState>(() => ({
@@ -123,7 +127,8 @@ export const useApp = create<AppState>(() => ({
   signedIn: false,
   me: null,
   settings: settingsFromStorage(),
-  mobile: mobileQuery.matches,
+  // The packaged app always uses the phone layout, as the Capacitor app did.
+  mobile: NATIVE_APP || mobileQuery.matches,
   systemDark: darkQuery.matches,
   // index.html's boot script marks phones' first frame as the empty home.
   chatEmpty: mobileQuery.matches,
@@ -166,10 +171,11 @@ export const useApp = create<AppState>(() => ({
   betaWelcomeOpen: false,
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
+  appUpdate: null,
   shellRender: 0
 }));
 
-mobileQuery.addEventListener("change", (event) => useApp.setState({ mobile: event.matches }));
+mobileQuery.addEventListener("change", (event) => useApp.setState({ mobile: NATIVE_APP || event.matches }));
 darkQuery.addEventListener("change", (event) => useApp.setState({ systemDark: event.matches }));
 
 const set = useApp.setState;
@@ -178,7 +184,15 @@ const get = useApp.getState;
 export function updateSetting<K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) {
   const settings = { ...get().settings, [key]: value };
   set({ settings });
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  saveSettings(settings);
+}
+
+/** saveSettings(): the packaged app also keeps them in its preferences, which
+   survive the WebView clearing its storage. */
+export function saveSettings(settings: ChatSettings = get().settings) {
+  const value = JSON.stringify(settings);
+  localStorage.setItem(SETTINGS_KEY, value);
+  if (NATIVE_APP) void preferences.set(SETTINGS_KEY, value);
 }
 
 /* ─── View switching ─── */
@@ -220,7 +234,7 @@ export function showToast(message: string) {
 
 /* ─── Conversations ─── */
 
-const pinnedStorageKey = () => {
+export const pinnedStorageKey = () => {
   const userId = get().me?.user?.id;
   return userId ? `${PINNED_CHATS_KEY}.${userId}` : "";
 };
@@ -238,7 +252,10 @@ export function loadPinnedChatIds() {
 
 export function savePinnedChatIds(ids: string[] = get().pinnedChatIds) {
   const key = pinnedStorageKey();
-  if (key) localStorage.setItem(key, JSON.stringify(ids));
+  if (!key) return;
+  const value = JSON.stringify(ids);
+  localStorage.setItem(key, value);
+  if (NATIVE_APP) void preferences.set(key, value);
 }
 
 export function togglePinChat(id: string) {
@@ -319,8 +336,9 @@ export function toggleSidebar() {
 
 /** The prompt keeps focus on phones until something else takes the screen. */
 export function dismissComposerKeyboard() {
-  const input = document.getElementById("promptInput");
-  if (input && document.activeElement === input) input.blur();
+  if (!get().mobile) return;
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  void hideNativeKeyboard();
 }
 
 export function closeMobileModeSheet() {
@@ -372,14 +390,14 @@ export function applySpectrumLevel(level: number) {
   const step = SPECTRUM_STEPS[n]!;
   const settings = { ...get().settings, spectrumScale: 3, spectrumLevel: n, modelMode: step.mode, thinkingEffort: step.effort, model: step.model };
   set({ settings });
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  saveSettings(settings);
 }
 
 /* Compare and Council (public/js/compare.js, council.js): fixed model sets. */
 function updateSettings(patch: Partial<ChatSettings>) {
   const settings = { ...get().settings, ...patch };
   set({ settings });
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  saveSettings(settings);
 }
 
 export function activateCompareMode() {
@@ -417,6 +435,7 @@ export function setResearchMode(enabled: boolean) {
   }
   const composer = input?.closest(".composer");
   if (composer?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+  void hideNativeKeyboard();
 }
 
 /** applyNativeTopBarMode(): the phone mode sheet's choice. */
@@ -467,8 +486,7 @@ export const chatSurfaces = {
 };
 
 /** closeTopNativeSurface(): back gesture, sheet backdrop and Escape close the
-   topmost surface first. Returns whether something closed. The app update
-   dialog (native only) joins with the native slice. */
+   topmost surface first. Returns whether something closed. */
 export function closeTopNativeSurface() {
   if (closeCameraSheet()) return true;
   const contextToggle = document.querySelector<HTMLElement>("[data-context-toggle][aria-expanded=true]");
@@ -481,6 +499,7 @@ export function closeTopNativeSurface() {
   if (s.actionMenu) { closeActionMenu(); return true; }
   if (s.spectrumOpen) { closeModelDropdown(); return true; }
   if (chatSurfaces.study()) return true;
+  if (s.appUpdate) { closeAppUpdate(); return true; }
   if (chatSurfaces.lightbox()) return true;
   if (chatSurfaces.viewer()) return true;
   if (s.view === "paywall") { renderShell(); return true; }
@@ -569,8 +588,31 @@ export function closeAuthDialog() {
   set((s) => ({ authOpen: false, overlay: s.overlay === "auth" ? "" : s.overlay }));
 }
 
-/** startSidebarLogin(): the web build always signs in through the dialog. */
-export const startSidebarLogin = openAuthDialog;
+/** startSidebarLogin(): the packaged app goes straight to Google in the browser. */
+export function startSidebarLogin() {
+  if (!NATIVE_APP) return openAuthDialog();
+  set({ sidebarOpen: false, authNotice: "" });
+  closeAuthDialog();
+  signInWithGoogle(get().config).catch((error: Error) => {
+    set({ authNotice: error?.message || "Google sign-in failed." });
+    openAuthDialog();
+  });
+}
+
+/* ─── App update (packaged app) ─── */
+
+export function showAppUpdate(update: { versionName?: string; releaseNotes?: unknown; required?: boolean; apkUrl?: string }) {
+  const notes = Array.isArray(update.releaseNotes) && update.releaseNotes.length ? ` ${update.releaseNotes.join(" ")}` : "";
+  set({
+    appUpdate: { body: `Version ${update.versionName} is ready.${notes}`, required: Boolean(update.required), apkUrl: String(update.apkUrl || "") },
+    overlay: "app-update"
+  });
+}
+
+export function closeAppUpdate() {
+  if (get().appUpdate?.required) return;
+  set((s) => ({ appUpdate: null, overlay: s.overlay === "app-update" ? "" : s.overlay }));
+}
 
 export function closeAllDrawers() {
   closeSettings();
@@ -592,6 +634,7 @@ export function openDeleteConfirm({ title, body, chatId = "", attachmentId = "",
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
+  if (NATIVE_APP) set({ sidebarOpen: false });
   set({ confirm: { title, body, chatId, attachmentId, projectId, onConfirm, confirmLabel }, overlay: "confirm" });
 }
 
@@ -637,6 +680,7 @@ export function openRenameDialog(chatId: string) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
+  if (NATIVE_APP) set({ sidebarOpen: false });
   set({ rename: { title: "Rename chat", value: conversation.title || "New chat", chatId, onSave: null }, overlay: "rename" });
 }
 
@@ -646,6 +690,7 @@ export function openTitleRename({ title, value, onSave }: { title?: string; valu
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
+  if (NATIVE_APP) set({ sidebarOpen: false });
   set({ rename: { title: title || "Rename", value: value || "", chatId: "", onSave }, overlay: "rename" });
 }
 

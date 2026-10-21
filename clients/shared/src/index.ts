@@ -7,3 +7,4 @@ export * from "./streamReducer";
 export * from "./chatStore";
 export * from "./tokens";
 export * from "./settings";
+export * from "./nativeHost";

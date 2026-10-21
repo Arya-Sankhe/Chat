@@ -7,3 +7,6 @@ mobile/ios/
 devtools/parity/out/
 devtools/local-backend/supabase/.temp/
 devtools/local-backend/supabase/.branches/
+mobile/modules/klui-host/android/src/main/assets/
+mobile/modules/klui-host/android/build/
+mobile/modules/klui-host/android/.gradle/

@@ -4,7 +4,7 @@
    page's first Math.random() call, as before. */
 
 /** Phones (and the packaged app) at load; some markup is only added then. */
-export const MOBILE_AT_LOAD = window.matchMedia("(max-width: 860px)").matches;
+export const MOBILE_AT_LOAD = Boolean((window as any).__kluiNative) || window.matchMedia("(max-width: 860px)").matches;
 
 const GREETINGS = [
   "how can i help you?", "what's cooking?", "spill the tea_", "say less, i'm ready",

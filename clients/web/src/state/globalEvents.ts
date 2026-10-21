@@ -14,9 +14,12 @@ import {
   closeRenameDialog,
   closeSearchDialog,
   closeSettings,
+  NATIVE_APP,
   closeTopNativeSurface,
   useApp
 } from "./app";
+import { handleNativeBack } from "./chat";
+import { noteNativeSwipe } from "./native";
 import { closeBetaWelcome } from "./betaWelcome";
 
 function onClick(event: MouseEvent) {
@@ -84,7 +87,13 @@ function onTouchEnd(event: TouchEvent) {
   swipe = null;
   if (!start || !event.changedTouches.length) return;
   const touch = event.changedTouches[0]!;
-  if (touch.clientX - start.x > 72 && Math.abs(touch.clientY - start.y) < 60) closeTopNativeSurface();
+  if (touch.clientX - start.x > 72 && Math.abs(touch.clientY - start.y) < 60) {
+    // Mid-screen swipes only dismiss sheets; leaving a chat takes an edge swipe.
+    if (NATIVE_APP && start.x <= 32) {
+      noteNativeSwipe();
+      void handleNativeBack();
+    } else if (closeTopNativeSurface() && NATIVE_APP) noteNativeSwipe();
+  }
 }
 
 let installed = false;
