@@ -69,17 +69,42 @@ Stripe client reject live keys and non-loopback database URLs on this branch.
 Creator codes are read from the existing affiliate coupon tables. A changed discount applies
 only to newly created checkouts, never an already agreed subscription.
 
-The initial sandbox defaults charge the advertised AED 15 / AED 30, with no extra processing
-surcharge pending confirmation. `STRIPE_FEE_PERCENT`, `STRIPE_FEE_FIXED_AED`, and
-`STRIPE_FEE_VAT_PERCENT` are separate from Mamo's rates and default to zero. Re-run catalog
-setup after changing these values so the configured Price matches exactly. Taxes, if enabled,
-are additional and shown by Checkout; location-dependent totals cannot be quoted before the
-billing address is collected. Do not describe the sandbox amounts as guaranteed net revenue.
+The user confirmed that customers should continue paying a processing-fee allowance on top
+of the advertised base price. Defaults are `STRIPE_FEE_PERCENT=4.6`,
+`STRIPE_FEE_FIXED_AED=1`, and `STRIPE_FEE_VAT_PERCENT=5`: 3.9% Payments for international
+cards (2.9% domestic + 1%), plus 0.7% Billing, AED 1 fixed, and 5% VAT on Stripe's fees.
+AED-only Checkout avoids Stripe currency conversion. These are fee estimates, not an exact
+per-payment settlement guarantee: domestic cards cost less, contracts can differ, and Billing
+fees/VAT can be billed and rounded separately. Re-run catalog setup after changing these
+values. No existing subscription is repriced automatically.
+
+| Plan | Base/month | Monthly card charge | FIRST50 first charge | FIRSTFREE today |
+| --- | ---: | ---: | ---: | ---: |
+| Plus | AED 15 | AED 16.87 | AED 8.98 | AED 0 |
+| Pro | AED 30 | AED 32.63 | AED 16.87 | AED 0 |
+
+The discount applies to the base price, then the fee is recalculated. The paywall shows the
+fee-inclusive total before redirecting; hosted Checkout charges that actual introductory total,
+then the full recurring total. A free trial has no charge and no added processing fee.
+
+The user reports a UAE-registered company below the VAT mandatory-registration threshold;
+no UAE VAT TRN or other tax registrations have been supplied. Keep `STRIPE_AUTOMATIC_TAX=false`.
+Company registration is not VAT registration. The UAE threshold is based on taxable supplies
+and imports over the previous 12 months, or expected within the next 30 days, not simply a
+calendar-year revenue figure. Confirm obligations with the business's accountant. This does
+not mean Stripe's own fees are VAT-free: Stripe applies UAE VAT without a verified VAT ID.
+No customer sales tax is being collected, and no tax registration has been created.
+
+Sources: [Stripe UAE pricing](https://stripe.com/ae/pricing),
+[VAT on Stripe fees](https://support.stripe.com/questions/taxes-on-stripe-fees-for-uae-businesses?locale=en-GB),
+[FTA VAT registration](https://tax.gov.ae/en/services/vat.registration.aspx).
 
 ## Required approval before a live switch
 
-This branch deliberately cannot accept a live key. Approval must cover the final prices/fees,
-Tax registrations/classification and live account activation. Then separately review removal
+This branch deliberately cannot accept a live key. Approval must cover the displayed totals,
+actual Stripe fee contract, tax obligations and live account activation. Keep tax collection
+off when not VAT-registered; enable it only when the required registration and classification
+are confirmed. Do not register solely to enable this integration. Then separately review removal
 of the sandbox guard, apply the migration to production, create live catalog and webhook
 resources, configure Billing retry/customer email settings, and run a controlled live payment,
 renewal/cancellation and full-refund test. Keep Mamo webhooks/keys available to service existing
@@ -114,7 +139,7 @@ in the sandbox; actual wallet payments require an eligible device/wallet and rem
 
 ## Results (2026-10-21)
 
-- 1,369 application tests pass, including 17 Stripe tests.
+- 1,370 application tests pass, including 18 Stripe tests.
 - Fresh PostgreSQL 17 schema and five billing/attribution/quota SQL suites pass; the
   existing CI database entry point now includes the Stripe suite.
 - 309 JavaScript files pass syntax checks; CSS baseline and mobile web bundle pass.
@@ -126,5 +151,9 @@ in the sandbox; actual wallet payments require an eligible device/wallet and rem
   full-price renewal, free-to-paid conversion, repeat-card rejection, failed renewal,
   partial/cumulative full refunds, cancellation, deletion cleanup and missed-event recovery.
 - Tax collection is not verified or enabled: the account returned `stripe_tax_inactive`.
-  Live activation, confirmed fee policy, Tax setup and a real wallet transaction remain
+  Live activation, contract fee verification, any required Tax setup and a real wallet transaction remain
   approval/setup gates. This is a sandbox integration, not a claim of live readiness.
+
+Fee-inclusive verification update: the sandbox catalog and test suite now use the totals in
+the table above. Customer tax collection stays disabled; VAT on the provider fee allowance
+is a separate cost and does not activate Stripe Tax.

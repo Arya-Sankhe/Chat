@@ -6,6 +6,7 @@ import { loadConfig, validateRuntimeConfig } from "../server/config.js";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import {
   stripeClient,
+  stripeCharges,
   syncStripeSubscription,
   cancelStripeRenewal,
   deleteStripeBilling,
@@ -20,6 +21,10 @@ const sb = createClient(config.supabase.url, config.supabase.serviceRoleKey, {
   auth: { persistSession: false },
 });
 const fixtures = [];
+const proPlan = config.plans.find((plan) => plan.id === "pro");
+const proCharges = stripeCharges(proPlan, { percentOff: 50 }, config);
+const fullCents = Math.round(proCharges.renewalAmount * 100);
+const halfCents = Math.round(proCharges.initialAmount * 100);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function clockAdvance(clock, time) {
   await stripe.testHelpers.testClocks.advance(clock, { frozen_time: time });
@@ -77,7 +82,7 @@ async function fixture({ trial = false, discount = false } = {}) {
   const coupon = discount
     ? await stripe.coupons.create({
         duration: "once",
-        amount_off: 1500,
+        amount_off: fullCents - halfCents,
         currency: "aed",
       })
     : null;
@@ -141,14 +146,24 @@ async function checkHostedCheckouts() {
     assert.equal(offer.status, 200);
     assert.equal(
       offer.body.offers.find((x) => x.planId === "pro").initialChargeAed,
-      15,
+      halfCents / 100,
     );
     let previous = null;
     for (const [planId, code, amount] of [
-      ["lite", "FIRST50", 750],
-      ["pro", "FIRST50", 1500],
+      [
+        "lite",
+        "FIRST50",
+        Math.round(
+          stripeCharges(
+            config.plans.find((p) => p.id === "lite"),
+            { percentOff: 50 },
+            config,
+          ).initialAmount * 100,
+        ),
+      ],
+      ["pro", "FIRST50", halfCents],
       ["pro", "FIRSTFREE", 0],
-      ["pro", "", 3000],
+      ["pro", "", fullCents],
     ]) {
       const payload = { planId, coupon: code };
       const created = await post("/api/payments/stripe", payload);
@@ -199,10 +214,10 @@ try {
     subscription: f.sub.id,
     limit: 100,
   });
-  assert.equal(invoices.data[0].amount_paid, 1500);
+  assert.equal(invoices.data[0].amount_paid, halfCents);
   const initialInvoice = invoices.data[0];
   console.log(
-    "PASS real first invoice: AED 15; authoritative reconciliation unlocked Pro.",
+    `PASS real first invoice: AED ${(halfCents / 100).toFixed(2)}; authoritative reconciliation unlocked Pro.`,
   );
   let sub = await stripe.subscriptions.retrieve(f.sub.id);
   await clockAdvance(f.clock.id, sub.items.data[0].current_period_end + 3600);
@@ -210,11 +225,11 @@ try {
   // A clock can be ready before all async invoice finalization has settled.
   for (let i = 0; i < 45; i++) {
     invoices = await stripe.invoices.list({ subscription: sub.id, limit: 100 });
-    if (invoices.data.some((x) => x.amount_paid === 3000)) break;
+    if (invoices.data.some((x) => x.amount_paid === fullCents)) break;
     await sleep(1000);
   }
   assert.ok(
-    invoices.data.some((x) => x.amount_paid === 3000),
+    invoices.data.some((x) => x.amount_paid === fullCents),
     "normal recurring invoice was not automatically paid",
   );
   row = await sync(f);
@@ -225,9 +240,9 @@ try {
       ),
   );
   console.log(
-    "PASS test-clock renewal: native 50% coupon expired; Stripe automatically charged AED 30 and extended access.",
+    `PASS test-clock renewal: native coupon expired; Stripe automatically charged AED ${(fullCents / 100).toFixed(2)} and extended access.`,
   );
-  const latest = invoices.data.find((x) => x.amount_paid === 3000);
+  const latest = invoices.data.find((x) => x.amount_paid === fullCents);
   const payment = (
     await stripe.invoicePayments.list({
       invoice: latest.id,
@@ -242,7 +257,7 @@ try {
   await stripe.refunds.create({ payment_intent: pi, amount: 1000 });
   row = await sync(f);
   assert.equal(row.status, "active");
-  await stripe.refunds.create({ payment_intent: pi, amount: 2000 });
+  await stripe.refunds.create({ payment_intent: pi, amount: fullCents - 1000 });
   row = await sync(f);
   assert.equal(row.status, "canceled");
   assert.equal(row.current_period_end, null);
@@ -275,14 +290,14 @@ try {
       subscription: trial.sub.id,
       limit: 100,
     });
-    if (invoices.data.some((x) => x.amount_paid === 3000)) break;
+    if (invoices.data.some((x) => x.amount_paid === fullCents)) break;
     await sleep(1000);
   }
-  assert.ok(invoices.data.some((x) => x.amount_paid === 3000));
+  assert.ok(invoices.data.some((x) => x.amount_paid === fullCents));
   row = await sync(trial);
   assert.equal(row.status, "active");
   console.log(
-    "PASS free trial: zero charge, saved-card claim, then automatic AED 30 paid conversion.",
+    `PASS free trial: zero charge, saved-card claim, then automatic AED ${(fullCents / 100).toFixed(2)} paid conversion.`,
   );
   const paidEnd = row.current_period_end;
   const failPm = await stripe.paymentMethods.attach(

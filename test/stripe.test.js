@@ -23,6 +23,9 @@ const config = () =>
     PAYMENT_PROVIDER: "stripe",
     SUPABASE_URL: "http://127.0.0.1:56321",
     STRIPE_SECRET_KEY: "sk_test_fixture",
+    STRIPE_FEE_PERCENT: "0",
+    STRIPE_FEE_FIXED_AED: "0",
+    STRIPE_FEE_VAT_PERCENT: "0",
     STRIPE_PRO_PRICE_ID: "price_pro",
     STRIPE_WEBHOOK_SECRET: "whsec_fixture",
     MAMO_COUPON_IDENTITY_SECRET:
@@ -182,10 +185,10 @@ test("Stripe discount reduces base before grossing up; a free trial has no fee",
     renewalAmount: 30,
     initialAmount: 15,
   });
-  c.stripe.fees = { percent: 3.4, fixedAed: 1, vatPercent: 5 };
+  c.stripe.fees = { percent: 4.6, fixedAed: 1, vatPercent: 5 };
   assert.deepEqual(stripeCharges(plan, { percentOff: 50 }, c), {
-    renewalAmount: 32.19,
-    initialAmount: 16.65,
+    renewalAmount: 32.63,
+    initialAmount: 16.87,
   });
   assert.equal(
     stripeOffer(plan, { code: "FREE", percentOff: 100 }, c).initialChargeAed,
@@ -195,6 +198,7 @@ test("Stripe discount reduces base before grossing up; a free trial has no fee",
 test("Checkout binds ownership first and uses a native first-invoice discount, not a second charge", async () => {
   const c = config(),
     calls = [];
+  c.stripe.fees = { percent: 4.6, fixedAed: 1, vatPercent: 5 };
   let sessionParams, couponParams;
   const stripe = {
     prices: {
@@ -202,7 +206,7 @@ test("Checkout binds ownership first and uses a native first-invoice discount, n
         livemode: false,
         active: true,
         currency: "aed",
-        unit_amount: 3000,
+        unit_amount: 3263,
         recurring: { interval: "month", interval_count: 1 },
         tax_behavior: "exclusive",
       }),
@@ -244,7 +248,7 @@ test("Checkout binds ownership first and uses a native first-invoice discount, n
   });
   assert.deepEqual(calls, ["reserved", "stripe", "bound"]);
   assert.equal(couponParams.duration, "once");
-  assert.equal(couponParams.amount_off, 1500);
+  assert.equal(couponParams.amount_off, 1576);
   assert.equal(sessionParams.mode, "subscription");
   assert.equal(sessionParams.customer, "cus_test");
   assert.deepEqual(sessionParams.discounts, [{ coupon: "coupon_native" }]);
@@ -547,4 +551,23 @@ test("A correctly signed irrelevant event is acknowledged without provisioning a
   await handleStripeWebhook(req, res, c);
   assert.equal(response.received, true);
   assert.equal(dbCalls, 0);
+});
+
+test("Default Stripe fee allowance covers international Payments, Billing and VAT on provider fees", () => {
+  const c = loadConfig({ ACCESS_MODE: "subscription" });
+  assert.deepEqual(c.stripe.fees, { percent: 4.6, fixedAed: 1, vatPercent: 5 });
+  assert.equal(c.stripe.automaticTax, false);
+  for (const [amountAed, renewalAmount, initialAmount] of [
+    [15, 16.87, 8.98],
+    [30, 32.63, 16.87],
+  ]) {
+    assert.deepEqual(stripeCharges({ amountAed }, { percentOff: 50 }, c), {
+      renewalAmount,
+      initialAmount,
+    });
+    assert.equal(
+      stripeCharges({ amountAed }, { percentOff: 100 }, c).initialAmount,
+      0,
+    );
+  }
 });

@@ -210,11 +210,12 @@ export function loadConfig(env = process.env) {
       taxCode: clean(env.STRIPE_TAX_CODE),
       prices: { lite: clean(env.STRIPE_PLUS_PRICE_ID), pro: clean(env.STRIPE_PRO_PRICE_ID) },
       coupons: parseMamoCoupons(env.STRIPE_COUPONS || "FIRST50:50,FIRSTFREE:100"),
-      // Separate from Mamo's contracted fees; confirm Stripe's rates before live rollout.
+      // Standard international card allowance: 3.9% Payments + 0.7% Billing,
+      // AED 1 fixed, and 5% VAT on Stripe's fees (not VAT on the Klui plan).
       fees: {
-        percent: readFeeNumber(env.STRIPE_FEE_PERCENT, 0),
-        fixedAed: readFeeNumber(env.STRIPE_FEE_FIXED_AED, 0),
-        vatPercent: readFeeNumber(env.STRIPE_FEE_VAT_PERCENT, 0)
+        percent: readFeeNumber(env.STRIPE_FEE_PERCENT, 4.6),
+        fixedAed: readFeeNumber(env.STRIPE_FEE_FIXED_AED, 1),
+        vatPercent: readFeeNumber(env.STRIPE_FEE_VAT_PERCENT, 5)
       }
     },
     mamo: {

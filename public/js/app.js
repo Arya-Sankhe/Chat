@@ -2716,7 +2716,7 @@ function renderPlans() {
           <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.trialDays ? "Free trial" : offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
           <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
           <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}</span>
+          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}${fee && offer.initialAmountAed ? " + processing fee" : ""}</span>
         </div>
         <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
       : plan.amountAed
@@ -2732,6 +2732,7 @@ function renderPlans() {
       </ul>
       ${mamo ? `
       <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
+      ${plan.checkout === "stripe" ? `<p class="plan-payment-note">${offer ? `AED ${escapeHtml(aed(offer.initialChargeAed))} due today. Then AED ${escapeHtml(aed(offer.renewalChargeAed))} / month.` : `AED ${escapeHtml(aed(plan.chargeAed))} charged monthly.`} Processing fee included.</p>` : ""}
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
