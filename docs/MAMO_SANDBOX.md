@@ -19,8 +19,7 @@ SUPABASE_ANON_KEY=<test project anon key>
 SUPABASE_SERVICE_ROLE_KEY=<test project service-role key>
 ```
 
-Restart the app after changing its environment. `ACCESS_MODE=testing` bypasses paid-plan
-checks and cannot verify whether a payment actually unlocked access. A public HTTPS tunnel
+Restart the app after changing its environment. `ACCESS_MODE=testing` is invite-only and blocks paid checkout; use subscription mode to verify whether a payment actually unlocked access. A public HTTPS tunnel
 can expose a local app for webhooks; `APP_URL` must point to that app so checkout returns
 there instead of production.
 

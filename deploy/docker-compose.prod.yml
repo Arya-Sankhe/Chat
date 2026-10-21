@@ -1,6 +1,8 @@
 services:
   klui-chat:
     environment:
+      ACCESS_MODE: testing
+      FREE_PLAN_ENABLED: "true"
       RESEARCH_QUEUE: production
       TRANSCRIBE_QUEUE: production
       DOCUMENT_QUEUE: production

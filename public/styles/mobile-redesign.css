@@ -389,7 +389,14 @@ body.mobile-ui.mobile-ui #settingsTabs .settings-tab[data-settings-tab=account] 
 body.mobile-ui.mobile-ui .settings-tab[data-settings-tab=account] .mobile-settings-description {
   display: block; overflow: hidden; padding: 0; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap;
 }
-.mobile-settings-usage, .mobile-settings-logout { display: none; }
+.mobile-settings-pricing, .mobile-settings-usage, .mobile-settings-logout { display: none; }
+body.mobile-ui.mobile-ui .mobile-settings-pricing {
+  display: block; width: 100%; margin-top: 16px; padding: 16px 20px;
+  min-height: 52px; border: 0; border-radius: 20px;
+  background: var(--mobile-card); color: var(--text);
+  font: 600 17px var(--font-sans); text-align: left;
+  box-shadow: var(--mobile-card-shadow);
+}
 body.mobile-ui.mobile-ui .mobile-settings-usage { display: block; margin: 28px 0 0; padding: 0 6px; }
 body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage { margin: 0; padding: 0; border: 0; }
 body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-head { align-items: baseline; margin-bottom: 12px; }

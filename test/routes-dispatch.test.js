@@ -112,13 +112,14 @@ async function dispatchPending(config, { method = "GET", path, headers, body, ov
 }
 
 const SUPABASE_ENV = {
+  ACCESS_MODE: "subscription",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
 };
 
 /* Nothing configured: no Supabase, no model keys. */
-const bareConfig = loadConfig({});
+const bareConfig = loadConfig({ ACCESS_MODE: "subscription" });
 /* Supabase + model keys configured, so requests fail on the token check. */
 const authReadyConfig = loadConfig({ ...SUPABASE_ENV, OPENROUTER_API_KEY: "or-key" });
 const documentReadyConfig = loadConfig({
@@ -133,6 +134,7 @@ const documentReadyConfig = loadConfig({
 function stubbedDeps({ role = "user", db = {} } = {}) {
   const user = { id: "user-1", email: "user@example.com", raw: {} };
   const defaultDb = {
+    async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
     async upsertProfile() {
       return { id: user.id, role };
     }
@@ -797,8 +799,7 @@ test("document presign enforces the current plan's single-file limit", async () 
     R2_ACCESS_KEY_ID: "r2-key",
     R2_SECRET_ACCESS_KEY: "r2-secret",
     R2_BUCKET: "uploads",
-    DOCUMENT_MAX_FILE_BYTES: String(200 * 1024 * 1024),
-    TEST_PLAN_ID: "lite"
+    DOCUMENT_MAX_FILE_BYTES: String(200 * 1024 * 1024)
   });
   const res = await dispatch(config, {
     method: "POST",

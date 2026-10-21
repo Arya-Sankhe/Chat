@@ -33,6 +33,7 @@ import {
   fetchDocumentJobStatus,
   fetchDocumentStatus,
   fetchMe,
+  redeemInvite,
   fetchMemory,
   fetchPlans,
   fetchProject,
@@ -2531,7 +2532,7 @@ function freeSendBlock({ role, skillIds = [], images = [], voice = null }) {
 }
 
 function hasUpgradePlans() {
-  return state.me?.access?.mode !== "testing" && Array.isArray(state.plans) && state.plans.length > 0;
+  return Array.isArray(state.plans) && state.plans.length > 0;
 }
 
 function showPaywall({ allowReturn = false } = {}) {
@@ -2679,6 +2680,11 @@ function renderAuthOptions() {
 // Mirrors the home.klui.ai pricing cards. Prices exclude Mamo's processing fee, which is
 // added at checkout; `chargeAed` is the exact monthly card charge.
 function renderPlans() {
+  const inviteOnly = state.me?.access?.mode === "testing";
+  const subtitle = document.querySelector(".paywall-subheadline");
+  if (subtitle) subtitle.textContent = inviteOnly
+    ? "INVITE ONLY · Start on Free. Redeem an invite code for free Pro access."
+    : "Every feature on both plans. No 5-hour limits.";
   const requestsByPlan = new Map(
     (state.paymentRequests || [])
       .filter((request) => request.status === "pending")
@@ -2729,7 +2735,10 @@ function renderPlans() {
       <ul class="plan-features">
         ${meta.features.map(([svg, label]) => `<li>${svg}${escapeHtml(label)}</li>`).join("")}
       </ul>
-      ${mamo ? `
+      ${inviteOnly ? `
+      <button class="plan-pay-btn" type="button" disabled>INVITE ONLY</button>
+      <p class="plan-payment-note">${state.me?.subscription?.provider === "invite" && id === "pro" ? "Your free Pro access is active." : "Redeem an invite code above for free Pro access. No payment required."}</p>
+      ` : mamo ? `
       <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
@@ -9131,11 +9140,14 @@ function couponSummary({ percentOff, trialDays }) {
 
 // The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
 function renderCouponPanel() {
-  const available = !isNative() && (state.plans || []).some((plan) => plan.checkout === "mamo");
+  const inviteOnly = state.me?.access?.mode === "testing";
+  const available = !isNative() && (inviteOnly || (state.plans || []).some((plan) => plan.checkout === "mamo"));
   els.paywallCoupon?.classList.toggle("hidden", !available);
   if (!available) return;
   const applied = state.mamoCoupon?.coupon;
-  const open = !applied && els.paywallCouponToggle?.getAttribute("aria-expanded") === "true";
+  const open = !applied && (inviteOnly || els.paywallCouponToggle?.getAttribute("aria-expanded") === "true");
+  const label = els.paywallCouponToggle?.querySelector("span");
+  if (label) label.textContent = inviteOnly ? "Have an invite code?" : "Have a coupon code?";
   els.paywallCouponToggle?.classList.toggle("hidden", Boolean(applied) || open);
   els.paywallCouponForm?.classList.toggle("hidden", !open);
   els.paywallCouponApplied?.classList.toggle("hidden", !applied);
@@ -9180,6 +9192,16 @@ async function checkCouponCode() {
   }
   els.paywallCouponApply?.setAttribute("disabled", "");
   try {
+    if (state.me?.access?.mode === "testing") {
+      await redeemInvite(state.session, code);
+      await loadMe();
+      state.mamoCoupon = null;
+      setStatus("Pro is now active for free. No payment required.");
+      els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
+      renderShell();
+      showToast("Invite accepted. You now have Pro for free.");
+      return;
+    }
     state.mamoCoupon = await checkMamoCoupon(state.session, code);
     setStatus("");
     els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
@@ -10516,6 +10538,7 @@ function showMobileSettingsOverview() {
   document.getElementById("mobileSettingsName").textContent = name;
   document.getElementById("mobileSettingsAvatar").textContent = name.split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase();
   document.getElementById("mobileSettingsPlan").textContent = state.me?.plan?.name ? `${state.me.plan.name} plan` : "Free plan";
+  document.getElementById("mobileSettingsPricing")?.classList.toggle("hidden", isNative() || !hasUpgradePlans());
   const usage = document.getElementById("mobileSettingsUsage");
   if (usage) {
     usage.innerHTML = renderAccountUsageMarkup();
@@ -10567,7 +10590,13 @@ function setupMobileLayout() {
   logout.className = "mobile-settings-logout";
   logout.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 5H4v14h5m5-14 7 7-7 7M8 12h13"/></svg><span>Log out</span>';
   logout.addEventListener("click", () => { closeSettings(); void signOutAndReset(); });
-  els.settingsTabs.append(usage, logout);
+  const pricing = document.createElement("button");
+  pricing.id = "mobileSettingsPricing";
+  pricing.type = "button";
+  pricing.className = "mobile-settings-pricing hidden";
+  pricing.textContent = "Plans & pricing";
+  pricing.addEventListener("click", openUpgradePlans);
+  els.settingsTabs.append(pricing, usage, logout);
   const sendArrow = els.sendButton.querySelector(".send-icon-arrow");
   const originalSendArrow = sendArrow.innerHTML;
   const context = document.getElementById("composerContextWrap");

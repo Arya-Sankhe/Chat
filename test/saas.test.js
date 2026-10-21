@@ -207,18 +207,21 @@ test("mamo entitlement expires at period end; ziina prepaid does not", async () 
   assert.equal(ziinaPrepaid.active, true);
 });
 
-test("testing access grants the configured plan", async () => {
-  const plans = loadPlans();
-  const entitlement = await getCurrentEntitlement({
-    db: {},
-    userId: "user_1",
-    plans,
-    access: { mode: "testing", testingPlanId: "pro" }
+test("testing requires an invite and keeps active Mamo customers on Plus", async () => {
+  const check = (subscription, mode = "testing") => getCurrentEntitlement({
+    db: { async getLatestSubscription() { return subscription; } },
+    userId: "user_1", plans: loadPlans(), access: { mode }
   });
-
-  assert.equal(entitlement.active, true);
-  assert.equal(entitlement.plan.id, "pro");
-  assert.equal(entitlement.subscription.status, "testing");
+  assert.equal((await check(null)).active, false);
+  const invite = { provider: "invite", status: "active", plan_id: "pro" };
+  assert.equal((await check(invite)).plan.id, "pro");
+  assert.equal((await check(invite, "subscription")).active, false);
+  const paid = { provider: "mamo", status: "active", plan_id: "pro", current_period_end: "2099-01-01T00:00:00Z" };
+  const mamo = await check(paid);
+  assert.equal(mamo.plan.id, "lite");
+  assert.equal(mamo.subscription.plan_id, "lite");
+  assert.equal((await check(paid, "subscription")).plan.id, "pro");
+  assert.equal((await check({ ...paid, current_period_end: "2020-01-01T00:00:00Z" })).active, false);
 });
 
 test("apiUsageWindow splits a subscription month into four dynamic weeks", () => {

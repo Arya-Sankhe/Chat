@@ -263,6 +263,7 @@ function makeDb({ conversation, messages: seedMessages = null } = {}) {
   const messages = seedMessages ? seedMessages.map((message) => ({ ...message })) : null;
   const db = {
     calls,
+    async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
     async upsertProfile(user) { return { id: user.id, role: "user" }; },
     async getConversation() { return conversation; },
     async listMessages() {

@@ -518,6 +518,8 @@
 }
 
 .plan-pay-btn:disabled {
+  background: #777;
+  color: #fff;
   cursor: not-allowed;
   opacity: 0.45;
 }

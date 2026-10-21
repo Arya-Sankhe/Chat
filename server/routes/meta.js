@@ -131,7 +131,7 @@ export async function handleMe(req, res, config) {
     signal: req.signal
   });
   // Without a subscription, a signed-in account is on the free plan (when it's offered).
-  if (!entitlement.plan && config.freePlan && config.access.mode === "subscription") {
+  if (!entitlement.plan && config.freePlan) {
     Object.assign(entitlement, { subscription: null, plan: config.freePlan });
   }
   const free = isFreePlan(entitlement.plan);

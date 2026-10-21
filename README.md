@@ -36,7 +36,7 @@ For future packages:
 3. Configure Google Auth before setting `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID`.
 4. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
 5. Copy `.env.example` to `.env` and fill in all required values.
-6. Keep `ACCESS_MODE=testing` for local/MVP testing. Use `ACCESS_MODE=subscription` in production so only approved paid subscriptions can chat.
+6. Use `ACCESS_MODE=testing` for invite-only testing: accounts start on Free, `TRYKLUI` grants free Pro without checkout, and active Mamo customers keep Plus. `ACCESS_MODE=subscription` enables paid checkout; invite access applies only in testing mode. The production Compose override currently selects testing mode.
 
 ## Environment
 
@@ -54,7 +54,6 @@ Required:
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET`
 - `ACCESS_MODE`
-- `TEST_PLAN_ID`
 
 Optional plan limit overrides are available in `.env.example`.
 
