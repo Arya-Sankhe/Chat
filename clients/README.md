@@ -6,7 +6,7 @@ The rebuilt Klui frontends, per `docs/CROSS_PLATFORM_REBUILD_PLAN.md`:
 | --- | --- |
 | `shared/` (`@klui/shared`) | TypeScript domain layer: API client, SSE parser, stream reducer, session manager, chat store/run controller, design tokens. No DOM or React Native imports. |
 | `web/` (`@klui/web`) | React 19 + Vite website; the same build runs inside the mobile app. |
-| `mobile/` (`@klui/mobile`) | Expo SDK 58 app: one WebView hosting the web build, plus native adapters (`modules/klui-host`). Android only for now, like the Capacitor app. |
+| `mobile/` (`@klui/mobile`) | Expo SDK 58 app: one WebView hosting the web build, plus native adapters (`modules/klui-host`). Android today; the iOS host is still to be written. |
 | `devtools/mock-api.mjs` | A stand-in backend that speaks the real wire contract, for testing without production data. |
 
 This is its own npm workspace root with its own lockfile. The server at the
@@ -24,7 +24,9 @@ surfaces, study, voice and admin. The Android app runs the same build, so it
 inherits all of that; its native adapters are compared with the Capacitor app
 by `devtools/parity/native-probe.mjs`. There is no iOS host yet: `klui-host`
 registers only Android, so an iOS build fails at launch until a WKWebView host
-implementing the same contract exists.
+implementing the same contract exists. Its reference is the unmerged Capacitor
+iOS target on `origin/codex/ios-port-latest`; building and comparing it needs
+Xcode.
 
 ## Commands
 
