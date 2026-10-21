@@ -13,7 +13,7 @@ function parseDate(value) {
 export function hasActiveSubscription(subscription, now = new Date()) {
   if (subscription?.provider === "ziina" && subscription.raw?.beta_retired === true) return false;
   const status = subscription?.status;
-  if (subscription?.provider === "mamo") {
+  if (["mamo", "stripe"].includes(subscription?.provider)) {
     if (!inPeriodStatuses.has(status)) return false;
     const end = parseDate(subscription.current_period_end);
     return Boolean(end && end > now);

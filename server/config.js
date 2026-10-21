@@ -201,6 +201,23 @@ export function loadConfig(env = process.env) {
       apiKey: clean(env.BREVO_API_KEY),
       enabledAt: clean(env.BILLING_EMAIL_ENABLED_AT)
     },
+    paymentProvider: clean(env.PAYMENT_PROVIDER) || "mamo",
+    stripe: {
+      secretKey: clean(env.STRIPE_SECRET_KEY),
+      webhookSecret: clean(env.STRIPE_WEBHOOK_SECRET),
+      portalConfigurationId: clean(env.STRIPE_PORTAL_CONFIGURATION_ID),
+      automaticTax: readBoolean(env.STRIPE_AUTOMATIC_TAX, false),
+      taxCode: clean(env.STRIPE_TAX_CODE),
+      prices: { lite: clean(env.STRIPE_PLUS_PRICE_ID), pro: clean(env.STRIPE_PRO_PRICE_ID) },
+      coupons: parseMamoCoupons(env.STRIPE_COUPONS || "FIRST50:50,FIRSTFREE:100"),
+      // Standard international card allowance: 3.9% Payments + 0.7% Billing,
+      // AED 1 fixed, and 5% VAT on Stripe's fees (not VAT on the Klui plan).
+      fees: {
+        percent: readFeeNumber(env.STRIPE_FEE_PERCENT, 4.6),
+        fixedAed: readFeeNumber(env.STRIPE_FEE_FIXED_AED, 1),
+        vatPercent: readFeeNumber(env.STRIPE_FEE_VAT_PERCENT, 5)
+      }
+    },
     mamo: {
       apiKey: clean(env.MAMO_API_KEY),
       baseUrl: cleanUrl(env.MAMO_API_BASE) || (
@@ -419,6 +436,13 @@ export function configuredServices(config) {
 }
 
 export function validateRuntimeConfig(config) {
+  if (!["mamo", "stripe"].includes(config.paymentProvider)) throw new Error("PAYMENT_PROVIDER must be mamo or stripe.");
+  if (config.stripe?.secretKey || config.paymentProvider === "stripe") {
+    const host = new URL(config.supabase?.url || "http://invalid").hostname;
+    if (!/^(sk|rk)_test_/.test(config.stripe?.secretKey || "") || !["localhost", "127.0.0.1", "[::1]"].includes(host)) {
+      throw new Error("Stripe sandbox requires a test key and an isolated local Supabase database.");
+    }
+  }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && config.desktop?.meteringMode !== "enforce") {
     throw new Error("API_USAGE_METERING_MODE must be enforce before enabling desktop chat or STT.");
   }
