@@ -9,6 +9,7 @@ import { withProcessingFee, couponAccountHashes, couponCardHash } from "../serve
 import { loadPlans, publicPlan } from "../server/saas/plans.js";
 
 const SUPABASE_ENV = {
+  ACCESS_MODE: "subscription",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key"
@@ -25,6 +26,7 @@ const PAYMENT_URL = "https://sandbox.dev.business.mamopay.com/pay/klui-lite";
 function mamoEnv(extra = {}) {
   return {
     ...SUPABASE_ENV,
+    ACCESS_MODE: "subscription",
     MAMO_API_KEY: MAMO_KEY,
     MAMO_WEBHOOK_AUTH: WEBHOOK_SECRET,
     MAMO_COUPON_IDENTITY_SECRET: "test-coupon-identity-secret-keep-stable",

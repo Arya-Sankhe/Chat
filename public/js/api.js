@@ -1296,3 +1296,14 @@ export async function streamWhiteboardAsk(session, boardId, body, { signal, onEv
     if (event && typeof event === "object") onEvent?.(event);
   });
 }
+
+export async function redeemInvite(session, coupon) {
+  const response = await apiFetch("/api/invite/redeem", {
+    method: "POST",
+    session,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coupon })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}

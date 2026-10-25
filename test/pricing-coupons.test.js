@@ -22,7 +22,7 @@ for (const percentOff of [30, 50, 100]) {
     });
     const state = { plans, mamoCoupon: { coupon, offers } };
     const els = { paywallPlans: {} };
-    const context = { state, els, escapeHtml, renderCouponPanel() {} };
+    const context = { state, els, document: { querySelector: () => null }, escapeHtml, renderCouponPanel() {} };
     runInNewContext(`${render}; renderPlans();`, context);
     const cards = els.paywallPlans.innerHTML.split('<article ').slice(1);
     assert.equal(cards.length, 2);
@@ -44,3 +44,17 @@ for (const percentOff of [30, 50, 100]) {
     assert.doesNotMatch(els.paywallPlans.innerHTML, /plan-payment-note/);
   });
 }
+
+
+test("invite-only pricing disables every pay button and explains free Pro", () => {
+  const els = { paywallPlans: {} };
+  const subtitle = {};
+  runInNewContext(`${render}; renderPlans();`, {
+    state: { plans, me: { access: { mode: "testing" } } }, els,
+    document: { querySelector: () => subtitle }, escapeHtml, renderCouponPanel() {}
+  });
+  assert.match(subtitle.textContent, /INVITE ONLY/);
+  assert.equal((els.paywallPlans.innerHTML.match(/disabled>INVITE ONLY/g) || []).length, 2);
+  assert.doesNotMatch(els.paywallPlans.innerHTML, /data-start-mamo|data-start-payment/);
+  assert.match(els.paywallPlans.innerHTML, /free Pro access. No payment required/);
+});

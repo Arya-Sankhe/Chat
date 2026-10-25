@@ -194,8 +194,7 @@ export function loadConfig(env = process.env) {
     plans,
     freePlan: loadFreePlan(env),
     access: {
-      mode: accessMode,
-      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
+      mode: accessMode
     },
     billingEmail: {
       apiKey: clean(env.BREVO_API_KEY),
