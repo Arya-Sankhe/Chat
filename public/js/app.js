@@ -12,6 +12,7 @@ import {
   createProject,
   createResearch,
   createMamoCheckout,
+  createStripePortal,
   createZiinaPaymentRequest,
   deleteAccount,
   downloadAccountData,
@@ -2706,7 +2707,7 @@ function renderPlans() {
     const planClass = id.replace(/[^a-z0-9_-]/g, "");
     const meta = planMeta[id] || { features: [] };
     const pending = requestsByPlan.get(plan.id);
-    const mamo = plan.checkout === "mamo";
+    const mamo = ["mamo", "stripe"].includes(plan.checkout);
     const offer = mamo ? offers.get(plan.id) : null;
     const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
     const feeNote = fee ? " <small>+ processing fee</small>" : "";
@@ -2715,7 +2716,7 @@ function renderPlans() {
           <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.trialDays ? "Free trial" : offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
           <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
           <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}</span>
+          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}${fee && offer.initialAmountAed ? " + processing fee" : ""}</span>
         </div>
         <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
       : plan.amountAed
@@ -2731,6 +2732,7 @@ function renderPlans() {
       </ul>
       ${mamo ? `
       <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
+      ${plan.checkout === "stripe" ? `<p class="plan-payment-note">${offer ? `AED ${escapeHtml(aed(offer.initialChargeAed))} due today. Then AED ${escapeHtml(aed(offer.renewalChargeAed))} / month.` : `AED ${escapeHtml(aed(plan.chargeAed))} charged monthly.`} Processing fee included.</p>` : ""}
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
@@ -2849,7 +2851,7 @@ function formatStorageBytes(bytes) {
 
 // Access runs through the end of the Dubai renewal day; Mamo charges on that day, so show it.
 function billingDay(periodEnd) {
-  return new Date(Date.parse(periodEnd) - 1).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
+  return new Date(Date.parse(periodEnd) - (state.me?.subscription?.provider === "stripe" ? 0 : 1)).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
 }
 
 function renderSettingsAccount() {
@@ -2857,8 +2859,10 @@ function renderSettingsAccount() {
   els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
   els.settingsAccountGuest?.classList.toggle("hidden", signedIn);
   const sub = state.me?.subscription;
+  document.querySelector("#settingsAccountBillingRow")?.classList.toggle("hidden", !signedIn || !state.me?.billingPortalAvailable || isNative());
   const canCancel = signedIn
-    && sub?.provider === "mamo"
+    && ["mamo", "stripe"].includes(sub?.provider)
+    && ["active", "trialing", "past_due"].includes(sub?.status)
     && !sub?.cancelAtPeriodEnd;
   els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
   const cancelLabel = els.settingsAccountCancelRow?.querySelector("span");
@@ -8356,10 +8360,13 @@ async function loadMe() {
 
 async function refreshAfterMamoReturn() {
   const params = new URLSearchParams(window.location.search);
-  if (!state.session || !["captured", "card_verified"].includes(params.get("status")) || !params.get("transactionId")) return;
+  const stripeReturn = params.get("stripe") === "success";
+  const mamoReturn = ["captured", "card_verified"].includes(params.get("status")) && params.get("transactionId");
+  if (!state.session || (!stripeReturn && !mamoReturn)) return;
   const planId = params.get("planId");
   // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
   for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (state.me?.billingIssue) { showToast(state.me.billingIssue); return; }
     if (state.me?.access?.active && (!planId || state.me?.subscription?.planId === planId)) return;
     if (attempt === 0) showToast("Confirming your payment…");
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -9113,7 +9120,7 @@ async function startMamoPayment(planId) {
   try {
     // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
     await couponCheck;
-    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
+    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "", state.plans.find((plan) => plan.id === planId)?.checkout);
     if (payload.paymentUrl) await openExternal(payload.paymentUrl);
   } catch (err) {
     showToast(err.message);
@@ -9131,7 +9138,7 @@ function couponSummary({ percentOff, trialDays }) {
 
 // The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
 function renderCouponPanel() {
-  const available = !isNative() && (state.plans || []).some((plan) => plan.checkout === "mamo");
+  const available = !isNative() && (state.plans || []).some((plan) => ["mamo", "stripe"].includes(plan.checkout));
   els.paywallCoupon?.classList.toggle("hidden", !available);
   if (!available) return;
   const applied = state.mamoCoupon?.coupon;
@@ -9180,7 +9187,7 @@ async function checkCouponCode() {
   }
   els.paywallCouponApply?.setAttribute("disabled", "");
   try {
-    state.mamoCoupon = await checkMamoCoupon(state.session, code);
+    state.mamoCoupon = await checkMamoCoupon(state.session, code, state.plans.find((plan) => plan.checkout === "stripe") ? "stripe" : "mamo");
     setStatus("");
     els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
   } catch (err) {
@@ -11101,6 +11108,12 @@ function bindEvents() {
   els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
   els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
   els.exportAccountButton?.addEventListener("click", () => { void downloadAccountDataAndSave(); });
+  document.querySelector("#billingPortalButton")?.addEventListener("click", async () => {
+    try {
+      const portal = await createStripePortal(state.session);
+      await openExternal(portal.url);
+    } catch (error) { showToast(error.message || "Could not open billing."); }
+  });
   els.cancelSubscriptionButton?.addEventListener("click", () => {
     openDeleteConfirm({
       title: "Cancel subscription?",

@@ -456,6 +456,7 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   assert.match(npmrc, /ignore-scripts=true/);
   assert.deepEqual(lock.packages[""].dependencies, {
     "ipaddr.js": "2.2.0",
+    stripe: "23.0.0",
     yaml: "2.9.0"
   });
   assert.deepEqual(workerLock.packages[""].dependencies, {

@@ -1,3 +1,4 @@
+import { handleStripeCheckout, handleStripeCoupon, handleStripePortal, handleStripeWebhook } from "./routes/stripe.js";
 import { HttpError, sendProblem } from "./http/responses.js";
 import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
@@ -170,6 +171,22 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (url.pathname === "/api/payments/stripe/webhook") {
+      await handleStripeWebhook(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe" && req.method === "POST") {
+      await handleStripeCheckout(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe/coupon" && req.method === "POST") {
+      await handleStripeCoupon(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe/portal" && req.method === "POST") {
+      await handleStripePortal(req, res, config);
+      return;
+    }
     if (url.pathname === "/api/payments/mamo/webhook") {
       await handleMamoWebhook(req, res, config);
       return;
