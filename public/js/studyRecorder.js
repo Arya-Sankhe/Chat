@@ -6,6 +6,11 @@
 const DB_NAME = "klui-dojo-recorder";
 const DB_VERSION = 1;
 const SLICE_MS = 1000;
+// Speech that never gets above this meter level (about -40 dBFS) for half a minute is too
+// quiet to hear back or transcribe well: a phone far from the speaker, or one whose OS
+// turned the mic down (Android does this to other apps during a call).
+const QUIET_LEVEL = 0.03;
+const QUIET_WINDOW = 60; // samples, two per second
 const MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/mp4;codecs=mp4a.40.2",
@@ -159,6 +164,9 @@ export function createLectureRecorder({ onChange }) {
   const writes = new Set();
   let stopped = null;
   let result = null;
+  let loudness = [];
+  let loudnessTimer = 0;
+  let quiet = false;
 
   const set = (next, message = "") => {
     state = next;
@@ -195,7 +203,21 @@ export function createLectureRecorder({ onChange }) {
     }
   }
 
+  function sampleLoudness() {
+    if (state !== "recording") return;
+    loudness.push(level());
+    if (loudness.length > QUIET_WINDOW) loudness.shift();
+    const next = loudness.length >= QUIET_WINDOW && Math.max(...loudness) < QUIET_LEVEL;
+    if (next === quiet) return;
+    quiet = next;
+    onChange?.(state);
+  }
+
   function releaseDevices() {
+    clearInterval(loudnessTimer);
+    loudnessTimer = 0;
+    loudness = [];
+    quiet = false;
     stream?.getTracks().forEach((track) => track.stop());
     stream = null;
     audioContext?.close().catch(() => {});
@@ -278,6 +300,7 @@ export function createLectureRecorder({ onChange }) {
     });
     recorder.start(SLICE_MS);
     runningSince = performance.now();
+    if (analyser) loudnessTimer = setInterval(sampleLoudness, 500);
     await holdWakeLock();
     set("recording");
   }
@@ -402,6 +425,7 @@ export function createLectureRecorder({ onChange }) {
     get result() { return result; },
     get courseId() { return meta?.courseId || ""; },
     get persisted() { return persisted; },
+    get quiet() { return quiet; },
     setTitle(title) {
       if (meta) meta.title = title;
       if (result) result.title = title;

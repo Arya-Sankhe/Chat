@@ -158,9 +158,11 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
             <button type="button" class="dojo-rec-btn" data-rec-pause ${status === "requesting" ? "disabled" : ""}>${paused ? playIcon : pauseIcon}<span>${paused ? "Continue" : "Pause"}</span></button>
             <button type="button" class="dojo-rec-btn is-stop" data-rec-stop ${status === "requesting" ? "disabled" : ""}>${stopIcon}<span>Stop &amp; review</span></button>
           </div>
-          <p class="dojo-rec-note${recorder.persisted ? "" : " is-warning"}">${recorder.persisted
-            ? "Saved on this device as you go. You can close this window — recording keeps running."
-            : "This browser couldn’t save a backup, so keep this tab open until the recording is added."}</p>
+          <p class="dojo-rec-note${recorder.persisted && !recorder.quiet ? "" : " is-warning"}">${!recorder.persisted
+            ? "This browser couldn’t save a backup, so keep this tab open until the recording is added."
+            : recorder.quiet
+              ? "Very little sound is reaching the microphone. Move closer to the speaker. On a phone call, your phone may be muting other apps’ microphones."
+              : "Saved on this device as you go. You can close this window — recording keeps running."}</p>
         </div>`;
       return;
     }
