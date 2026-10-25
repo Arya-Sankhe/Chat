@@ -283,8 +283,8 @@ export function loadConfig(env = process.env) {
       ),
       summaryModel: OPENROUTER_TEXT_MODEL,
       summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000),
-      // A model call with no answer or tool call this long after its request, or silent this
-      // long mid-answer, is stopped and retried once with the same request.
+      // A model call that streams nothing this long after its request, or goes silent this
+      // long while reasoning or answering, is stopped and retried once with the same request.
       answerStallMs: readInt(env.MODEL_ANSWER_STALL_MS, 240_000),
       answerIdleMs: readInt(env.MODEL_ANSWER_IDLE_MS, 120_000)
     },

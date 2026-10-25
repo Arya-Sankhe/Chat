@@ -15,11 +15,13 @@ export function stallLimits(config) {
   };
 }
 
-/* Watches one model call from the request until its stream ends. Before the answer starts
-   (headers, reasoning) the call gets `startMs`; once answer text or a tool call arrives,
-   every gap between stream events gets `idleMs`. A miss aborts the call as stalled. */
+/* Watches one model call from the request until its stream ends. Until the model streams
+   anything (headers, queueing) the call gets `startMs`; once reasoning, answer text or a tool
+   call arrives, every gap between them gets `idleMs`. Streamed reasoning is the model working
+   (a bank statement on xhigh thinks for 5+ minutes), so only silence counts as a stall. GPT
+   models stream summaries and `reasoning.encrypted` blocks, which count too; OpenRouter's
+   keep-alive comments are not model output and do not. */
 export function callWatchdog(controller, { startMs, idleMs }) {
-  let answering = false;
   let timer = null;
   const watch = { stalled: false };
   const arm = (ms) => {
@@ -31,8 +33,7 @@ export function callWatchdog(controller, { startMs, idleMs }) {
   };
   watch.event = (event) => {
     const delta = event?.choices?.[0]?.delta;
-    if ((typeof delta?.content === "string" && delta.content) || delta?.tool_calls?.length) answering = true;
-    if (answering) arm(idleMs);
+    if (delta && (delta.content || delta.tool_calls?.length || delta.reasoning || delta.reasoning_content || delta.reasoning_details?.length)) arm(idleMs);
   };
   watch.stop = () => clearTimeout(timer);
   arm(startMs);

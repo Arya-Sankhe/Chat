@@ -2536,39 +2536,44 @@ test("only a short announcement counts as a promised lookup", () => {
   assert.equal(onlyPromisesLookup("Let me check: Max won. Hamilton was second. Then the season went on."), false);
 });
 
-test("a model call that reasons without answering is retried once with the same request", async () => {
+test("streamed reasoning keeps a call alive past the start limit; silence mid-reasoning is retried", async () => {
+  const encoder = new TextEncoder();
+  const sse = (delta) => encoder.encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
   const bodies = [];
   const events = [];
   const modelClient = {
     async streamChatCompletion({ body, signal }) {
       bodies.push(body);
-      if (bodies.length === 1) {
-        // Streams reasoning and never starts the answer until aborted.
-        return {
-          body: new ReadableStream({
-            start(controller) {
-              const encoder = new TextEncoder();
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning: "thinking…" } }] })}\n\n`));
-              signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+      return {
+        body: new ReadableStream({
+          async start(controller) {
+            signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+            // Thinks for 3x the start limit: readable reasoning, then GPT-style encrypted blocks.
+            for (let i = 0; i < 6; i += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 15));
+              if (signal.aborted) return;
+              controller.enqueue(sse(i < 3 ? { reasoning: "summing rows…" } : { reasoning_details: [{ type: "reasoning.encrypted", data: "x" }] }));
             }
-          })
-        };
-      }
-      return streamResponse([contentDelta("SCAN-0O1I-719")]);
+            if (bodies.length === 1) return; // then goes silent
+            controller.enqueue(sse({ content: "Total: 1,240" }));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          }
+        })
+      };
     }
   };
   const result = await runChatWithToolLoop({
-    chatRequest: { model: "mimo", messages: [{ role: "user", content: "codes?" }], tools: [], reasoning_effort: "high" },
+    chatRequest: { model: "mimo", messages: [{ role: "user", content: "monthly spend?" }], tools: [], reasoning_effort: "xhigh" },
     modelClient,
-    config: { context: { answerStallMs: 30 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
+    config: { context: { answerStallMs: 30, answerIdleMs: 40 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
     signal: new AbortController().signal,
     websearch: {},
     onUpstreamEvent: () => {},
     onToolEvent: (event) => events.push(event)
   });
-  assert.equal(result.accumulated.content, "SCAN-0O1I-719");
+  assert.equal(result.accumulated.content, "Total: 1,240");
   assert.equal(bodies.length, 2);
-  // Same reasoning and no output cap: the retry is the same request again.
   assert.deepEqual(bodies[1], bodies[0]);
   assert.ok(events.some((event) => event.reason === "answer-stalled"));
 });
