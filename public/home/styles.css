@@ -1090,6 +1090,7 @@ h2 {
 .platforms li::after { content: ""; order: 1; flex: 1; border-bottom: 1px dotted var(--night-far); transform: translateY(-4px); }
 .platforms b { order: 2; color: var(--night-mid); font-weight: 600; }
 .platforms b.live { color: var(--klui); }
+.platforms a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 
 .platforms-klui {
   position: absolute;
