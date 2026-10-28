@@ -1,7 +1,7 @@
 // Lists in board text. Typing "- " or "* " at the start of a line makes a "• " bullet, Enter on
 // a bullet or numbered line starts the next item, and Enter on an empty item ends the list.
-// Ctrl/Cmd+Shift+8 turns the selected lines into bullets (or back). Pure string helpers; the
-// editor island wires them to Excalidraw's text box.
+// The bullet button (or Ctrl/Cmd+Shift+8) turns the selected lines into bullets, or back. Pure
+// string helpers; the editor island wires them to Excalidraw's text box.
 
 export const BULLET = "•";
 const ITEM = /^([ \t]*)(?:(•)|(\d{1,3})([.)])) /;
@@ -27,10 +27,15 @@ export function continueList(before, after) {
   return { remove: 0, insert: `\n${indent}${bullet ? BULLET : `${Number(number) + 1}${dot}`} ` };
 }
 
+/** Whether every non-blank line of `lines` is already a list item. */
+export function isList(lines) {
+  const filled = lines.filter((line) => line.trim());
+  return filled.length > 0 && filled.every((line) => ITEM.test(line));
+}
+
 /** The lines `lines` with bullets added, or taken off when every non-blank line has one already. */
 export function toggleBullets(lines) {
-  const filled = lines.filter((line) => line.trim());
-  const off = filled.length > 0 && filled.every((line) => ITEM.test(line));
+  const off = isList(lines);
   return lines.map((line) => {
     if (!line.trim() || (!off && ITEM.test(line))) return line;
     if (off) return line.replace(ITEM, "$1");

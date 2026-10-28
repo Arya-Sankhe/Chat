@@ -337,3 +337,13 @@ html:has(.wb-image-placement-preview) .excalidraw-tooltip, .wb-canvas:has(.wb-im
 .wb-wheel-zoom:hover { background: var(--button-hover-bg, var(--color-surface-high)); }
 .wb-wheel-zoom[aria-pressed="true"] { background: var(--color-primary-light, #e0dfff); color: var(--color-primary-darker, #4a47b1); }
 @media not (any-pointer: fine) { .wb-wheel-zoom { display: none; } }
+
+/* The bullet-list button above the text being edited or selected (see text-lists.js). */
+.wb-list-btn {
+  position: absolute; z-index: 4; display: inline-grid; place-items: center; width: 36px; height: 36px;
+  border: 1px solid var(--border, rgba(0,0,0,.12)); border-radius: 10px; cursor: pointer;
+  background: var(--bg, #fff); color: var(--text, #1f2328); box-shadow: 0 4px 14px rgba(15, 23, 42, .14);
+}
+.wb-list-btn:hover { background: var(--bg-secondary, #f3f4f6); }
+.wb-list-btn[aria-pressed="true"] { background: #e7f5ff; border-color: #74c0fc; color: #1971c2; }
+.wb-list-btn[hidden] { display: none; }

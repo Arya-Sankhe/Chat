@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { continueList, pastedBlocks, toggleBullets, typedBullet } from "../whiteboard/src/text-lists.js";
+import { continueList, isList, pastedBlocks, toggleBullets, typedBullet } from "../whiteboard/src/text-lists.js";
 
 test("typing a dash or star at the start of a line makes a bullet, keeping its indent", () => {
   assert.equal(typedBullet("- "), "• ");
@@ -24,6 +24,10 @@ test("the bullet shortcut adds bullets to the lines, or takes them off when all 
   assert.deepEqual(toggleBullets(["a", "", "  b"]), ["• a", "", "  • b"]);
   assert.deepEqual(toggleBullets(["• a", "  1. b"]), ["a", "  b"]);
   assert.deepEqual(toggleBullets(["• a", "b"]), ["• a", "• b"]);
+  // The button shows as pressed only when every line with words on it is already a list item.
+  assert.equal(isList(["• a", "", "2. b"]), true);
+  assert.equal(isList(["• a", "b"]), false);
+  assert.equal(isList(["", " "]), false);
 });
 
 test("a paste becomes one text box with bullets, split only when it is longer than a box holds", () => {
