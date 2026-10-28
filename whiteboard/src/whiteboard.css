@@ -118,6 +118,10 @@ html.wb-open .excalidraw.excalidraw-modal-container { z-index: 1201; }
 .wb-klui[data-state="working"] .wb-klui-body { animation: wb-bob .9s ease-in-out infinite; }
 .wb-klui[data-state="seen"] { opacity: .78; transform: scale(.82); }
 .wb-klui[data-state="seen"]:hover { opacity: 1; }
+/* A read answer's Klui shows only while the pointer is over its part of the board. */
+.wb-klui { transition: opacity .18s ease, transform .18s ease; }
+.wb-klui.is-tucked { opacity: 0; transform: scale(.6); pointer-events: none; }
+.wb-klui.is-tucked:focus-visible { opacity: 1; transform: scale(.82); pointer-events: auto; }
 .wb-klui-bubble {
   position: absolute; right: 26px; bottom: 30px; white-space: nowrap;
   padding: 4px 9px; border-radius: 12px 12px 3px 12px; font-size: 12px; font-weight: 700;
@@ -321,3 +325,15 @@ html:has(.wb-image-placement-preview) .excalidraw-tooltip, .wb-canvas:has(.wb-im
   100% { opacity: 0; transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) { .wb-flash { animation-duration: .9s; } }
+
+/* Mouse users can let the wheel zoom (see wheel-zoom.js); it sits by the zoom buttons. */
+.wb-canvas .footer-center { justify-content: flex-start; padding-inline-start: 8px; }
+.wb-wheel-zoom {
+  display: inline-flex; align-items: center; gap: 6px; height: 2.5rem; padding: 0 12px;
+  border: 0; border-radius: var(--border-radius-lg, 8px); cursor: pointer; pointer-events: auto;
+  background: var(--island-bg-color); color: var(--icon-fill-color, var(--color-on-surface)); box-shadow: var(--shadow-island);
+  font: inherit; font-size: 13px; font-family: var(--ui-font, inherit);
+}
+.wb-wheel-zoom:hover { background: var(--button-hover-bg, var(--color-surface-high)); }
+.wb-wheel-zoom[aria-pressed="true"] { background: var(--color-primary-light, #e0dfff); color: var(--color-primary-darker, #4a47b1); }
+@media not (any-pointer: fine) { .wb-wheel-zoom { display: none; } }
