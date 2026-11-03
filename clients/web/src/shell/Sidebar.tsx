@@ -36,10 +36,55 @@ export function profileDisplayName(email: string) {
   return String(email || "").split("@")[0] || "Signed in";
 }
 
+const FREE_USAGE_ICONS = {
+  messages: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  images: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" /></>
+};
+
+function freeResetLabel(resetsAt: string) {
+  const minutes = Math.max(1, Math.round((Date.parse(resetsAt) - Date.now()) / 60_000));
+  if (!Number.isFinite(minutes)) return "Resets daily";
+  return minutes < 60 ? `Resets in ${minutes}m` : `Resets in ${Math.round(minutes / 60)}h`;
+}
+
+/** renderFreeUsageMarkup(): today's free messages and image uploads. */
+function FreeUsage({ free }: { free: any }) {
+  const row = (kind: "messages" | "images", label: string) => {
+    const item = free[kind];
+    const percent = item.limit > 0 ? Math.min(100, Math.round((item.used / item.limit) * 100)) : 100;
+    return (
+      <div className="free-usage-row">
+        <div className="account-usage-head">
+          <span className="account-usage-label"><svg viewBox="0 0 24 24" aria-hidden="true">{FREE_USAGE_ICONS[kind]}</svg>{label}</span>
+          {" "}
+          <span className="account-usage-value">{item.remaining ? `${item.remaining} left` : "Used up"}</span>
+        </div>
+        {" "}
+        <div className="account-usage-track" role="progressbar" aria-label={`${label} used today`} aria-valuemin={0} aria-valuemax={item.limit} aria-valuenow={item.used}>
+          <span className={cx("account-usage-fill", { "is-spent": !item.remaining })} style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="account-usage free-usage">
+      {row("messages", "Messages")}
+      {" "}
+      {row("images", "Image uploads")}
+      {" "}
+      <p className="account-usage-note">Free plan · {freeResetLabel(free.resetsAt)}</p>
+    </div>
+  );
+}
+
 /** renderAccountUsageMarkup(): the weekly usage meter. */
 export function AccountUsage() {
   const me = useApp((s) => s.me);
   if (!me?.plan) return null;
+  if ((me.plan as any).free) {
+    const free = (me.usage as any)?.free;
+    return free ? <FreeUsage free={free} /> : null;
+  }
   const api = me.usage?.api || {};
   const percent = Math.max(0, Math.min(100, Math.floor(Number(api.percent || 0))));
   const resetLabel = api.weekEnd
@@ -52,9 +97,11 @@ export function AccountUsage() {
         {" "}
         <span className="account-usage-value">{percent}%</span>
       </div>
+      {" "}
       <div className="account-usage-track" aria-hidden="true">
         <span className="account-usage-fill" style={{ width: `${percent}%` }} />
       </div>
+      {" "}
       <p className="account-usage-note">{resetLabel}</p>
     </div>
   );

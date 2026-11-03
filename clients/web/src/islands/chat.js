@@ -25,8 +25,13 @@ import {
   closeSearchDialog,
   closeSettings,
   dismissComposerKeyboard,
+  blockedOnFree,
+  countFreeUse,
+  freeAllowance,
   hasChatAccess,
   hasUpgradePlans,
+  isFreeAccount,
+  promptUpgrade,
   isCouncilMode,
   openAuthDialog,
   openDeleteConfirm,
@@ -98,11 +103,13 @@ import {
   cancelPendingDocumentTurn,
   cancelResearch,
   checkMamoCoupon,
+  redeemInvite,
   clearMemory,
   completeUpload,
   createContentReport,
   createConversation,
   createMamoCheckout,
+  createStripePortal,
   createResearch,
   createStudyCard,
   createStudyNote,
@@ -2821,13 +2828,13 @@ const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 
 const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
 
-const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
 
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 
 const COUNCIL_MEDIA_MODELS = [
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_MIMO_V25_MODEL,
+  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_VISION_L3,
   OPENROUTER_VISION_L2
 ];
@@ -4328,6 +4335,18 @@ function acceptPendingFiles(files) {
     allFiles = imagesOnly;
     if (!allFiles.length) return;
   }
+  if (isFreeAccount()) {
+    const imagesOnly = allFiles.filter((file) => fileCategory(file) === "image");
+    if (imagesOnly.length < allFiles.length) {
+      const notice = "Documents are on Plus and Pro. The free plan can attach images.";
+      if (!imagesOnly.length) {
+        promptUpgrade(notice);
+        return;
+      }
+      showToast(notice);
+    }
+    allFiles = imagesOnly;
+  }
   const imagesOnly = state.temporaryChat || isCouncilMode();
   const accepted = allFiles.filter((file) => imagesOnly
     ? fileCategory(file) === "image"
@@ -4737,6 +4756,7 @@ function toggleVoiceRecording() {
     stopVoiceRecording({ commit: false });
     return;
   }
+  if (blockedOnFree("Dictation is on Plus and Pro.")) return;
   startVoiceRecording();
 }
 
@@ -5364,6 +5384,7 @@ function maybeAutoRepairVisualization({ messageId, message } = {}) {
   if (!normalizeClientSkillIds(userMsg?.metadata?.skillIds).includes("visualize")) return false;
   if (!visualizeSourceFromContent(assistant.content)) return false;
 
+  if (isFreeAccount()) return false;
   const attemptKey = `${conversationId}:${userMsg.id}`;
   const attempts = visualizeRepairCount(attemptKey);
   if (attempts >= VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS) return false;
@@ -5389,6 +5410,11 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
   const failed = state.messages[index];
   const userMsg = state.messages[index - 1];
   if (failed?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(failed)) return;
+  const freeBlock = freeSendBlock({ role: selectedSingleRole(), skillIds: userMsg.metadata?.skillIds || [] });
+  if (freeBlock) {
+    promptUpgrade(freeBlock);
+    return;
+  }
 
   const repairSource = visualizeRuntimeError ? visualizeSourceFromContent(failed.content) : "";
   const localAssistant = {
@@ -5420,6 +5446,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
   let repairErrored = false;
 
   try {
+    countFreeUse("messages");
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
@@ -5553,6 +5580,27 @@ function localAssistantForMode(compareModels = [], council = false) {
 
 // `voice` (voice mode) sends a spoken turn with Think and the voice prompt, leaves the composer
 // alone, and reports stream events; the result tells voice mode how the turn ended.
+// Why a free account can't send this, or "" when it can.
+function freeSendBlock({ role, skillIds = [], images = [], voice = null }) {
+  if (!isFreeAccount()) return "";
+  if (voice) return "Voice is on Plus and Pro. Upgrade to talk with Klui.";
+  if (state.temporaryChat) return "Temporary chat is on Plus and Pro.";
+  if (role === "compare" || role === "council") return `${role === "compare" ? "Compare" : "Council"} is on Plus and Pro. Upgrade to use it.`;
+  if (role !== "think") return "The free plan chats with Think. Upgrade to use other models.";
+  if (skillIds.length) return "Tools like slides, docs and visuals are on Plus and Pro.";
+  if (state.researchMode) return "Deep Research is on Plus and Pro.";
+  if (state.studyOpen || state.activeProjectId) return "Dojo and projects are on Plus and Pro.";
+  if (images.some((img) => img.category === "document")) return "Documents are on Plus and Pro. The free plan can attach images.";
+  if (freeAllowance("messages") < 1) {
+    return `You've used today's ${state.me.usage.free.messages.limit} free messages. Upgrade for more, or come back tomorrow.`;
+  }
+  const newImages = images.filter((img) => img.category === "image" && img.file).length;
+  if (newImages > freeAllowance("images")) {
+    return `You've used today's ${state.me.usage.free.images.limit} free image uploads. Upgrade for more, or come back tomorrow.`;
+  }
+  return "";
+}
+
 async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null, skillIds = [], skillMarks = [], voice = null }) {
   compareController.closeCompareContextBanner();
   const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
@@ -5566,6 +5614,11 @@ async function executeSend({ text, images, compareModels, council = false, descr
   if (visualizeSendBlocked(sendSkillIds, compareModels)) {
     showToast("Visualize works with one model at a time.");
     return;
+  }
+  const freeBlock = freeSendBlock({ role: voice ? "think" : selectedChatRole(), skillIds: sendSkillIds, images, voice });
+  if (freeBlock) {
+    promptUpgrade(freeBlock);
+    return voice ? { error: freeBlock } : null;
   }
 
   const temporaryChat = state.temporaryChat;
@@ -5728,6 +5781,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }
 
       const uploadedFile = await uploadFile(state.session, img.file);
+      if (uploadedFile.category !== "document") countFreeUse("images");
       if (uploadedFile.category === "document") {
         await waitForDocumentReady(uploadedFile.id, img.file.name);
       }
@@ -5797,6 +5851,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         }
       });
     } else {
+      countFreeUse("messages");
       await streamConversationMessage(state.session, conversationId, payload, {
         signal: abortController.signal,
         onEvent: (event) => {
@@ -6022,6 +6077,7 @@ async function openVoiceMode() {
     openUpgradePlans();
     return;
   }
+  if (blockedOnFree("Voice is on Plus and Pro. Upgrade to talk with Klui.")) return;
   if (!voiceModeSupported()) {
     showToast("Voice mode is not supported in this browser.");
     return;
@@ -6107,7 +6163,7 @@ function formatStorageBytes(bytes) {
 
 // Access runs through the end of the Dubai renewal day; Mamo charges on that day, so show it.
 function billingDay(periodEnd) {
-  return new Date(Date.parse(periodEnd) - 1).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
+  return new Date(Date.parse(periodEnd) - (state.me?.subscription?.provider === "stripe" ? 0 : 1)).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
 }
 
 function renderSettingsAccount() {
@@ -6115,8 +6171,10 @@ function renderSettingsAccount() {
   els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
   els.settingsAccountGuest?.classList.toggle("hidden", signedIn);
   const sub = state.me?.subscription;
+  document.querySelector("#settingsAccountBillingRow")?.classList.toggle("hidden", !signedIn || !state.me?.billingPortalAvailable || isNative());
   const canCancel = signedIn
-    && sub?.provider === "mamo"
+    && ["mamo", "stripe"].includes(sub?.provider)
+    && ["active", "trialing", "past_due"].includes(sub?.status)
     && !sub?.cancelAtPeriodEnd;
   els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
   const cancelLabel = els.settingsAccountCancelRow?.querySelector("span");
@@ -6167,6 +6225,7 @@ function renderAccountUsageMarkup() {
   const plan = state.me?.plan;
   const usage = state.me?.usage || {};
   if (!plan) return "";
+  if (plan.free) return renderFreeUsageMarkup(usage.free);
 
   const api = usage.api || {};
   const percent = Math.max(0, Math.min(100, Math.floor(Number(api.percent || 0))));
@@ -6184,6 +6243,41 @@ function renderAccountUsageMarkup() {
         <span class="account-usage-fill" style="width: ${percent}%"></span>
       </div>
       <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
+    </div>
+  `;
+}
+
+function freeResetLabel(resetsAt) {
+  const minutes = Math.max(1, Math.round((Date.parse(resetsAt) - Date.now()) / 60_000));
+  if (!Number.isFinite(minutes)) return "Resets daily";
+  return minutes < 60 ? `Resets in ${minutes}m` : `Resets in ${Math.round(minutes / 60)}h`;
+}
+
+function renderFreeUsageMarkup(free) {
+  if (!free) return "";
+  const icons = {
+    messages: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    images: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'
+  };
+  const row = (kind, label) => {
+    const item = free[kind];
+    const percent = item.limit > 0 ? Math.min(100, Math.round((item.used / item.limit) * 100)) : 100;
+    return `
+      <div class="free-usage-row">
+        <div class="account-usage-head">
+          <span class="account-usage-label"><svg viewBox="0 0 24 24" aria-hidden="true">${icons[kind]}</svg>${escapeHtml(label)}</span>
+          <span class="account-usage-value">${item.remaining ? escapeHtml(`${item.remaining} left`) : "Used up"}</span>
+        </div>
+        <div class="account-usage-track" role="progressbar" aria-label="${escapeHtml(label)} used today" aria-valuemin="0" aria-valuemax="${item.limit}" aria-valuenow="${item.used}">
+          <span class="account-usage-fill${item.remaining ? "" : " is-spent"}" style="width: ${percent}%"></span>
+        </div>
+      </div>`;
+  };
+  return `
+    <div class="account-usage free-usage">
+      ${row("messages", "Messages")}
+      ${row("images", "Image uploads")}
+      <p class="account-usage-note">Free plan · ${escapeHtml(freeResetLabel(free.resetsAt))}</p>
     </div>
   `;
 }
@@ -6477,15 +6571,29 @@ function openUpgradePlans() {
 // Mirrors the home.klui.ai pricing cards. Prices exclude Mamo's processing fee, which is
 // added at checkout; `chargeAed` is the exact monthly card charge.
 function renderPlans() {
+  const inviteOnly = state.me?.access?.mode === "testing";
+  const subtitle = document.querySelector(".paywall-subheadline");
+  if (subtitle) subtitle.textContent = inviteOnly
+    ? "INVITE ONLY · Start on Free. Redeem an invite code for free Pro access."
+    : "Every feature on both plans. No 5-hour limits.";
   const requestsByPlan = new Map(
     (state.paymentRequests || [])
       .filter((request) => request.status === "pending")
       .map((request) => [request.planId, request])
   );
+  // Lucide-style 24px stroke icons; keep in sync with home/pricing/index.html.
+  const icon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+  const features = [
+    [icon('<path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/>'), "Notes, flashcards & tests"],
+    [icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>'), "Compare AI answers"],
+    [icon('<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>'), "Slides, docs & visuals"],
+    [icon('<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>'), "Web search & Deep Research"],
+    [icon('<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/>'), "Voice chat & course memory"],
+    [icon('<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'), "No ads"]
+  ];
   const planMeta = {
-    lite: { copy: "Simple access for light everyday use.", features: ["All Klui features included.", "Klui doesn't train on your chats.", "No ads."] },
-    pro: { tag: "The daily driver", copy: "Everyday access for regular users.", features: ["Everything in Lite.", "Klui doesn't train on your chats.", "3× usage."] },
-    max: { copy: "Higher capacity for heavier workflows.", features: ["Everything in Pro.", "Klui doesn't train on your chats.", "6× usage."] }
+    lite: { features },
+    pro: { features, usage: "4× usage" }
   };
   const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
@@ -6493,39 +6601,37 @@ function renderPlans() {
   els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
     const id = String(plan.id || "").toLowerCase();
     const planClass = id.replace(/[^a-z0-9_-]/g, "");
-    const meta = planMeta[id] || { copy: plan.description || "", features: [] };
+    const meta = planMeta[id] || { features: [] };
     const pending = requestsByPlan.get(plan.id);
-    const mamo = plan.checkout === "mamo";
+    const mamo = ["mamo", "stripe"].includes(plan.checkout);
     const offer = mamo ? offers.get(plan.id) : null;
     const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
     const feeNote = fee ? " <small>+ processing fee</small>" : "";
     const price = offer
       ? `<div class="plan-price plan-price-offer">
-          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
+          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.trialDays ? "Free trial" : offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
           <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
           <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          <span>first month</span>
+          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}${fee && offer.initialAmountAed ? " + processing fee" : ""}</span>
         </div>
         <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
       : plan.amountAed
         ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
         : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
-    const chargeNote = !mamo ? ""
-      : offer
-        ? `${offer.initialChargeAed ? `AED ${escapeHtml(aed(offer.initialChargeAed))} today` : "Nothing charged today, card saved"}, then AED ${escapeHtml(aed(offer.renewalChargeAed))}/month from month two${fee ? ", processing fee included" : ""}.`
-        : `AED ${escapeHtml(aed(plan.chargeAed || plan.amountAed))} charged monthly${fee ? ", processing fee included" : ""}. Cancel anytime.`;
     return `
     <article class="plan-card plan-card-${escapeHtml(planClass)}">
-      ${meta.tag ? `<p class="plan-tag">${escapeHtml(meta.tag)}</p>` : ""}
+      ${meta.usage ? `<p class="plan-tag plan-usage-tag">${escapeHtml(meta.usage)}</p>` : ""}
       <h3 class="plan-name">${escapeHtml(plan.name)}</h3>
       ${price}
-      <p class="plan-copy">${escapeHtml(meta.copy)}</p>
-      <ul>
-        ${meta.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}
+      <ul class="plan-features">
+        ${meta.features.map(([svg, label]) => `<li>${svg}${escapeHtml(label)}</li>`).join("")}
       </ul>
-      ${mamo ? `
+      ${inviteOnly ? `
+      <button class="plan-pay-btn" type="button" disabled>INVITE ONLY</button>
+      <p class="plan-payment-note">${state.me?.subscription?.provider === "invite" && id === "pro" ? "Your free Pro access is active." : "Redeem an invite code above for free Pro access. No payment required."}</p>
+      ` : mamo ? `
       <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
-      <p class="plan-payment-note">${chargeNote}</p>
+      ${plan.checkout === "stripe" ? `<p class="plan-payment-note">${offer ? `AED ${escapeHtml(aed(offer.initialChargeAed))} due today. Then AED ${escapeHtml(aed(offer.renewalChargeAed))} / month.` : `AED ${escapeHtml(aed(plan.chargeAed))} charged monthly.`} Processing fee included.</p>` : ""}
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
@@ -6549,10 +6655,13 @@ function renderPendingPayment(request) {
 
 async function refreshAfterMamoReturn() {
   const params = new URLSearchParams(window.location.search);
-  if (!state.session || !["captured", "card_verified"].includes(params.get("status")) || !params.get("transactionId")) return;
+  const stripeReturn = params.get("stripe") === "success";
+  const mamoReturn = ["captured", "card_verified"].includes(params.get("status")) && params.get("transactionId");
+  if (!state.session || (!stripeReturn && !mamoReturn)) return;
   const planId = params.get("planId");
   // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
   for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (state.me?.billingIssue) { showToast(state.me.billingIssue); return; }
     if (state.me?.access?.active && (!planId || state.me?.subscription?.planId === planId)) return;
     if (attempt === 0) showToast("Confirming your payment…");
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -6582,31 +6691,39 @@ async function startMamoPayment(planId) {
   try {
     // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
     await couponCheck;
-    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
+    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "", state.plans.find((plan) => plan.id === planId)?.checkout);
     if (payload.paymentUrl) await openExternal(payload.paymentUrl);
   } catch (err) {
     showToast(err.message);
   }
 }
 
-function couponSummary(percentOff) {
+function trialLength(days) {
+  return days % 7 === 0 ? `${days / 7} week${days === 7 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"}`;
+}
+
+function couponSummary({ percentOff, trialDays }) {
+  if (trialDays) return `${trialLength(trialDays)} free`;
   return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
 }
 
 // The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
 function renderCouponPanel() {
-  const available = !isNative() && (state.plans || []).some((plan) => plan.checkout === "mamo");
+  const inviteOnly = state.me?.access?.mode === "testing";
+  const available = !isNative() && (inviteOnly || (state.plans || []).some((plan) => ["mamo", "stripe"].includes(plan.checkout)));
   els.paywallCoupon?.classList.toggle("hidden", !available);
   if (!available) return;
   const applied = state.mamoCoupon?.coupon;
-  const open = !applied && els.paywallCouponToggle?.getAttribute("aria-expanded") === "true";
+  const open = !applied && (inviteOnly || els.paywallCouponToggle?.getAttribute("aria-expanded") === "true");
+  const label = els.paywallCouponToggle?.querySelector("span");
+  if (label) label.textContent = inviteOnly ? "Have an invite code?" : "Have a coupon code?";
   els.paywallCouponToggle?.classList.toggle("hidden", Boolean(applied) || open);
   els.paywallCouponForm?.classList.toggle("hidden", !open);
   els.paywallCouponApplied?.classList.toggle("hidden", !applied);
   els.paywallCoupon?.classList.toggle("is-applied", Boolean(applied));
   if (applied) {
     if (els.paywallCouponCode) els.paywallCouponCode.textContent = applied.code;
-    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied.percentOff);
+    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied);
   }
 }
 
@@ -6644,7 +6761,17 @@ async function checkCouponCode() {
   }
   els.paywallCouponApply?.setAttribute("disabled", "");
   try {
-    state.mamoCoupon = await checkMamoCoupon(state.session, code);
+    if (state.me?.access?.mode === "testing") {
+      await redeemInvite(state.session, code);
+      await loadMe();
+      state.mamoCoupon = null;
+      setStatus("Pro is now active for free. No payment required.");
+      els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
+      renderShell();
+      showToast("Invite accepted. You now have Pro for free.");
+      return;
+    }
+    state.mamoCoupon = await checkMamoCoupon(state.session, code, state.plans.find((plan) => plan.checkout === "stripe") ? "stripe" : "mamo");
     setStatus("");
     els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
   } catch (err) {
@@ -7385,6 +7512,7 @@ async function deletePendingProject(deletedProjectId) {
 function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   if (blockChatNavigationWhileRunning()) return;
   const next = Boolean(enabled);
+  if (next && blockedOnFree("Temporary chat is on Plus and Pro.")) return;
   if (state.temporaryChat === next && !resetChat) {
     renderTemporaryChatMode();
     return;
@@ -8270,6 +8398,12 @@ function bindSettingsEvents() {
   els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
   els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
   els.exportAccountButton?.addEventListener("click", () => { void downloadAccountDataAndSave(); });
+  document.querySelector("#billingPortalButton")?.addEventListener("click", async () => {
+    try {
+      const portal = await createStripePortal(state.session);
+      await openExternal(portal.url);
+    } catch (error) { showToast(error.message || "Could not open billing."); }
+  });
   els.cancelSubscriptionButton?.addEventListener("click", () => {
     openDeleteConfirm({
       title: "Cancel subscription?",

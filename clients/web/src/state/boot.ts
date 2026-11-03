@@ -4,7 +4,7 @@
 import { api, session, webBuild } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { isNative } from "../islands/platform/index.js";
-import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
+import { closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
 import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, loadPaymentRequests, openNativeConversation, refreshAfterMamoReturn, rejoinTurnsAfterResume, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 import { checkAndShowAppUpdate, hideLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
@@ -122,6 +122,7 @@ export async function bootstrap() {
     // The chat core's API client (the old api.js) reads and refreshes the same session.
     configureApiAuth({
       getSession: () => session.current(),
+      onUpgradeRequired: handleUpgradeRequired,
       refresh: (_current: unknown, options: { force?: boolean }) => session.ensureFresh(options),
       buildCheck: () => checkWebBuild({ force: true }),
       buildId: get().buildId
@@ -157,7 +158,7 @@ export async function bootstrap() {
     });
     if (signedIn) trackPaymentRequests();
     await refreshAfterMamoReturn();
-    if (signedIn && get().me?.access?.active) {
+    if (signedIn && hasChatAccess()) {
       await loadChatApp();
       await restorePendingDocuments();
       await openRouteResearchReport();

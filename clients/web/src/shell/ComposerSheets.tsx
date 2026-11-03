@@ -4,7 +4,7 @@
    rendered there through BodySheets and inline otherwise. */
 import { createPortal } from "react-dom";
 import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_LABELS } from "@klui/shared";
-import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, dismissComposerKeyboard, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
+import { applyNativeTopBarMode, blockedOnFree, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, dismissComposerKeyboard, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
 import { homeModes } from "../state/homeModes";
 import { cx } from "./cx";
@@ -115,7 +115,7 @@ export function ActionMenu() {
   const running = useApp((s) => s.running);
   // renderWebSearchToggle(), from the first renderShell(): until then the markup's own text.
   const webSearchAvailable = useApp((s) => Boolean((s.config as any)?.services?.websearch));
-  const webSearchOn = useApp((s) => s.settings.webSearchMode !== "off");
+  const webSearchOn = useApp((s) => s.settings.webSearchMode !== "off" && !s.me?.access?.free);
   const rendered = useApp((s) => s.shellRender > 0);
   const webSearch = !rendered || !webSearchAvailable
     ? { shown: false, pressed: true, label: "Web search auto", title: "Web search: Auto — the model searches the web when needed. Click to turn off." }
@@ -194,7 +194,7 @@ export function ActionMenu() {
             </svg>
           </button>
           {" "}
-          <button className={cx("composer-action-menu-item web-search-toggle", { hidden: !webSearch.shown })} type="button" id="webSearchToggle" role="menuitem" aria-pressed={webSearch.pressed} aria-label={webSearch.label} title={webSearch.title} data-menu-page="more" onClick={(event) => { event.stopPropagation(); updateSetting("webSearchMode", webSearchOn ? "off" : "auto"); }}>
+          <button className={cx("composer-action-menu-item web-search-toggle", { hidden: !webSearch.shown })} type="button" id="webSearchToggle" role="menuitem" aria-pressed={webSearch.pressed} aria-label={webSearch.label} title={webSearch.title} data-menu-page="more" onClick={(event) => { event.stopPropagation(); if (blockedOnFree("Web search is on Plus and Pro.")) return; updateSetting("webSearchMode", webSearchOn ? "off" : "auto"); }}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="10" />
               <line x1="2" y1="12" x2="22" y2="12" />

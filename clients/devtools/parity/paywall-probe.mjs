@@ -1,5 +1,6 @@
 // The pricing screen on the old site and the new client, for a signed-in user
-// without a plan: opened by sending, the coupon panel (open, a bad code, a good
+// without a plan: opened from the account menu (profile menu on desktop, Settings
+// on phones; a Free account's send no longer opens it), the coupon panel (open, a bad code, a good
 // code, remove), Back to chat, then (on desktop) opened from the profile menu's
 // Upgrade and closed, then a ?coupon= link. Compares the panel's structure, text
 // and pixels after each step. Never presses a plan button: that would start a
@@ -65,15 +66,15 @@ for (const site of SITES) {
     process.stderr.write(`${site.user} ${viewport.width}\n`);
     const home = async (path = "/") => {
       await page.goto(site.origin + path);
-      // Without a plan the chat list never loads; wait for the shell instead.
       await page.waitForSelector("#promptInput");
       await page.waitForTimeout(2000);
     };
-    const send = async () => {
-      await page.click("#promptInput");
-      await page.keyboard.type("hello");
-      // Enter is a newline on phones.
-      await page.click("#sendButton");
+    const openPlans = async () => {
+      if (viewport.width < 500) await page.click("#nativeMobileMenu");
+      await page.waitForTimeout(400);
+      await page.click("#accountButton");
+      await page.waitForTimeout(400);
+      await page.click(viewport.width < 500 ? "#mobileSettingsPricing" : "#profileMenuUpgrade");
       await page.waitForSelector("#paywallView:not(.hidden) #paywallPlans > *", { timeout: 10000 });
     };
     const upgrade = async () => {
@@ -84,7 +85,7 @@ for (const site of SITES) {
     };
     await home();
     out.home = await page.evaluate(() => ["paywallView", "chatView"].map((id) => `${id}:${document.getElementById(id).classList.contains("hidden")}`).join(" "));
-    await send();
+    await openPlans();
     out.sent = await paywall("sent");
     await page.click("#paywallCouponToggle");
     out.couponOpen = await paywall("couponOpen");
@@ -114,7 +115,7 @@ for (const site of SITES) {
     }
     // Phones: a right swipe dismisses the pricing screen like any top surface.
     if (viewport.width < 500) {
-      await send();
+      await openPlans();
       await page.evaluate(() => {
         const target = document.querySelector("#paywallView .paywall-hero");
         const touch = (x) => new Touch({ identifier: 1, target, clientX: x, clientY: 200 });
@@ -124,7 +125,7 @@ for (const site of SITES) {
       out.swiped = await paywall("swiped");
     }
     await home("/?coupon=FIRST50");
-    await send();
+    await openPlans();
     await page.waitForTimeout(800);
     out.couponLink = await paywall("couponLink");
     out.errors = errors;

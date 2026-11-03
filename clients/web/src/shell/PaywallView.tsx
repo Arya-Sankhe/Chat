@@ -13,9 +13,9 @@ export function PaywallView() {
         <button className="paywall-close hidden" id="paywallCloseButton" type="button" aria-label="Close pricing">x</button>
         {" "}
         <div className="paywall-hero">
-          <div className="paywall-brand">Klui</div>
+          <h1 className="paywall-brand">Two Plans<br /><em>Zero Homework.</em></h1>
           {" "}
-          <div className="paywall-sticker">No 5 hour limits for all plans</div>
+          <p className="paywall-subheadline">Every feature on both plans. No 5-hour limits.</p>
         </div>
         {" "}
         <p className="auth-email" id="paywallEmail" />

@@ -102,6 +102,22 @@ export async function setRole(name, role) {
   sql(`update public.profiles set role = ${lit(role)} where id = ${lit(USERS[name].id)};`);
 }
 
+// Pro by invite: the testing server's full access. The subscription server ignores
+// invites, so there the same users have no paid plan.
+const proSql = (user) => `insert into public.subscriptions (user_id, provider, provider_subscription_id, plan_id, status, raw)
+  values (${lit(user.id)}, 'invite', ${lit(`invite:${user.id}`)}, 'pro', 'active', '{"invite_code":"TRYKLUI"}')
+  on conflict (provider_subscription_id) do update set status = 'active', plan_id = 'pro', updated_at = now();`;
+
+/** Puts one user on the free plan until the next reset(). */
+export async function useUpFreeMessages(name) {
+  sql(`insert into public.free_daily_usage (user_id, usage_day, messages) values (${lit(USERS[name].id)}, (now() at time zone 'utc')::date, 1000)
+       on conflict (user_id, usage_day) do update set messages = 1000;`);
+}
+
+export async function setFree(name) {
+  sql(`delete from public.subscriptions where user_id = ${lit(USERS[name].id)};`);
+}
+
 export async function reset() {
   for (const user of Object.values(USERS)) {
     await ensureUser(user);
@@ -109,10 +125,12 @@ export async function reset() {
     // conversations and projects covers what the fixtures and scenarios create;
     // uploads left out of a chat (Settings > Storage lists them) go too.
     sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email, role = 'user';
+         delete from public.free_daily_usage where user_id = ${lit(user.id)};
          delete from public.conversations where user_id = ${lit(user.id)};
          delete from public.projects where user_id = ${lit(user.id)};
          delete from public.document_files where user_id = ${lit(user.id)};
          delete from public.attachments where user_id = ${lit(user.id)};
+         ${proSql(user)}
          ${fixtureSql(user)}`);
   }
 }

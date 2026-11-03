@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { COLOR_PRESETS } from "@klui/shared";
-import { closeSettings, setSettingsTab, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
+import { NATIVE_APP, chatHooks, closeSettings, setSettingsTab, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
 import { signOutAndReset } from "../state/chat";
 import { cx } from "./cx";
 import { AccountUsage } from "./Sidebar";
@@ -65,6 +65,7 @@ export function SettingsDrawer() {
   const tab = useApp((s) => s.settingsTab);
   const profile = useApp((s) => s.settingsProfile);
   const usageShown = useApp((s) => Boolean(s.me?.plan));
+  const upgradePlans = useApp((s) => Array.isArray(s.plans) && s.plans.length > 0);
   const settings = useApp((s) => s.settings);
   const appearance = settings.appearance;
   const accent = COLOR_PRESETS.has(settings.colorPreset) ? settings.colorPreset : "default";
@@ -82,6 +83,7 @@ export function SettingsDrawer() {
             <div className="mobile-settings-identity"><strong id="mobileSettingsName">{profile?.name}</strong><span id="mobileSettingsPlan">{profile?.plan}</span></div>
           </div>
           <div className="mobile-settings-group">My Klui</div>
+          {" "}
           <div className="settings-nav-brand">Settings</div>
           {" "}
           <button className={cx("settings-tab", { active: tab === "general" })} type="button" aria-pressed={tab === "general"} data-settings-tab="general">
@@ -127,6 +129,8 @@ export function SettingsDrawer() {
             {" Account "}
             <span className="mobile-settings-description">{(profile && profile.email) || "Profile and subscription"}</span>
           </button>
+          {" "}
+          <button type="button" id="mobileSettingsPricing" className={cx("mobile-settings-pricing", { hidden: !profile || NATIVE_APP || !upgradePlans })} onClick={() => chatHooks.openUpgradePlans()}>Plans &amp; pricing</button>
           <div id="mobileSettingsUsage" className="mobile-settings-usage" hidden={profile ? !usageShown : undefined}>{profile && <AccountUsage />}</div>
           <button type="button" className="mobile-settings-logout" onClick={() => { closeSettings(); void signOutAndReset(); }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M9 5H4v14h5m5-14 7 7-7 7M8 12h13" /></svg><span>Log out</span>
@@ -269,6 +273,11 @@ export function SettingsDrawer() {
                 <span>Subscription</span>
                 {" "}
                 <button className="account-export-btn" id="cancelSubscriptionButton" type="button">Cancel</button>
+              </div>
+              <div className="account-field hidden" id="settingsAccountBillingRow">
+                <span>Billing &amp; invoices</span>
+                {" "}
+                <button className="account-export-btn" id="billingPortalButton" type="button">Manage</button>
               </div>
               <div className="account-field">
                 <span>Delete account</span>

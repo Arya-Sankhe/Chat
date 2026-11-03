@@ -34,7 +34,7 @@ export interface AppState {
   buildId: string;
   plans: Plan[];
   signedIn: boolean;
-  me: (Me & { access?: { active?: boolean; mode?: string }; plan?: { name?: string }; usage?: any; subscription?: any }) | null;
+  me: (Me & { access?: { active?: boolean; free?: boolean; mode?: string }; plan?: { name?: string; free?: boolean }; usage?: any; subscription?: any }) | null;
   settings: ChatSettings;
   /** isMobileLayout(): the 860px breakpoint (the web build is never native). */
   mobile: boolean;
@@ -203,12 +203,58 @@ const servicesReady = (config: KluiConfig | null) => {
 };
 
 export function hasChatAccess() {
-  return Boolean(get().me?.access?.active);
+  return Boolean(get().me?.access?.active || get().me?.access?.free);
+}
+
+// Free accounts chat with Think and attach images. Every other feature still opens; using it
+// asks them to upgrade.
+export function isFreeAccount() {
+  return Boolean(get().me?.access?.free);
+}
+
+export function promptUpgrade(message: string) {
+  if (message) showToast(message);
+  chatHooks.openUpgradePlans();
+}
+
+export function blockedOnFree(message: string) {
+  if (!isFreeAccount()) return false;
+  promptUpgrade(message);
+  return true;
+}
+
+export function freeAllowance(kind: string) {
+  const item = (get().me?.usage as any)?.free?.[kind];
+  return item ? Math.max(0, Number(item.remaining) || 0) : Infinity;
+}
+
+export function countFreeUse(kind: string, amount = 1) {
+  const me = get().me;
+  const free = (me?.usage as any)?.free;
+  const item = free?.[kind];
+  if (!item) return;
+  const used = Math.min(item.limit, item.used + amount);
+  set({ me: { ...me!, usage: { ...me!.usage, free: { ...free, [kind]: { ...item, used, remaining: Math.max(0, item.limit - used) } } } } });
+}
+
+let upgradeRequiredAt = 0;
+
+// The server refused a paid feature or a spent free allowance. Something the user did
+// (anything but a read) opens the plans; a read only says why.
+export function handleUpgradeRequired({ message, code, kind, method }: { message: string; code: string; kind: string; method: string }) {
+  if (!isFreeAccount()) return;
+  const item = code === "free_limit" ? (get().me?.usage as any)?.free?.[kind] : null;
+  if (item) countFreeUse(kind, item.limit);
+  const now = Date.now();
+  if (now - upgradeRequiredAt < 1500) return;
+  upgradeRequiredAt = now;
+  if (method === "GET") showToast(message);
+  else promptUpgrade(message);
 }
 
 export function hasUpgradePlans() {
-  const { me, plans } = get();
-  return me?.access?.mode !== "testing" && Array.isArray(plans) && plans.length > 0;
+  const { plans } = get();
+  return Array.isArray(plans) && plans.length > 0;
 }
 
 /** renderShell(): picks the view after boot and after sign-in changes. */
@@ -419,6 +465,7 @@ export const isCouncilMode = () => Boolean(get().settings.compareEnabled && get(
 
 export function setResearchMode(enabled: boolean) {
   const next = Boolean(enabled);
+  if (next && blockedOnFree("Deep Research is on Plus and Pro.")) return;
   if (next && get().temporaryChat) {
     showToast("Deep Research is not available in temporary chat.");
     return;

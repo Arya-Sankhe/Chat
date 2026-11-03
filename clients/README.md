@@ -94,6 +94,11 @@ A parity build for testing against the local backend sets
 needs `adb reverse tcp:55600 tcp:55600` (also 55421 and 55900).
 `devtools/parity/native-probe.mjs` compares it with the Capacitor app.
 
+To rerun the comparisons: `devtools/local-backend/up.sh` starts the local services,
+then `devtools/parity/suite.sh` runs the web probes. For Android, boot the emulator
+with host GPU rendering and 4 GB of RAM, run `parity/native/build-refapp.sh` and
+`build-candidate.sh`, install both APKs, then `run-probe.sh`.
+
 ## Decisions worth knowing
 
 - **App identity.** `APP_VARIANT=production` builds use `tech.klui.app` so they

@@ -45,7 +45,9 @@ for (const site of SITES) {
   out.picker = await overlays();
   step("picker");
   await page.click("[data-voice-save]");
-  await page.waitForTimeout(1500);
+  // How long connecting takes varies; compare the session once it is listening.
+  await page.waitForFunction(() => document.querySelector("[data-voice-status]")?.innerText.includes("Listening"), undefined, { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(300);
   out.live = await overlays();
   out.voiceSetting = await page.evaluate(() => JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}").voiceChosen ?? null);
   step("live");
