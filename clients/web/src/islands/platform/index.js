@@ -12,6 +12,10 @@ export function isNative() {
   return Boolean(nativeInfo);
 }
 
+export function nativePlatform() {
+  return nativeInfo?.platform || "web";
+}
+
 export function apiOrigin() {
   return isNative() ? API_ORIGIN : "";
 }

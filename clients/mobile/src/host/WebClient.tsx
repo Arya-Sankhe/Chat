@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import { useEffect, useMemo } from "react";
-import { AppState, BackHandler, Linking, StyleSheet } from "react-native";
+import { AppState, BackHandler, Linking, Platform, StyleSheet } from "react-native";
 import type { NativeHostInfo } from "@klui/shared";
 import { KluiHost, KluiWebView } from "../../modules/klui-host";
 import { emit, handleMessage, hostInfo } from "./bridge";
@@ -11,7 +11,7 @@ const extra = (Constants.expoConfig?.extra ?? {}) as { apiOrigin?: string; authC
 export function WebClient() {
   const script = useMemo(() => {
     const info: NativeHostInfo = {
-      platform: "android",
+      platform: Platform.OS === "ios" ? "ios" : "android",
       apiOrigin: (extra.apiOrigin || "https://klui.ai").replace(/\/+$/, ""),
       authCallback: KluiHost.applicationId ? `${KluiHost.applicationId}://auth/callback` : extra.authCallback || "tech.klui.app://auth/callback",
       ...hostInfo()
