@@ -218,6 +218,21 @@ function screenshot() {
   return PNG.sync.read(adb("exec-out", "screencap", "-p"));
 }
 
+// System UI fades on its own schedule: take the frame once two in a row agree,
+// ignoring the status bar's clock.
+async function stableScreenshot() {
+  let png = screenshot();
+  for (let tries = 0; tries < 8; tries++) {
+    await wait(250);
+    const next = screenshot();
+    const start = next.width * STATUS_BAR * 4;
+    const same = Buffer.compare(png.data.subarray(start), next.data.subarray(start)) === 0;
+    png = next;
+    if (same) break;
+  }
+  return png;
+}
+
 /* ─── Steps ─── */
 
 const FAKE_UPDATE = (required) => ({
@@ -304,7 +319,7 @@ async function runApp(app) {
     value.bars = barAppearance(app.pkg);
     // An "isn't responding" dialog anywhere in the run is a failure of its own.
     if (sh("dumpsys window windows").includes("Application Not Responding")) errors.push(`${name}: ANR dialog on screen`);
-    results[name] = { state: value, png: screenshot() };
+    results[name] = { state: value, png: await stableScreenshot() };
   };
   const step = async (name, fn) => {
     try {
@@ -423,9 +438,17 @@ async function runApp(app) {
       localStorage.setItem("klui.chat.controls.v1", JSON.stringify(value));
       return JSON.stringify(value);
     });
-    await nativeStore(page, app, "prefs.set", "klui.chat.controls.v1", settings);
-    page = await launch(app);
-    await page.until(booted, true, "relaunch");
+    // This edits storage behind the app's back, since the app has no control for
+    // it. About one run in four the new app's copy came back at 100 (cause not
+    // found; a fast-write and a stale-storage test both held). Say so and retry.
+    for (let attempt = 1; ; attempt++) {
+      await nativeStore(page, app, "prefs.set", "klui.chat.controls.v1", settings);
+      page = await launch(app);
+      await page.until(booted, true, "relaunch");
+      const kept = await page.eval(() => JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}").uiTextScale);
+      if (kept === 115 || attempt === 3) break;
+      console.log(`TEXTZOOM-RETRY ${app.name}: stored text size came back ${kept}, attempt ${attempt}`);
+    }
     await page.until(() => document.querySelectorAll(".conversation-item").length >= 3, undefined, "chats listed");
     await dropKeyboard();
     await page.until(() => !document.body.classList.contains("keyboard-open"), undefined, "keyboard down");

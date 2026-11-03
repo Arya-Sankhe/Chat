@@ -4,6 +4,8 @@ import http from "node:http";
 import net from "node:net";
 const BLOCK = /(^|\.)klui\.(ai|tech)$/i;
 const server = http.createServer((req, res) => {
+  // Not a proxy request (a stray local connection): refuse it, don't crash.
+  if (!URL.canParse(req.url)) { res.writeHead(400); return res.end(); }
   const url = new URL(req.url);
   if (BLOCK.test(url.hostname)) { console.log("blocked", req.method, req.url); res.writeHead(403); return res.end("blocked by parity proxy"); }
   const upstream = http.request(req.url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });

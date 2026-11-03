@@ -1,8 +1,10 @@
 #!/bin/bash
 # Capacitor reference app (signed in, text size 115) -> install ~/.klui/parity/upgrade.apk over it -> report.
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
-node block-proxy.mjs > "$HOME/.klui/parity/logs/proxy.log" 2>&1 & PROXY=$!; trap 'kill $PROXY 2>/dev/null' EXIT; sleep 1
 source ~/.klui/android-env.sh
+node block-proxy.mjs > "$HOME/.klui/parity/logs/proxy.log" 2>&1 & PROXY=$!
+adb shell settings put global http_proxy 10.0.2.2:55990
+trap 'kill $PROXY 2>/dev/null; adb shell settings put global http_proxy :0' EXIT; sleep 1
 M='(()=>{const s=document.createElement("span");s.textContent="Xg";s.style.cssText="position:fixed;font-size:20px";document.body.appendChild(s);const h=s.getBoundingClientRect().height;s.remove();return h})()'
 attach() { for i in $(seq 1 60); do pid=$(adb shell pidof tech.klui.app.ref | tr -d '\r'); [ -n "$pid" ] && adb shell cat /proc/net/unix | grep -q "webview_devtools_remote_$pid" && break; sleep 0.5; done
   adb forward --remove tcp:9334 >/dev/null 2>&1; adb forward tcp:9334 localabstract:webview_devtools_remote_$pid >/dev/null
