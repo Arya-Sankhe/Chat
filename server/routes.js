@@ -1,3 +1,5 @@
+import { handleRedeemInvite } from "./routes/invite.js";
+import { handleStripeCheckout, handleStripeCoupon, handleStripePortal, handleStripeWebhook } from "./routes/stripe.js";
 import { HttpError, sendProblem } from "./http/responses.js";
 import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
@@ -170,6 +172,31 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (url.pathname === "/api/invite/redeem" && req.method === "POST") {
+      await handleRedeemInvite(req, res, config);
+      return;
+    }
+    if (config.access.mode === "testing" && req.method === "POST"
+      && /^\/api\/payments\/(stripe|mamo|ziina)(\/coupon)?$/.test(url.pathname)) {
+      throw new HttpError(403, "INVITE ONLY. Redeem an invite code for free Pro access.");
+    }
+
+    if (url.pathname === "/api/payments/stripe/webhook") {
+      await handleStripeWebhook(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe" && req.method === "POST") {
+      await handleStripeCheckout(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe/coupon" && req.method === "POST") {
+      await handleStripeCoupon(req, res, config);
+      return;
+    }
+    if (url.pathname === "/api/payments/stripe/portal" && req.method === "POST") {
+      await handleStripePortal(req, res, config);
+      return;
+    }
     if (url.pathname === "/api/payments/mamo/webhook") {
       await handleMamoWebhook(req, res, config);
       return;

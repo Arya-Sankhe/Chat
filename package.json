@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "ipaddr.js": "2.2.0",
+    "stripe": "23.0.0",
     "yaml": "2.9.0"
   },
   "overrides": {

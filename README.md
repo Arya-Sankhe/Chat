@@ -4,9 +4,9 @@ Klui Chat is a Dockerized managed B2C SaaS chat app using OpenRouter. Users sign
 
 ## What Is Included
 
-- Testing access mode for local/MVP testing, plus subscription access mode for paid users.
+- Testing access mode for local/MVP testing, plus subscription access mode with paid plans and a basic [free tier](docs/FREE_TIER.md).
 - Supabase Auth with Google sign-in. The client uses Google Identity Services plus Supabase `signInWithIdToken`; enable it with `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID` after configuring the Google provider in Supabase.
-- Supabase Postgres persistence for profiles, Lite/Pro/Max plans, manual Ziina payment requests, subscriptions, conversations, messages, usage, and attachments.
+- Supabase Postgres persistence for profiles, Plus/Pro plans, manual Ziina payment requests, subscriptions, conversations, messages, usage, and attachments.
 - Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only OpenRouter API key.
 - Streaming chat responses with usage metering and plan limits.
@@ -36,7 +36,7 @@ For future packages:
 3. Configure Google Auth before setting `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID`.
 4. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
 5. Copy `.env.example` to `.env` and fill in all required values.
-6. Keep `ACCESS_MODE=testing` for local/MVP testing. Use `ACCESS_MODE=subscription` in production so only approved paid subscriptions can chat.
+6. Use `ACCESS_MODE=testing` for invite-only testing: accounts start on Free, `TRYKLUI` grants free Pro without checkout, and active Mamo customers keep Plus. `ACCESS_MODE=subscription` enables paid checkout; invite access applies only in testing mode. The production Compose override currently selects testing mode.
 
 ## Environment
 
@@ -54,7 +54,6 @@ Required:
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET`
 - `ACCESS_MODE`
-- `TEST_PLAN_ID`
 
 Optional plan limit overrides are available in `.env.example`.
 
@@ -65,7 +64,7 @@ Model provider and usage billing:
 
 Payments:
 
-- Plans are Lite (`10 AED`), Pro (`30 AED`), and Max (`50 AED`).
+- Plans are Plus (`15 AED`) and Pro (`30 AED`). Plus retains the internal `lite` ID and `PLAN_LITE_*` settings; retired Max remains available only to historical entitlements.
 - `PLAN_LITE_ZIINA_PAYMENT_URL`, `PLAN_PRO_ZIINA_PAYMENT_URL`, and `PLAN_MAX_ZIINA_PAYMENT_URL` point users to your Ziina payment links. Optional `PLAN_*_ZIINA_QR_IMAGE_URL` values show QR codes on the plan cards.
 - Ziina personal QR/link payments are activated by admin verification: the user creates a pending payment request with a Klui reference code, pays through Ziina, then an admin approves the request in the lightweight admin dashboard. Approval creates the active subscription.
 
@@ -80,7 +79,7 @@ Optional for document tools:
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` / `WEBSEARCH_MAX_TOOL_CALLS_PER_TURN` (default 75) are only a runaway stop for a model stuck calling tools, not a budget; the model reads and searches as much as the task needs.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE` and `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE` control hard document upload safety limits. Document tool usage is billed through the unified API-credit bar, not separate counters.
 
-The document worker uses open-source local libraries. Every upload is one ingest job that stores the document completely: PDFs directly, DOCX/PPTX through a temporary local PDF (never uploaded or stored), with each page's text layer (`pdftotext`) and a rendered page image (Poppler). Pages whose meaning is in the picture (scans, figures, charts, ruled tables, maths) are flagged visual, and chats show their images next to the text. XLSX/CSV/TSV keep every row with its row number for exact reads and `query_spreadsheet`. Scanned pages (no text layer) are also read once by Tesseract OCR at ingest, from a separate render at `DOCUMENT_OCR_DPI` (144), or the scan's own resolution if lower, so they can be searched; the page image stays the source for exact characters. A model call with no answer `MODEL_ANSWER_STALL_MS` (4 minutes) after its request, including the wait for response headers, or silent for `MODEL_ANSWER_IDLE_MS` (2 minutes) mid-answer, is stopped and retried once with the same request. PowerPoint hidden slides are converted too and labelled hidden. Editable prose keeps Markdown as its source, uses one DOCX renderer, and converts that temporary DOCX with LibreOffice when PDF is requested. Generated PPTX artifacts use `PptxGenJS`; generated XLSX workbooks use one Python `XlsxWriter` path for tables, formulas, charts, and conditional formatting. Other formats use `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, and CSV streaming.
+The document worker uses open-source local libraries. Every upload is one ingest job that stores the document completely: PDFs directly, DOCX/PPTX through a temporary local PDF (never uploaded or stored), with each page's text layer (`pdftotext`) and a rendered page image (Poppler). Pages whose meaning is in the picture (scans, figures, charts, ruled tables, maths) are flagged visual, and chats show their images next to the text. XLSX/CSV/TSV keep every row with its row number for exact reads and `query_spreadsheet`. Scanned pages (no text layer) are also read once by Tesseract OCR at ingest, from a separate render at `DOCUMENT_OCR_DPI` (144), or the scan's own resolution if lower, so they can be searched; the page image stays the source for exact characters. A model call that streams nothing for `MODEL_ANSWER_STALL_MS` (4 minutes) after its request, including the wait for response headers, or goes silent for `MODEL_ANSWER_IDLE_MS` (2 minutes) while reasoning or answering, is stopped and retried once with the same request. Streamed reasoning counts as progress, so a long think is never cut off. PowerPoint hidden slides are converted too and labelled hidden. Editable prose keeps Markdown as its source, uses one DOCX renderer, and converts that temporary DOCX with LibreOffice when PDF is requested. Generated PPTX artifacts use `PptxGenJS`; generated XLSX workbooks use one Python `XlsxWriter` path for tables, formulas, charts, and conditional formatting. Other formats use `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, and CSV streaming.
 
 Optional for web search:
 

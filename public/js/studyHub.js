@@ -1486,7 +1486,7 @@ export function createStudyHubController({
       </section>`;
     };
     return `<div class="dojo-studio-content dojo-collection">
-      <div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>`).join("")}</div>
+      <div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>${type === "whiteboard" ? '<span class="dojo-tool-status">Coming soon</span>' : ""}`).join("")}</div>
       ${generationCardsMarkup()}
       <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
       <div class="dojo-artifacts">${ordered.map(groupMarkup).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, tutor sessions, and whiteboards will find a home here.")}</div>

@@ -2,7 +2,9 @@ import { configuredServices } from "../config.js";
 import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
+import { freeUsageSummary, isFreePlan } from "../saas/freePlan.js";
 import { cancelMamoRenewal, mamoFetch, stopAllMamoSchedules } from "../saas/mamo.js";
+import { deleteStripeBilling } from "../saas/stripe.js";
 import { publicPlan } from "../saas/plans.js";
 import { storageUsage } from "../saas/storageQuota.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
@@ -15,7 +17,7 @@ function accountName(user) {
   return String(meta.full_name || meta.name || meta.display_name || "").trim();
 }
 
-function publicMe({ user, profile, subscription, plan, usage, config, settings }) {
+function publicMe({ user, profile, subscription, plan, usage, config, settings, billingIssue, billingPortalAvailable }) {
   return {
     user: {
       id: user.id,
@@ -33,11 +35,15 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings }
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       provider: subscription.provider || null
     } : null,
-    plan: plan ? publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees) : null,
+    plan: plan ? publicPlan(plan, config.paymentProvider === "stripe" || Boolean(config.mamo?.apiKey), config.paymentProvider === "stripe" ? config.stripe?.fees : config.mamo?.fees, config.paymentProvider || "mamo") : null,
     usage: usage || {},
+    ...(billingIssue ? { billingIssue } : {}),
+    ...(billingPortalAvailable ? { billingPortalAvailable: true } : {}),
+    // `active` means a paid (or testing) plan; free accounts chat with `free` instead.
     access: {
       mode: config.access.mode,
-      active: Boolean(plan)
+      active: Boolean(plan) && !isFreePlan(plan),
+      free: isFreePlan(plan)
     },
     settings: settings || {},
     services: configuredServices(config)
@@ -77,12 +83,13 @@ export function handleConfig(req, res, config) {
 }
 
 export function handlePlans(req, res, config) {
-  sendJson(res, 200, { plans: config.plans.map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees)) });
+  sendJson(res, 200, { plans: config.plans.filter((plan) => plan.active !== false).map((plan) => publicPlan(plan, config.paymentProvider === "stripe" || Boolean(config.mamo?.apiKey), config.paymentProvider === "stripe" ? config.stripe?.fees : config.mamo?.fees, config.paymentProvider || "mamo")) });
 }
 
 export async function handleMe(req, res, config) {
   const context = await authContext(req, config);
   if (req.method === "DELETE") {
+    if (config.stripe?.secretKey) await deleteStripeBilling({ db: context.db, userId: context.user.id, config });
     // A checkout opened before deletion must not remain payable after its owner is gone.
     const links = await context.db.listMamoPaymentLinks(context.user.id, { signal: req.signal });
     for (const link of links) {
@@ -127,8 +134,22 @@ export async function handleMe(req, res, config) {
     access: config.access,
     signal: req.signal
   });
-  const window = entitlement.plan ? apiUsageWindow(entitlement.subscription, entitlement.plan) : null;
-  const [apiUsageRow, usedBytes, systemPrompt] = await Promise.all([
+  const billingReason = entitlement.subscription?.provider === "stripe" ? entitlement.subscription.raw?.blocked_reason : null;
+  const billingPortalAvailable = config.stripe?.secretKey && (await context.db.request("stripe_customers", {
+    query: { user_id: `eq.${context.user.id}`, select: "user_id", limit: 1 }, signal: req.signal
+  })).length > 0;
+  const billingIssue = billingReason === "trial_card_conflict"
+    ? "This card has already been used for a free trial. Choose a paid plan to continue."
+    : billingReason === "coupon_identity_conflict"
+      ? "This introductory offer has already been used. Any rejected payment will be refunded."
+      : billingReason ? "This subscription has ended. Contact support if you need help with your payment." : null;
+  // Without a subscription, a signed-in account is on the free plan (when it's offered).
+  if (!entitlement.plan && config.freePlan) {
+    Object.assign(entitlement, { subscription: null, plan: config.freePlan });
+  }
+  const free = isFreePlan(entitlement.plan);
+  const window = entitlement.plan && !free ? apiUsageWindow(entitlement.subscription, entitlement.plan) : null;
+  const [apiUsageRow, usedBytes, systemPrompt, freeUsage] = await Promise.all([
     window ? context.db.getApiWeeklyUsage(context.user.id, {
       periodStart: window.periodStart,
       weekIndex: window.weekIndex,
@@ -139,7 +160,8 @@ export async function handleMe(req, res, config) {
       : null,
     context.profile?.role === "admin"
       ? loadGlobalSystemPrompt(context.db, { signal: req.signal })
-      : null
+      : null,
+    free ? freeUsageSummary({ db: context.db, userId: context.user.id, plan: entitlement.plan, signal: req.signal }) : null
   ]);
   const used = Number(apiUsageRow?.api_credit_used || 0);
   const reserved = Number(apiUsageRow?.api_credit_reserved || 0);
@@ -161,7 +183,8 @@ export async function handleMe(req, res, config) {
     : null;
   const usage = {
     ...(apiUsage ? { api: apiUsage } : {}),
-    ...(storageUsageRow ? { storage: storageUsageRow } : {})
+    ...(storageUsageRow ? { storage: storageUsageRow } : {}),
+    ...(freeUsage ? { free: freeUsage } : {})
   };
   sendJson(res, 200, publicMe({
     ...context,
@@ -169,7 +192,9 @@ export async function handleMe(req, res, config) {
     plan: entitlement.plan,
     usage,
     config,
-    settings: systemPrompt === null ? {} : { systemPrompt }
+    settings: systemPrompt === null ? {} : { systemPrompt },
+    billingIssue,
+    billingPortalAvailable
   }));
 }
 

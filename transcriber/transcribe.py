@@ -57,14 +57,19 @@ def prepare_audio(source, pcm_path, compact_path, duration, threads, limit_secon
     """Decode once, write two outputs: 16 kHz mono PCM for the model and a small AAC
     copy for playback. Progress comes from ffmpeg's -progress stream. Both outputs stop
     just past the length limit, so a file whose header under-reports its length (or has
-    none, like recorded WebM) can't make us decode hours of audio."""
+    none, like recorded WebM) can't make us decode hours of audio.
+
+    Both outputs are level-normalized first. A phone at the back of a room (or one whose
+    mic the OS turned down) can record speech 30-40 dB too quiet: the player is then
+    near-silent and the speech detector skips whole passages. dynaudnorm lifts quiet
+    stretches and leaves normal-level audio alone, at almost no extra decode cost."""
     cap = ["-t", str(limit_seconds + 1)]
     command = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-progress", "pipe:1", "-nostats",
-        "-threads", str(threads),
-        "-i", str(source), "-map", "0:a:0", "-vn", *cap,
-        "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-c:a", "pcm_s16le", str(pcm_path),
-        "-map", "0:a:0", "-vn", *cap, "-ac", "1", "-ar", "22050", "-c:a", "aac", "-b:a", "48k",
+        "-threads", str(threads), "-i", str(source),
+        "-filter_complex", "[0:a:0]aformat=channel_layouts=mono,dynaudnorm=f=250:g=15:p=0.9:m=40,asplit=2[model][play]",
+        "-map", "[model]", *cap, "-ar", str(SAMPLE_RATE), "-f", "s16le", "-c:a", "pcm_s16le", str(pcm_path),
+        "-map", "[play]", *cap, "-ar", "22050", "-c:a", "aac", "-b:a", "48k",
         "-movflags", "+faststart", str(compact_path),
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

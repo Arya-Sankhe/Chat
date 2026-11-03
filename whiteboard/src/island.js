@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import {
   CaptureUpdateAction,
   Excalidraw,
+  Footer,
   MainMenu,
   newElementWith,
   convertToExcalidrawElements,
@@ -24,6 +25,8 @@ import "./whiteboard.css";
 import { Find } from "./find.js";
 import { ImagePlacementPreview } from "./image-placement.js";
 import { clearOf, deletedElsewhere, replayGuard, revealView } from "./make-room.js";
+import { continueList, isList, toggleBullets, typedBullet } from "./text-lists.js";
+import { setWheelZoom, wheelZoomOn } from "./wheel-zoom.js";
 import { darkPixels } from "../../public/js/whiteboard/colors.js";
 
 // Element types a board may hold; frames, embeds and iframes are switched off.
@@ -42,6 +45,22 @@ async function handwriting() {
   const registered = () => [...document.fonts].some((face) => face.family.replace(/["']/g, "") === "Excalifont");
   for (let tries = 0; tries < 30 && !registered(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 100));
   await document.fonts.load("20px Excalifont", "Aa").catch(() => {});
+}
+
+/** A footer switch for mouse users: the wheel zooms the board instead of scrolling it. */
+function WheelZoomToggle() {
+  const [on, setOn] = useState(wheelZoomOn);
+  return createElement("button", {
+    type: "button",
+    className: "wb-wheel-zoom",
+    "aria-pressed": on,
+    title: on ? "The mouse wheel zooms. Click to make it scroll again." : "Zoom with the mouse wheel, without holding Ctrl",
+    onClick: () => { setWheelZoom(!on); setOn(!on); }
+  },
+  createElement("svg", { viewBox: "0 0 24 24", width: 18, height: 18, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true },
+    createElement("circle", { cx: 10.5, cy: 10.5, r: 6.5 }),
+    createElement("path", { d: "M15.5 15.5 21 21M10.5 7.5v6M7.5 10.5h6" })),
+  createElement("span", null, "Wheel zooms"));
 }
 
 function Board({ host, initial, theme, allowImages, find, onApi, onChange, onPointerUp, onPaste }) {
@@ -98,7 +117,8 @@ function Board({ host, initial, theme, allowImages, find, onApi, onChange, onPoi
       createElement(MainMenu.DefaultItems.ClearCanvas),
       createElement(MainMenu.Separator),
       createElement(MainMenu.DefaultItems.ChangeCanvasBackground)
-    )
+    ),
+    createElement(Footer, null, createElement(WheelZoomToggle))
   );
 }
 
@@ -208,6 +228,145 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", allo
   const settle = () => playing?.finish();
   host.addEventListener("pointerdown", settle, { capture: true });
   host.addEventListener("keydown", settle, { capture: true });
+
+  // Lists in text boxes: "- " makes a bullet, Enter continues it, Ctrl/Cmd+Shift+8 toggles bullets.
+  const textBox = (event) => (event.target instanceof HTMLTextAreaElement && event.target.classList.contains("excalidraw-wysiwyg") ? event.target : null);
+  const lineStartOf = (value, at) => value.lastIndexOf("\n", at - 1) + 1;
+  const lineEndOf = (value, at) => {
+    const end = value.indexOf("\n", at);
+    return end < 0 ? value.length : end;
+  };
+  function typeInto(box, start, end, text) {
+    box.focus();
+    box.setSelectionRange(start, end);
+    // execCommand keeps the box's own undo and tells Excalidraw the text changed.
+    if (document.execCommand?.(text ? "insertText" : "delete", false, text)) return;
+    box.setRangeText(text, start, end, "end");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function onListKey(event) {
+    const box = textBox(event);
+    if (!box || event.isComposing) return;
+    const { selectionStart: start, selectionEnd: end, value } = box;
+    const from = lineStartOf(value, start);
+    if (event.key === "Enter" && start === end && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const step = continueList(value.slice(from, start), value.slice(start, lineEndOf(value, start)));
+      if (!step) return;
+      event.preventDefault();
+      event.stopPropagation();
+      typeInto(box, start - step.remove, start, step.insert);
+    }
+  }
+  /** The lines the text box's selection touches: { from, to } offsets in its value. */
+  function selectedLines(box) {
+    return { from: lineStartOf(box.value, box.selectionStart), to: lineEndOf(box.value, box.selectionEnd) };
+  }
+  /** Bullets on (or off) the lines being edited, or every line of the selected text. */
+  function toggleList() {
+    const box = host.querySelector("textarea.excalidraw-wysiwyg");
+    if (box) {
+      const { from, to } = selectedLines(box);
+      const next = toggleBullets(box.value.slice(from, to).split("\n")).join("\n");
+      typeInto(box, from, to, next);
+      // Like a word processor, the lines stay selected for another press.
+      if (from !== to) box.setSelectionRange(from, from + next.length);
+      return true;
+    }
+    const texts = selectedTexts();
+    if (!texts.length) return false;
+    const on = !texts.every((element) => isList((element.originalText || element.text).split("\n")));
+    const changed = new Map(texts.map((element) => {
+      const lines = (element.originalText || element.text).split("\n");
+      const next = (on === isList(lines) ? lines : toggleBullets(lines)).join("\n");
+      return [element.id, { ...element, text: next, originalText: next }];
+    }));
+    // Re-measured (and re-wrapped to its width) the way Excalidraw does when text is edited.
+    const all = api.getSceneElementsIncludingDeleted();
+    const containers = all.filter((element) => texts.some((text) => text.containerId === element.id));
+    const measured = restoreElements([...containers, ...changed.values()], null, { repairBindings: true, refreshDimensions: true });
+    const byId = new Map(measured.map((element) => [element.id, element]));
+    api.updateScene({
+      elements: all.map((element) => {
+        if (!changed.has(element.id)) return element;
+        const { text, originalText, x, y, width, height } = byId.get(element.id);
+        return newElementWith(element, { text, originalText, x, y, width, height });
+      }),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY
+    });
+    return true;
+  }
+  /** Selected text: text elements and the labels of selected shapes. */
+  function selectedTexts() {
+    const state = api.getAppState();
+    if (state.editingTextElement || state.activeTool?.type !== "selection") return [];
+    return selectedElements(state).filter((element) => element.type === "text" && !element.locked);
+  }
+  function onListShortcut(event) {
+    if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.code !== "Digit8" || event.isComposing) return;
+    if (!textBox(event) && !selectedTexts().length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleList();
+  }
+  function onListInput(event) {
+    const box = textBox(event);
+    if (!box || event.inputType !== "insertText" || event.data !== " ") return;
+    const at = box.selectionStart;
+    const from = lineStartOf(box.value, at);
+    const bullet = typedBullet(box.value.slice(from, at));
+    if (bullet) typeInto(box, from, at, bullet);
+  }
+  host.addEventListener("keydown", onListKey, { capture: true });
+  host.addEventListener("keydown", onListShortcut, { capture: true });
+  host.addEventListener("input", onListInput);
+
+  // The bullet button floats above the text being edited or selected.
+  const listButton = document.createElement("button");
+  listButton.type = "button";
+  listButton.className = "wb-list-btn";
+  listButton.hidden = true;
+  listButton.title = "Bullet list (Ctrl+Shift+8)";
+  listButton.setAttribute("aria-label", "Bullet list");
+  listButton.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/></svg>';
+  // Pressing it must not take focus from the text box (that would end the edit).
+  const keepFocus = (event) => event.preventDefault();
+  listButton.addEventListener("pointerdown", keepFocus);
+  listButton.addEventListener("mousedown", keepFocus);
+  listButton.addEventListener("click", () => { toggleList(); placeListButton(); });
+  function placeListButton() {
+    if (!api) return;
+    // Added once the editor has rendered (React clears the host on its first render).
+    if (!listButton.isConnected) host.append(listButton);
+    const origin = host.getBoundingClientRect();
+    const box = host.querySelector("textarea.excalidraw-wysiwyg");
+    let at = null;
+    let pressed = false;
+    if (box) {
+      const rect = box.getBoundingClientRect();
+      const { from, to } = selectedLines(box);
+      at = { x: rect.left, y: rect.top };
+      pressed = isList(box.value.slice(from, to).split("\n"));
+    } else {
+      const texts = selectedTexts();
+      const bounds = boundsOf(texts);
+      if (bounds) {
+        at = controller.toClient(bounds.x, bounds.y);
+        pressed = texts.every((element) => isList((element.originalText || element.text).split("\n")));
+      }
+    }
+    listButton.hidden = !at;
+    if (!at) return;
+    listButton.setAttribute("aria-pressed", String(pressed));
+    Object.assign(listButton.style, { left: `${Math.max(4, at.x - origin.left - 4)}px`, top: `${Math.max(4, at.y - origin.top - 46)}px` });
+  }
+  let listFrame = 0;
+  const scheduleListButton = () => {
+    if (!listFrame) listFrame = requestAnimationFrame(() => { listFrame = 0; placeListButton(); });
+  };
+  // Typing and moving the caret change which lines are selected.
+  host.addEventListener("keyup", scheduleListButton);
+  host.addEventListener("pointerup", scheduleListButton);
+  document.addEventListener("selectionchange", scheduleListButton);
 
   /**
    * Applies Klui's change as one undo step: `added` new elements (those in `behind` go under
@@ -724,6 +883,11 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", allo
       playing?.finish();
       host.removeEventListener("pointerdown", settle, { capture: true });
       host.removeEventListener("keydown", settle, { capture: true });
+      host.removeEventListener("keydown", onListKey, { capture: true });
+      host.removeEventListener("input", onListInput);
+      host.removeEventListener("keydown", onListShortcut, { capture: true });
+      document.removeEventListener("selectionchange", scheduleListButton);
+      cancelAnimationFrame(listFrame);
       root.unmount();
     }
   };
@@ -755,6 +919,7 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", allo
           setTimeout(() => controller.dropDisallowed(), 0);
           return;
         }
+        scheduleListButton();
         onChange?.(elements, appState);
       },
       onPointerUp: (activeTool) => {

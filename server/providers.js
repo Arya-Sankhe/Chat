@@ -13,7 +13,7 @@ export const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 export const OPENROUTER_PRO_FALLBACK_MODEL = "minimax/minimax-m3";
 export const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 export const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
-export const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
+export const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
 export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 // The second model in text Compare and a Council panelist.
@@ -29,7 +29,7 @@ export const OPENROUTER_MACOS_BACKUP_MODEL = "openai/gpt-5.6-luna";
 export const ALLOWED_CHAT_MODELS = Object.freeze([
   OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL, OPENROUTER_PRO_FALLBACK_MODEL, OPENROUTER_VISION_L2,
-  OPENROUTER_VISION_L3, OPENROUTER_MIMO_V25_MODEL, OPENROUTER_NITRO_MODEL,
+  OPENROUTER_VISION_L3, OPENROUTER_GLM_FLASH_MODEL, OPENROUTER_NITRO_MODEL,
   OPENROUTER_TITLE_MODEL, OPENROUTER_SOLAR_PRO, OPENROUTER_VOICE_MODEL,
   OPENROUTER_MACOS_MODEL, OPENROUTER_MACOS_BACKUP_MODEL
 ]);
@@ -482,6 +482,13 @@ export function adaptChatRequestForProvider(body, providerId) {
       providerPrefs.order = [...pinned, ...(providerPrefs.order || []).filter((tag) => !keys.has(String(tag).toLowerCase()))];
       providerPrefs.allow_fallbacks = true;
     }
+  }
+
+  if (modelId === OPENROUTER_GLM_FLASH_MODEL) {
+    // Apply the ceiling to every fallback too; never trade the budget for availability.
+    providerPrefs.max_price = { prompt: 0.15, completion: 0.50 };
+    providerPrefs.sort = "throughput";
+    providerPrefs.allow_fallbacks = true;
   }
 
   if (Object.keys(providerPrefs).length) {

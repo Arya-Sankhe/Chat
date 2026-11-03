@@ -11,6 +11,7 @@ import {
   closeOtherCheckouts
 } from "../saas/mamo.js";
 import { authContext, bearerContext, requireAdminContext } from "./context.js";
+import { cancelStripeRenewal } from "../saas/stripe.js";
 import { clearAdminSummaryCache } from "./admin.js";
 
 function addMonths(date, months) {
@@ -48,10 +49,10 @@ function publicPaymentRequest(row) {
 
 export async function handleCreateZiinaPaymentRequest(req, res, config) {
   const context = await authContext(req, config);
-  if (config.mamo?.apiKey) throw new HttpError(410, "Ziina checkout has been retired. Choose a plan with Mamo.");
+  if (config.paymentProvider === "stripe" || config.mamo?.apiKey) throw new HttpError(410, "Ziina checkout has been retired. Choose a plan with Mamo.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
-  const plan = config.plans.find((candidate) => candidate.id === planId);
+  const plan = config.plans.find((candidate) => candidate.id === planId && candidate.active !== false);
   if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
 
   let row = null;
@@ -175,10 +176,10 @@ function publicMamoSubscription(row) {
 }
 
 // First-month coupons are for a user's first Klui subscription, once per account.
-async function eligibleCoupon(context, config, code, signal) {
+export async function eligibleCoupon(context, config, code, signal) {
   const normalized = String(code || "").trim().toUpperCase();
   if (!/^[A-Z0-9_-]{3,32}$/.test(normalized)) throw new HttpError(400, "That coupon code isn't valid.");
-  let coupon = config.mamo?.coupons?.get(normalized);
+  let coupon = (config.paymentProvider === "stripe" ? config.stripe?.coupons : config.mamo?.coupons)?.get(normalized);
   if (!coupon) {
     const row = await context.db.getAffiliateCoupon(normalized, { signal });
     if (row?.enabled && row.percent_off != null && row.affiliate_creators.user_id !== context.user.id) {
@@ -191,8 +192,11 @@ async function eligibleCoupon(context, config, code, signal) {
     context.db.getLatestSubscription(context.user.id, { signal }),
     context.db.hasUsedMamoCoupon(accountHashes, { signal })
   ]);
+  const stripeUsed = config.paymentProvider === "stripe" && (await context.db.request("stripe_coupon_ledger", {
+    query: { kind: "eq.account", key_hash: `in.(${accountHashes.join(",")})`, or: `(redeemed.eq.true,expires_at.gt.${new Date().toISOString()})`, limit: 1 }, signal
+  })).length > 0;
   const retiredBeta = current?.provider === "ziina" && current.raw?.beta_retired === true;
-  if ((current && !retiredBeta) || used) {
+  if ((current && !retiredBeta) || used || stripeUsed) {
     throw new HttpError(409, "This coupon is only for your first Klui subscription.");
   }
   return { ...coupon, accountHashes };
@@ -204,6 +208,7 @@ function publicCouponOffer(plan, coupon, config, firstRenewalAt = null) {
   return {
     code: coupon.code,
     percentOff: coupon.percentOff,
+    ...(coupon.trialDays ? { trialDays: coupon.trialDays } : {}),
     planId: plan.id,
     initialAmountAed: couponPrice(plan, coupon),
     renewalAmountAed: plan.amountAed,
@@ -217,16 +222,17 @@ export async function handleCheckMamoCoupon(req, res, config) {
   const context = await authContext(req, config);
   const body = await parseJsonBody(req, 16 * 1024);
   const coupon = await eligibleCoupon(context, config, body.coupon, req.signal);
-  sendJson(res, 200, { coupon: { code: coupon.code, percentOff: coupon.percentOff },
-    offers: config.plans.filter((plan) => plan.amountAed > 0).map((plan) => publicCouponOffer(plan, coupon, config)) });
+  sendJson(res, 200, { coupon: { code: coupon.code, percentOff: coupon.percentOff, ...(coupon.trialDays ? { trialDays: coupon.trialDays } : {}) },
+    offers: config.plans.filter((plan) => plan.amountAed > 0 && plan.active !== false).map((plan) => publicCouponOffer(plan, coupon, config)) });
 }
 
 export async function handleCreateMamoPayment(req, res, config) {
+  if (config.paymentProvider === "stripe") throw new HttpError(410, "Use Stripe checkout for this environment.");
   const context = await authContext(req, config);
   if (!config.mamo?.apiKey || !config.mamo?.webhookAuth) throw new HttpError(503, "Mamo is not configured.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
-  const plan = config.plans.find((candidate) => candidate.id === planId);
+  const plan = config.plans.find((candidate) => candidate.id === planId && candidate.active !== false);
   if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
   const coupon = String(body.coupon || "").trim() ? await eligibleCoupon(context, config, body.coupon, req.signal) : null;
   const current = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
@@ -291,6 +297,11 @@ export async function handleCancelSubscription(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await authContext(req, config);
   const subscription = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
+  if (subscription?.provider === "stripe") {
+    const updated = await cancelStripeRenewal({ db: context.db, userId: context.user.id, config });
+    sendJson(res, 200, { subscription: publicMamoSubscription(updated) });
+    return;
+  }
   if (subscription?.provider !== "mamo") {
     throw new HttpError(400, "This plan cannot be cancelled here.");
   }

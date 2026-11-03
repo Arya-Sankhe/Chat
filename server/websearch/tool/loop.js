@@ -614,8 +614,7 @@ export async function runChatWithToolLoop({
         throw error;
       }
     }
-    /* A model can keep reasoning without ever starting its answer (seen on hard scans:
-       ten minutes, no reply), and a provider can hang before its headers or mid-stream.
+    /* A provider can hang before its headers or go silent mid-reasoning or mid-answer.
        The watchdog stops such a call; it is retried once with the same request, and a
        second stall ends the turn with a clear error. */
     let accumulated;

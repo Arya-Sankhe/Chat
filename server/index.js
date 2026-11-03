@@ -5,10 +5,14 @@ import { handleDesktopOAuthFacade } from "./routes/desktopOAuth.js";
 import { serveStatic } from "./static.js";
 import { startUsageReconciler } from "./saas/usageReconciler.js";
 import { startMamoReconciler } from "./saas/mamoReconciler.js";
+import { startBillingEmailDelivery } from "./saas/subscriptionEmail.js";
+import { startStripeReconciler } from "./saas/stripeReconciler.js";
 
 const config = validateRuntimeConfig(loadConfig());
 startUsageReconciler(config);
 startMamoReconciler(config);
+startBillingEmailDelivery(config);
+startStripeReconciler(config);
 
 const server = http.createServer(async (req, res) => {
   try {

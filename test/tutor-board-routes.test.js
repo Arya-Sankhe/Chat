@@ -27,7 +27,7 @@ function fakeDb({ board = { steps: [{ blocks: [{ key: "rule", type: "note", text
       return made;
     },
     async getStudyWhiteboard(userId, id) { const row = boards.get(id); return row && row.user_id === userId ? structuredClone(row) : null; },
-    async getLatestSubscription() { return null; },
+    async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
     async checkApiBudget() { return { allowed: true }; }
   };
 }

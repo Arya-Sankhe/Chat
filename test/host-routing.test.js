@@ -182,6 +182,8 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
 
   const marketing = await get(server, { host: "home.klui.ai", path: "/" });
   assert.equal(marketing.status, 200);
+  assert.match(marketing.body, /Starts at 15 AED a month\./);
+  assert.doesNotMatch(marketing.body, /Starts at 10 AED/);
   assert.match(marketing.headers["content-type"], /text\/html/);
   assert.match(marketing.body, /<h1 id="hero-title">Locked in so you can relax<\/h1>/);
   assert.match(marketing.body, />Join Klui <span aria-hidden="true">→<\/span><\/a>/);
@@ -243,15 +245,17 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
   const pricing = await get(server, { host: "home.klui.ai", path: "/pricing/" });
   assert.equal(pricing.status, 200);
   assert.match(pricing.body, /<title>Klui pricing<\/title>/);
-  assert.match(pricing.body, /10<\/strong> AED/);
+  assert.match(pricing.body, /15<\/strong> AED/);
   assert.match(pricing.body, /30<\/strong> AED/);
-  assert.match(pricing.body, /50<\/strong> AED/);
-  assert.match(pricing.body, /No features held back\. Start with Lite, then move up when your work grows\./);
+  assert.doesNotMatch(pricing.body, /Get Max|Get Lite/);
+  assert.match(pricing.body, /4× usage/);
+  assert.doesNotMatch(pricing.body, /3× usage/);
+  assert.doesNotMatch(pricing.body, /No features held back|Start with Plus, then move up/);
   assert.match(pricing.body, /rel="canonical" href="https:\/\/home\.klui\.ai\/pricing\/"/);
 
   const pricingPreview = await get(server, { host: "localhost", path: "/home/pricing/" });
   assert.equal(pricingPreview.status, 200);
-  assert.match(pricingPreview.body, /Three plans/);
+  assert.match(pricingPreview.body, /Two Plans/);
 
   const hero = await get(server, { host: "home.klui.ai", path: "/assets/hero-refined-v4.webp", accept: "image/webp" });
   assert.equal(hero.status, 200);

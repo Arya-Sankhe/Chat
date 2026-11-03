@@ -62,8 +62,11 @@ function projectUsage(attachments, maxBytes) {
   };
 }
 
+// The free plan can open Dojo and projects and delete its own, but not create or change them.
+const freeProjectMethods = (req) => ({ allowFree: req.method === "GET" || req.method === "DELETE" });
+
 export async function handleProjects(req, res, config) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, freeProjectMethods(req));
   if (req.method === "GET") {
     const projects = await context.db.listProjects(context.user.id, { signal: req.signal });
     sendJson(res, 200, { projects });
@@ -83,7 +86,7 @@ export async function handleProjects(req, res, config) {
 }
 
 export async function handleProjectById(req, res, config, projectId) {
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, freeProjectMethods(req));
   const project = await context.db.getProject(context.user.id, projectId, { signal: req.signal });
   if (!project) throw new HttpError(404, "Project not found.");
 

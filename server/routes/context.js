@@ -33,13 +33,17 @@ export async function authContext(req, config) {
   return { ...services, user, profile };
 }
 
-export async function requireChatContext(req, config) {
+// Routes the free plan may reach pass `allowFree`; they then check `context.plan.free`
+// for anything beyond Think chat and images.
+export async function requireChatContext(req, config, { allowFree = false } = {}) {
   const context = await authContext(req, config);
   const entitlement = await requireActiveEntitlement({
     db: context.db,
     userId: context.user.id,
     plans: config.plans,
     access: config.access,
+    freePlan: allowFree ? config.freePlan : null,
+    freePlanOffered: Boolean(config.freePlan),
     signal: req.signal
   });
 

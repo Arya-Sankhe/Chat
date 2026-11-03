@@ -65,9 +65,15 @@
 
 .app-update-toast {
   bottom: 76px;
+  left: auto;
+  right: max(20px, env(safe-area-inset-right));
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  line-height: 1.25;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
 }
 
 .app-update-toast.visible {
@@ -79,11 +85,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   color: inherit;
   background: transparent;
   cursor: pointer;

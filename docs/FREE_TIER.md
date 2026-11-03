@@ -1,13 +1,17 @@
-# Possible basic free tier — not implemented
+# Basic free tier
 
-Owner's candidate limits (2026-10-16): approximately 10 text messages per day,
-3 image uploads per day, and no document uploads. This is separate from a
-coupon's one-time free subscription month.
+Verified in production on 21 October 2026: subscription mode offers signed-in
+accounts without a paid subscription Think chat and image uploads. The defaults
+are 15 messages and 5 image uploads per day, resetting at midnight in Dubai.
+Documents, voice, other models, tools, research and project creation require a
+paid plan. This is separate from a coupon's one-time free subscription period.
 
-No free plan, daily counters or free model calls are enabled by this note.
-Users without paid entitlement will need a subscription when paid mode starts.
+The server enforces allowances through `server/saas/freePlan.js` and the atomic
+`klui_consume_free_usage` database function. Set `FREE_PLAN_ENABLED=false` to send
+unsubscribed accounts to the paywall instead. `FREE_DAILY_MESSAGES` and
+`FREE_DAILY_IMAGES` override the defaults.
 
-When this is approved, extend the existing server entitlement and upload checks;
-enforce limits on the server for web, Android and desktop. Decide the daily reset
-timezone, message/attachment counting rules and allowed features at implementation
-time. Keep the current paid plans and introductory-offer history intact.
+The applied migration is
+`supabase/migrations/20261020212205_free_plan_daily_usage.sql`. Its filename now
+matches production's migration history; no database change was made during the
+Git reconciliation.

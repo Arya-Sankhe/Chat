@@ -25,15 +25,17 @@ const authRuntime = {
   onSession: null,
   onExpired: null,
   buildCheck: null,
+  onUpgradeRequired: null,
   buildId: ""
 };
 
-export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, buildId } = {}) {
+export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, onUpgradeRequired, buildId } = {}) {
   authRuntime.getSession = typeof getSession === "function" ? getSession : null;
   authRuntime.refresh = typeof refresh === "function" ? refresh : null;
   authRuntime.onSession = typeof onSession === "function" ? onSession : null;
   authRuntime.onExpired = typeof onExpired === "function" ? onExpired : null;
   authRuntime.buildCheck = typeof buildCheck === "function" ? buildCheck : null;
+  authRuntime.onUpgradeRequired = typeof onUpgradeRequired === "function" ? onUpgradeRequired : null;
   authRuntime.buildId = String(buildId || "");
 }
 
@@ -67,8 +69,19 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
   }
 
   if (!response.ok && [404, 410, 426].includes(response.status)) void authRuntime.buildCheck?.();
+  if ((response.status === 402 || response.status === 429) && authRuntime.onUpgradeRequired) {
+    void notifyUpgradeRequired(response, options.method || "GET");
+  }
 
   return response;
+}
+
+// A paid feature (402 upgrade_required) or a spent free allowance (429 free_limit).
+async function notifyUpgradeRequired(response, method) {
+  const problem = await response.clone().json().catch(() => null);
+  const code = problem?.details?.code;
+  if (code !== "upgrade_required" && code !== "free_limit") return;
+  authRuntime.onUpgradeRequired?.({ message: problem.error || "", code, kind: problem.details.kind || "", method: String(method).toUpperCase() });
 }
 
 // A boot request index.html already started, handed out once so later calls fetch fresh data.
@@ -121,8 +134,8 @@ export async function fetchZiinaPaymentRequests(session) {
   return response.json();
 }
 
-export async function checkMamoCoupon(session, coupon) {
-  const response = await apiFetch("/api/payments/mamo/coupon", {
+export async function checkMamoCoupon(session, coupon, provider = "mamo") {
+  const response = await apiFetch(`/api/payments/${provider === "stripe" ? "stripe" : "mamo"}/coupon`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -132,8 +145,8 @@ export async function checkMamoCoupon(session, coupon) {
   return response.json();
 }
 
-export async function createMamoCheckout(session, planId, coupon = "") {
-  const response = await apiFetch("/api/payments/mamo", {
+export async function createMamoCheckout(session, planId, coupon = "", provider = "mamo") {
+  const response = await apiFetch(`/api/payments/${provider === "stripe" ? "stripe" : "mamo"}`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -150,6 +163,12 @@ export async function cancelMamoSubscription(session) {
     headers: { "content-type": "application/json" },
     body: "{}"
   });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStripePortal(session) {
+  const response = await apiFetch("/api/payments/stripe/portal", { session, method: "POST" });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
@@ -1276,4 +1295,15 @@ export async function streamWhiteboardAsk(session, boardId, body, { signal, onEv
   return readSseStream(response, (event) => {
     if (event && typeof event === "object") onEvent?.(event);
   });
+}
+
+export async function redeemInvite(session, coupon) {
+  const response = await apiFetch("/api/invite/redeem", {
+    method: "POST",
+    session,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coupon })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
 }

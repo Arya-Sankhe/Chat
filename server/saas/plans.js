@@ -3,10 +3,11 @@ import { withProcessingFee } from "./mamo.js";
 const PLAN_DEFAULTS = [
   {
     id: "lite",
-    name: "Lite",
+    // Keep the stored ID so existing subscriptions and usage retain their allowances.
+    name: "Plus",
     description: "Simple access for light everyday use.",
-    priceLabel: "10 AED / month",
-    amountAed: 10,
+    priceLabel: "15 AED / month",
+    amountAed: 15,
     monthlyApiCreditLimit: 1.36,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
@@ -23,7 +24,7 @@ const PLAN_DEFAULTS = [
     description: "Everyday model access for regular users.",
     priceLabel: "30 AED / month",
     amountAed: 30,
-    monthlyApiCreditLimit: 4.08,
+    monthlyApiCreditLimit: 5.44,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
     maxDocumentFileBytes: 150 * 1024 * 1024,
@@ -36,6 +37,7 @@ const PLAN_DEFAULTS = [
   {
     id: "max",
     name: "Max",
+    active: false,
     description: "Higher capacity for heavier workflows.",
     priceLabel: "50 AED / month",
     amountAed: 50,
@@ -64,6 +66,38 @@ function readInt(value, fallback) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+// Signed-in accounts without a subscription. Never sold or listed with the paid plans:
+// Think chat and images only, counted per Dubai day (see freePlan.js).
+const FREE_PLAN_DEFAULT = {
+  id: "free",
+  name: "Free",
+  free: true,
+  description: "Think chat with image uploads.",
+  priceLabel: "Free",
+  amountAed: 0,
+  // A spend backstop for unusually long chats; the daily counts are the real limit.
+  monthlyApiCreditLimit: 1.36,
+  dailyMessageLimit: 15,
+  dailyImageLimit: 5,
+  maxImagesPerMessage: 4,
+  maxDocumentsPerMessage: 0,
+  maxDocumentFileBytes: 0,
+  maxDocumentBytesPerMessage: 0,
+  maxDocumentPages: 0,
+  maxProjectBytes: 0,
+  maxStorageBytes: 750 * 1024 * 1024,
+  sortOrder: 0
+};
+
+export function loadFreePlan(env = process.env) {
+  if (clean(env.FREE_PLAN_ENABLED).toLowerCase() === "false") return null;
+  return {
+    ...FREE_PLAN_DEFAULT,
+    dailyMessageLimit: readInt(env.FREE_DAILY_MESSAGES, FREE_PLAN_DEFAULT.dailyMessageLimit),
+    dailyImageLimit: readInt(env.FREE_DAILY_IMAGES, FREE_PLAN_DEFAULT.dailyImageLimit)
+  };
+}
+
 export function loadPlans(env = process.env) {
   return PLAN_DEFAULTS.map((plan) => ({
     ...plan,
@@ -87,7 +121,7 @@ export function loadPlans(env = process.env) {
 }
 
 // With Mamo, `chargeAed` is the monthly card charge: the plan price plus Mamo's processing fee.
-export function publicPlan(plan, mamoEnabled, fees = null) {
+export function publicPlan(plan, mamoEnabled, fees = null, provider = "mamo") {
   return {
     id: plan.id,
     name: plan.name,
@@ -98,7 +132,7 @@ export function publicPlan(plan, mamoEnabled, fees = null) {
     currency: "AED",
     ziinaPaymentUrl: plan.ziinaPaymentUrl,
     ziinaQrImageUrl: plan.ziinaQrImageUrl,
-    checkout: mamoEnabled ? "mamo" : (plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "ziina" : "none"),
+    checkout: mamoEnabled ? provider : (plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "ziina" : "none"),
     monthlyApiCreditLimit: plan.monthlyApiCreditLimit,
     maxImagesPerMessage: plan.maxImagesPerMessage,
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,
@@ -106,7 +140,8 @@ export function publicPlan(plan, mamoEnabled, fees = null) {
     maxDocumentBytesPerMessage: plan.maxDocumentBytesPerMessage,
     maxDocumentPages: plan.maxDocumentPages,
     maxProjectBytes: plan.maxProjectBytes,
-    maxStorageBytes: plan.maxStorageBytes
+    maxStorageBytes: plan.maxStorageBytes,
+    ...(plan.free ? { free: true, dailyMessageLimit: plan.dailyMessageLimit, dailyImageLimit: plan.dailyImageLimit } : {})
   };
 }
 

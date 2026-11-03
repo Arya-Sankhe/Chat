@@ -51,7 +51,7 @@ function fakeDb() {
     async updateStudyWhiteboardTurn(userId, turnId, patch) { const row = turns.find((turn) => turn.id === turnId); Object.assign(row, patch); return row; },
     async listProjectDocuments() { return [{ id: "doc-1", text_ready_at: "x", source_title: "Lecture 3", attachments: { file_name: "l3.pdf" } }]; },
     async searchDocumentChunks() { return [{ document_file_id: "doc-1", chunk_index: 0, text: "Cardiac output equals heart rate times stroke volume.", metadata: { page: 4 } }]; },
-    async getLatestSubscription() { return null; },
+    async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
     async reserveApiUsage(params) { usage.push(["reserve", params.model]); return { allowed: true }; },
     async markApiUsageSubmitted() { usage.push(["submitted"]); },
     async settleApiUsage(params) { usage.push(["settle", params.costCredits]); return {}; },

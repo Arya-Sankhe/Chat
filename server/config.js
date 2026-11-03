@@ -1,4 +1,4 @@
-import { loadPlans } from "./saas/plans.js";
+import { loadFreePlan, loadPlans } from "./saas/plans.js";
 import { normalizeAllowedOrigins } from "./http/cors.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,13 +49,18 @@ function readBoolean(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
-// MAMO_COUPONS=FIRST50:50,FIRSTFREE:100 — percent off the first month only.
+// MAMO_COUPONS=FIRST50:50,FIRSTFREE:100,TRYKLUI:100:14 — percent off the first month, or a
+// free trial of N days (100% only) before the first full-price charge.
 function parseMamoCoupons(value) {
   const coupons = new Map();
   for (const entry of clean(value).split(",")) {
-    const match = /^([A-Z0-9_-]{3,32}):(\d{1,3})$/i.exec(entry.trim());
+    const match = /^([A-Z0-9_-]{3,32}):(\d{1,3})(?::(\d{1,2}))?$/i.exec(entry.trim());
     const percentOff = Number(match?.[2]);
-    if (match && percentOff >= 1 && percentOff <= 100) coupons.set(match[1].toUpperCase(), { code: match[1].toUpperCase(), percentOff });
+    const trialDays = match?.[3] ? Number(match[3]) : null;
+    if (!match || percentOff < 1 || percentOff > 100) continue;
+    if (trialDays != null && (percentOff !== 100 || trialDays < 1 || trialDays > 28)) continue;
+    const code = match[1].toUpperCase();
+    coupons.set(code, { code, percentOff, ...(trialDays ? { trialDays } : {}) });
   }
   return coupons;
 }
@@ -187,9 +192,30 @@ export function loadConfig(env = process.env) {
       }
     },
     plans,
+    freePlan: loadFreePlan(env),
     access: {
-      mode: accessMode,
-      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
+      mode: accessMode
+    },
+    billingEmail: {
+      apiKey: clean(env.BREVO_API_KEY),
+      enabledAt: clean(env.BILLING_EMAIL_ENABLED_AT)
+    },
+    paymentProvider: clean(env.PAYMENT_PROVIDER) || "mamo",
+    stripe: {
+      secretKey: clean(env.STRIPE_SECRET_KEY),
+      webhookSecret: clean(env.STRIPE_WEBHOOK_SECRET),
+      portalConfigurationId: clean(env.STRIPE_PORTAL_CONFIGURATION_ID),
+      automaticTax: readBoolean(env.STRIPE_AUTOMATIC_TAX, false),
+      taxCode: clean(env.STRIPE_TAX_CODE),
+      prices: { lite: clean(env.STRIPE_PLUS_PRICE_ID), pro: clean(env.STRIPE_PRO_PRICE_ID) },
+      coupons: parseMamoCoupons(env.STRIPE_COUPONS || "FIRST50:50,FIRSTFREE:100"),
+      // Standard international card allowance: 3.9% Payments + 0.7% Billing,
+      // AED 1 fixed, and 5% VAT on Stripe's fees (not VAT on the Klui plan).
+      fees: {
+        percent: readFeeNumber(env.STRIPE_FEE_PERCENT, 4.6),
+        fixedAed: readFeeNumber(env.STRIPE_FEE_FIXED_AED, 1),
+        vatPercent: readFeeNumber(env.STRIPE_FEE_VAT_PERCENT, 5)
+      }
     },
     mamo: {
       apiKey: clean(env.MAMO_API_KEY),
@@ -256,8 +282,8 @@ export function loadConfig(env = process.env) {
       ),
       summaryModel: OPENROUTER_TEXT_MODEL,
       summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000),
-      // A model call with no answer or tool call this long after its request, or silent this
-      // long mid-answer, is stopped and retried once with the same request.
+      // A model call that streams nothing this long after its request, or goes silent this
+      // long while reasoning or answering, is stopped and retried once with the same request.
       answerStallMs: readInt(env.MODEL_ANSWER_STALL_MS, 240_000),
       answerIdleMs: readInt(env.MODEL_ANSWER_IDLE_MS, 120_000)
     },
@@ -409,6 +435,13 @@ export function configuredServices(config) {
 }
 
 export function validateRuntimeConfig(config) {
+  if (!["mamo", "stripe"].includes(config.paymentProvider)) throw new Error("PAYMENT_PROVIDER must be mamo or stripe.");
+  if (config.stripe?.secretKey || config.paymentProvider === "stripe") {
+    const host = new URL(config.supabase?.url || "http://invalid").hostname;
+    if (!/^(sk|rk)_test_/.test(config.stripe?.secretKey || "") || !["localhost", "127.0.0.1", "[::1]"].includes(host)) {
+      throw new Error("Stripe sandbox requires a test key and an isolated local Supabase database.");
+    }
+  }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && config.desktop?.meteringMode !== "enforce") {
     throw new Error("API_USAGE_METERING_MODE must be enforce before enabling desktop chat or STT.");
   }

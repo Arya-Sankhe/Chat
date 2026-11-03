@@ -1,5 +1,6 @@
 import { HttpError } from "../http/responses.js";
 import { createHmac } from "node:crypto";
+import { queueSubscriptionEmail } from "./subscriptionEmail.js";
 
 function couponIdentityHash(config, value) {
   const secret = config.mamo?.couponIdentitySecret;
@@ -43,18 +44,6 @@ function asObject(value) {
     } catch {}
   }
   return {};
-}
-
-// Mamo prefills the cardholder name from these and rejects anything but letters.
-function nameTokens(value) {
-  return String(value || "").replace(/[^\p{L}\s]+/gu, " ").trim().split(/\s+/).filter(Boolean);
-}
-
-function customerNames(user) {
-  const meta = user?.raw?.user_metadata || {};
-  const tokens = nameTokens(meta.full_name || meta.name || meta.display_name || user?.name);
-  if (tokens.length) return { first_name: tokens[0], last_name: tokens.slice(1).join(" ") || "Klui" };
-  return { first_name: nameTokens(String(user?.email || "").split("@")[0])[0] || "Klui", last_name: "Klui" };
 }
 
 export function subscriberByEmail(subscribers, email) {
@@ -160,22 +149,22 @@ export function couponChargeExternalId(linkId) {
   return `klui-coupon:${linkId}`;
 }
 
-// With a coupon, checkout saves the card for a full-price subscription starting next month;
-// the first month is then free, or charged once to the saved card at the discounted price.
+// With a coupon, checkout saves the card for a full-price subscription starting next month (or
+// when a free trial ends); the first month is then free, or charged once at the discounted price.
 export async function createPaymentLink(config, { user, plan, appUrl, coupon = null, now = new Date(), signal }) {
-  const names = customerNames(user);
   const testSchedule = Boolean(config.mamo?.testSchedule);
   const { renewalAmount, initialAmount } = mamoCharges(plan, coupon, config);
   const fee = (charged, price) => (charged > price ? ` + ${aed(Math.round((charged - price) * 100) / 100)} fee` : "");
   // Sandbox test schedules renew within minutes; a start later today would charge at once.
-  const firstRenewalDay = coupon ? dubaiDay(testSchedule ? now : addMonths(now, 1), testSchedule ? 1 : 0) : null;
+  const firstRenewal = coupon?.trialDays ? new Date(now.getTime() + coupon.trialDays * 86_400_000) : addMonths(now, 1);
+  const firstRenewalDay = coupon ? dubaiDay(testSchedule ? now : firstRenewal, testSchedule ? 1 : 0) : null;
   const schedule = { frequency: testSchedule ? "test" : "monthly", frequency_interval: 1,
     ...(testSchedule ? { payment_quantity: 3 } : {}) };
   const title = coupon
-    ? `Klui ${plan.name} · ${coupon.percentOff === 100 ? "first month free" : `${coupon.percentOff}% off month 1`}`
+    ? `Klui ${plan.name} · ${initialAmount ? aed(initialAmount) : "FREE"} today${coupon.trialDays ? ` · ${coupon.trialDays}-day free trial` : ""}`
     : `Klui ${plan.name}`;
   const description = coupon
-    ? `${initialAmount ? `${aed(initialAmount)} now` : "Free now"}, then ${aed(renewalAmount)}/month from ${mamoDate(firstRenewalDay)}`
+    ? `Total below: ${aed(renewalAmount)}/month from ${mamoDate(firstRenewalDay)}. Today: ${initialAmount ? aed(initialAmount) : "FREE"}.`
     : `${aed(plan.amountAed)}/month${fee(renewalAmount, plan.amountAed)}`;
   const payload = await mamoFetch(config, "/links", {
     method: "POST",
@@ -192,8 +181,6 @@ export async function createPaymentLink(config, { user, plan, appUrl, coupon = n
       terms_and_conditions_url: "https://home.klui.ai/terms/",
       send_customer_receipt: true,
       email: user.email || undefined,
-      first_name: names.first_name,
-      last_name: names.last_name,
       custom_data: { userId: user.id, planId: plan.id, ...(coupon ? { coupon: coupon.code } : {}) },
       external_id: String(user.id),
       link_type: "standalone",
@@ -571,6 +558,14 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
 // both land here; the database ignores replays and payments older than the one it already has.
 // Returns "pending" while the payment (or a coupon charge it started) has not settled yet.
 export async function processMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate } = {}) {
+  const result = await applyMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate });
+  if (["active", "applied"].includes(result.outcome)) {
+    await queueSubscriptionEmail(result.link, { db, plans, config, signal });
+  }
+  return result.outcome;
+}
+
+async function applyMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate } = {}) {
   // Read the provider's current payment state: redirects and callback fields cannot grant access.
   const payment = await mamoFetch(config, `/payments/${encodeURIComponent(paymentId)}`, { signal });
   const link = await db.getMamoPaymentLink(payment?.payment_link_id, { signal });
@@ -585,11 +580,11 @@ export async function processMamoPayment(paymentId, { db, plans, config, signal,
   }
   const context = { db, plans, config, signal };
   if (payment.status === "card_verified") {
-    return link.coupon_code ? startCouponPeriod(payment, link, context) : "ignored";
+    return { link, outcome: link.coupon_code ? await startCouponPeriod(payment, link, context) : "ignored" };
   }
   const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
-  if (couponCharge && !fullRefund) return settleCouponCharge(payment, link, context);
-  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return "pending";
+  if (couponCharge && !fullRefund) return { link, outcome: await settleCouponCharge(payment, link, context) };
+  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return { link, outcome: "pending" };
   await applyWebhookToSubscription({
     ...payment,
     event_type: fullRefund ? "payment.refunded"
@@ -610,7 +605,7 @@ export async function processMamoPayment(paymentId, { db, plans, config, signal,
       && asObject(latest.raw).payment_link_id === link.id) {
       await db.cancelMamoSubscription(link.user_id, link.id, { signal });
     }
-    return "refunded";
+    return { link, outcome: "refunded" };
   }
-  return "applied";
+  return { link, outcome: "applied" };
 }

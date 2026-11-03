@@ -64,6 +64,7 @@ import {
   thinkUsesLunaFlex
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
+import { assertFreeChatTurn, consumeFreeAllowance, isFreePlan, upgradeRequired } from "../saas/freePlan.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
@@ -208,6 +209,7 @@ export async function loadUploadedAttachments(context, attachmentIds, req, plan,
   if (images.length > plan.maxImagesPerMessage) {
     throw new HttpError(400, `Attach up to ${plan.maxImagesPerMessage} images for this plan.`);
   }
+  if (documents.length && isFreePlan(plan)) throw upgradeRequired("Documents are on Plus and Pro. The free plan can attach images.");
   if (documents.length > plan.maxDocumentsPerMessage) {
     throw new HttpError(400, `Attach up to ${plan.maxDocumentsPerMessage} documents for this plan.`);
   }
@@ -729,7 +731,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
     models: body.models,
     council: body.council
   });
-  const agentMode = normalizeAgentMode(body.agentMode);
+  const freePlan = isFreePlan(context.plan);
+  // Agent mode is what turns on web search and document tools; the free plan has neither.
+  const agentMode = normalizeAgentMode(body.agentMode) && !freePlan;
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
@@ -852,6 +856,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : isRetry || isEdit
     ? normalizeComposerSkillIds(userMessage?.metadata?.skillIds)
     : normalizeComposerSkillIds(body.skillIds);
+  if (freePlan) assertFreeChatTurn({ role: routed.role, voice: voiceMode, skillIds, project });
   // Retries answer with the sources the original question was scoped to.
   const sourceScope = normalizeSourceScope(isRetry ? userMessage?.metadata?.sources : body.sources);
   const sourcePages = normalizeSourcePages(isRetry ? userMessage?.metadata?.sourcePages : body.sourcePages, sourceScope);
@@ -1002,7 +1007,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
   const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
-  const documents = configuredServices(config).documents
+  const documents = configuredServices(config).documents && !freePlan
     ? new DocumentService({
         config,
         db: context.db,
@@ -1950,7 +1955,7 @@ async function runPersistedDocumentTurn({ req, res, config, context, conversatio
   let executionContext = context;
   let executionConversation;
   try {
-    executionContext = await requireChatContext(req, config);
+    executionContext = await requireChatContext(req, config, { allowFree: true });
     executionConversation = await executionContext.db.getConversation(
       executionContext.user.id,
       conversation.id,
@@ -2001,12 +2006,24 @@ async function runPersistedDocumentTurn({ req, res, config, context, conversatio
 
 export async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   const body = await parseJsonBody(req, 2 * 1024 * 1024);
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");
 
   const turnRunId = typeof body.turnRunId === "string" ? body.turnRunId.trim() : "";
+  // Free turns are checked and counted before anything is stored. Rejoining a running
+  // turn (`turnRunId`) is the same message, so it isn't counted again.
+  if (isFreePlan(context.plan) && !turnRunId) {
+    const voice = body.voice === true && !body.retryAssistantMessageId && !body.editUserMessageId;
+    assertFreeChatTurn({
+      role: resolveChatRole({ role: voice ? "think" : body.role, model: body.model || conversation.model, models: body.models, council: body.council }).role,
+      voice,
+      skillIds: body.editUserMessageId ? [] : normalizeComposerSkillIds(body.skillIds),
+      project: conversation.project_id || (Array.isArray(body.sources) && body.sources.length) ? true : null
+    });
+    await consumeFreeAllowance({ db: context.db, userId: context.user.id, plan: context.plan, kind: "messages", signal: req.signal });
+  }
   if (turnRunId) {
     if (!UUID_LIKE.test(turnRunId)) throw new HttpError(400, "turnRunId must be a UUID.");
     const run = await context.db.getPendingDocumentTurn(context.user.id, turnRunId, { signal: req.signal });
@@ -2038,7 +2055,7 @@ export async function handleConversationMessage(req, res, config, conversationId
     && !attachments.some((attachment) => attachment.category === "document")
     && !(await chosenSourceDocuments(context, conversation, body.sources, req.signal)).pending) {
     await executeConversationMessage(req, res, config, conversation.id, { context, conversation, body });
-    void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
+    if (!isFreePlan(context.plan)) void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
     return;
   }
 
@@ -2052,12 +2069,12 @@ export async function handleConversationMessage(req, res, config, conversationId
     run: submitted.run,
     userMessage: submitted.user_message
   });
-  void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
+  if (!isFreePlan(context.plan)) void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
 }
 
 export async function handlePendingDocumentTurnCancel(req, res, config, conversationId, turnId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-  const context = await requireChatContext(req, config);
+  const context = await requireChatContext(req, config, { allowFree: true });
   if (!UUID_LIKE.test(turnId)) throw new HttpError(400, "turnId must be a UUID.");
   const run = await context.db.getPendingDocumentTurn(context.user.id, turnId, { signal: req.signal });
   if (!run || run.conversation_id !== conversationId) throw new HttpError(404, "Pending turn not found.");

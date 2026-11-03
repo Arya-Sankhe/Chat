@@ -823,11 +823,10 @@ test("native clients do not show checkout; unpaid users are sent to the website"
   );
   assert.match(
     source,
-    /function hasUpgradePlans\(\) \{\s*return state\.me\?\.access\?\.mode !== "testing" && Array\.isArray\(state\.plans\) && state\.plans\.length > 0;/
+    /function hasUpgradePlans\(\) \{\s*return Array\.isArray\(state\.plans\) && state\.plans\.length > 0;/
   );
   assert.doesNotMatch(source, /Subscribe on the website to start chatting|Choose a plan to start chatting/);
   assert.match(source, /Pay with Ziina/);
-  assert.match(source, /data-start-mamo="\$\{escapeHtml\(plan.id\)\}">Get \$\{escapeHtml\(plan.name\)\}</);
   assert.match(source, /data-start-mamo/);
 });
 

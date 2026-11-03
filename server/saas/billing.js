@@ -7,6 +7,7 @@ const OPENROUTER_FALLBACK_PRICING = {
   "inception/mercury-2.5": { prompt: 0.04, completion: 0.15 },
   "deepseek/deepseek-v4-flash-0731": { prompt: 0.09, completion: 0.18 },
   "tencent/hy3": { prompt: 0.132, completion: 0.528 },
+  "z-ai/glm-5.3-flash": { prompt: 0.15, completion: 0.50 },
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },
   "xiaomi/mimo-v2.6-flash": { prompt: 0.14, completion: 0.28 },
   "xiaomi/mimo-v2.5-pro": { prompt: 1.20, completion: 3.60 },

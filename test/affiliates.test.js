@@ -9,7 +9,7 @@ import { SupabaseRest } from "../server/db/supabaseRest.js";
 const USER = "11111111-1111-4111-8111-000000001001";
 const CREATOR = "11111111-1111-4111-8111-000000001002";
 const COUPON = "11111111-1111-4111-8111-000000001003";
-const config = loadConfig({ MAMO_API_KEY: "test", MAMO_WEBHOOK_AUTH: "secret", MAMO_COUPONS: "FIRST50:50",
+const config = loadConfig({ ACCESS_MODE: "subscription", MAMO_API_KEY: "test", MAMO_WEBHOOK_AUTH: "secret", MAMO_COUPONS: "FIRST50:50",
   MAMO_COUPON_IDENTITY_SECRET: "test-coupon-identity-secret-keep-stable" });
 
 async function dispatch(path, { method = "GET", body, db = {}, role = "user", signedIn = true } = {}) {

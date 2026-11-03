@@ -49,7 +49,7 @@ test('mobile-style sessions use the existing profile without linking by email',a
 });
 
 test('macOS consent is explicit, versioned and scoped to the same account',async()=>{
-  const saved=[];const cfg={...config(),[API_DEPENDENCIES]:{createDb:()=>({upsertProfile:async()=>({id:userID}),acceptDesktopPrivacy:async value=>saved.push(value)}),createR2:()=>({}),verifyDesktopUser:async()=>({id:userID,identityMode:'direct_supabase',oauthClientId:'klui-desktop-macos'})}};
+  const saved=[];const cfg={...config(),[API_DEPENDENCIES]:{createDb:()=>({getLatestSubscription:async()=>({provider:"manual",status:"active",plan_id:"pro"}),upsertProfile:async()=>({id:userID}),acceptDesktopPrivacy:async value=>saved.push(value)}),createR2:()=>({}),verifyDesktopUser:async()=>({id:userID,identityMode:'direct_supabase',oauthClientId:'klui-desktop-macos'})}};
   const req=body=>({...request(),method:'POST',headers:{...request().headers,'x-klui-client-version':'0.1.0','x-klui-request-id':userID,'content-type':'application/json'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify(body));}});
   const res={writeHead(){},end(){}};
   await assert.rejects(handleDesktopConsent(req({privacyConsent:false,policyVersion:cfg.desktop.privacyPolicyVersion}),res,cfg),/privacy notice/);
@@ -79,7 +79,7 @@ test('macOS Haiku and explicit Luna testing retain funded ceilings; Windows stay
 test('Google account reads the existing plan and settled weekly usage with computer control enabled',async()=>{
   const lookups=[];
   const cfg={...config(),[API_DEPENDENCIES]:{
-    createDb:()=>({upsertProfile:async user=>({id:user.id}),getDesktopPrivacyConsent:async args=>{lookups.push(args.accountId);return {accepted:true};},getApiWeeklyUsage:async id=>{lookups.push(id);return {api_credit_used:0.2,api_credit_reserved:0.1,api_credit_limit:1};}}),
+    createDb:()=>({getLatestSubscription:async()=>({provider:"manual",status:"active",plan_id:"pro"}),upsertProfile:async user=>({id:user.id}),getDesktopPrivacyConsent:async args=>{lookups.push(args.accountId);return {accepted:true};},getApiWeeklyUsage:async id=>{lookups.push(id);return {api_credit_used:0.2,api_credit_reserved:0.1,api_credit_limit:1};}}),
     createR2:()=>({}),verifyDesktopUser:async()=>({id:userID,email:'user@klui.ai',identityMode:'direct_supabase',oauthClientId:'klui-desktop-macos'})
   }};
   cfg.desktop.chatEnabled=true;cfg.desktop.sttEnabled=true;

@@ -15,6 +15,7 @@ const BUNDLE = new URL("../vendor/whiteboard/board.js", import.meta.url).href;
 const STYLES = new URL("../vendor/whiteboard/board.css", import.meta.url).href;
 const VOICE_LIMIT_MS = 4 * 60_000; // Keep recordings below the transcription endpoint’s five-minute limit.
 const SHOWN_THREADS = 30;
+const IMAGE_FETCHES = 6;
 const NOTE_LINE = 46;
 
 let bundle = null;
@@ -142,9 +143,11 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
     let destroyed = false;
     let queuedKey = ""; // the scene last handed to the save queue
     let uploaded = new Set();
+    let imagesLoaded = Promise.resolve();
     let uploading = new Map();
     let failedFiles = new Set();
     let raf = 0;
+    let pointer = null; // where the pointer last was on the stage, for showing the Klui under it
     let areaMode = false;
     let areaDrag = null;
     let composer = null; // { captureMode, rect, elements, text }
@@ -238,18 +241,18 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       if (left[0]?.value.baseRevision === saved.revision) restored = left.shift();
       if (restored) scene = restored.value.scene;
       recovery = left;
-      const files = [...await loadFiles(payload.files || []), ...draftFiles(restored?.value)];
-      if (destroyed) return;
       const host = $("[data-wb-canvas]");
       host.innerHTML = "";
       editor = await editorModule.mountBoard(host, {
         scene,
-        files,
+        files: draftFiles(restored?.value),
         theme: document.body.dataset.mode === "dark" ? "dark" : "light",
         onChange: (elements, appState) => onEditorChange(elements, appState),
         onSelectionSettled: () => syncComposer(true)
       });
       if (destroyed) return editor.destroy();
+      // The board opens at once; saved images fill in as they arrive.
+      imagesLoaded = loadFiles(payload.files || [], (file) => { if (!destroyed) editor.addFiles([file]); });
       // Excalidraw tidies the loaded elements over its first frames (bindings, versions); that is
       // not an edit, so the starting point is taken once it settles.
       // (Frames don't run in a background tab, so a timer stands in for them.)
@@ -284,17 +287,19 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       return Object.values(draft?.files || {}).filter((file) => file?.id && file.dataURL);
     }
 
-    async function loadFiles(list) {
+    /** Fetches a board's saved images a few at a time, handing each to `onFile` as it arrives. */
+    async function loadFiles(list, onFile) {
       const session = getSession();
-      const results = await Promise.all(list.map(async (file) => {
-        try {
-          const blob = await api.fetchWhiteboardFile(session, meta.id, file.fileId);
-          return { id: file.fileId, mimeType: file.mimeType, dataURL: await dataUrl(blob), created: Date.now() };
-        } catch {
-          return null;
+      const queue = [...list];
+      const worker = async () => {
+        for (let file = queue.shift(); file && !destroyed; file = queue.shift()) {
+          try {
+            const blob = await api.fetchWhiteboardFile(session, meta.id, file.fileId);
+            onFile({ id: file.fileId, mimeType: file.mimeType, dataURL: await dataUrl(blob), created: Date.now() });
+          } catch {}
         }
-      }));
-      return results.filter(Boolean);
+      };
+      await Promise.all(Array.from({ length: Math.min(IMAGE_FETCHES, queue.length) }, worker));
     }
 
     // ---------- Saving ----------
@@ -402,6 +407,8 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
     /** Copies a scene, with its images, into a new board in the same course. */
     async function saveAsNewBoard(scene, extraFiles = {}) {
       const session = getSession();
+      // A copy needs every image, including ones still on their way.
+      await imagesLoaded;
       const clean = cleanScene(scene);
       const files = { ...extraFiles, ...editor.files() };
       const made = await api.createWhiteboard(session, courseId, { title: cleanTitle(`${title} (my copy)`, "My copy") });
@@ -471,12 +478,14 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
     function position() {
       if (!editor || destroyed) return;
       const stage = $(".wb-stage").getBoundingClientRect();
+      const placed = [];
       // Outline + mascot for each shown thread.
       for (const thread of threads.values()) {
         const anchor = anchorRect(thread);
         const rect = anchor || thread.rect;
         if (!rect) continue;
         const box = clientRect(rect);
+        placed.push({ thread, box });
         // A whole view is no anchor worth outlining: the screen's own edges already frame it.
         const showOutline = (thread.status === "working" || openThread === thread.id) && (thread.captureMode !== "view" || Boolean(anchor));
         if (thread.outline) {
@@ -489,6 +498,13 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
           thread.mascot.style.left = `${clamp(box.left + box.width - 8, 4, stage.width - 44)}px`;
           thread.mascot.style.top = `${clamp(box.top - 40, 4, stage.height - 44)}px`;
         }
+      }
+      // An answer already read keeps its Klui tucked away until the pointer is over its part of
+      // the board (or Klui itself); where answers overlap, the smallest part is the one meant.
+      const near = ({ box }) => pointer && pointer.x > box.left - 16 && pointer.x < box.left + box.width + 44 && pointer.y > box.top - 48 && pointer.y < box.top + box.height + 16;
+      const hovered = placed.filter(near).sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height)[0]?.thread;
+      for (const { thread } of placed) {
+        thread.mascot?.classList.toggle("is-tucked", thread.status === "seen" && openThread !== thread.id && thread !== hovered);
       }
       positionComposer();
       positionCard();
@@ -1276,6 +1292,20 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       layer.addEventListener("pointermove", onAreaMove);
       layer.addEventListener("pointerup", onAreaUp);
       layer.addEventListener("pointercancel", () => { areaDrag = null; hideComposer(); });
+      const stage = $(".wb-stage");
+      const track = (event) => {
+        const box = stage.getBoundingClientRect();
+        pointer = { x: event.clientX - box.left, y: event.clientY - box.top };
+        schedulePosition();
+      };
+      stage.addEventListener("pointermove", track, { passive: true });
+      stage.addEventListener("pointerdown", track, { passive: true });
+      // A finger lifts off and "leaves" at once; the last tap stays the place that counts.
+      stage.addEventListener("pointerleave", (event) => {
+        if (event.pointerType === "touch") return;
+        pointer = null;
+        schedulePosition();
+      });
       window.addEventListener("resize", schedulePosition);
       document.addEventListener("visibilitychange", onVisibility);
       window.addEventListener("pagehide", onVisibility);

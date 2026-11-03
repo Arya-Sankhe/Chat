@@ -86,7 +86,7 @@ function stubbedDeps({ db = {}, r2 = {} } = {}) {
   return {
     createDb: () => ({
       async listMamoPaymentLinks() { return []; },
-      async getLatestSubscription() { return null; },
+      async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "pro" }; },
       async upsertProfile() { return { id: "user-1", role: "user" }; },
       ...db
     }),
@@ -379,7 +379,7 @@ test("/api/me loads usage and storage concurrently", async () => {
 
 test("lite document completion caps extract pages at the plan limit", async () => {
   const calls = [];
-  const liteConfig = loadConfig({ ...SUPABASE_ENV, DOCUMENT_MAX_PDF_PAGES: "300", TEST_PLAN_ID: "lite" });
+  const liteConfig = loadConfig({ ...SUPABASE_ENV, DOCUMENT_MAX_PDF_PAGES: "300" });
   const attachment = {
     id: "upload-1",
     user_id: "user-1",
@@ -396,6 +396,7 @@ test("lite document completion caps extract pages at the plan limit", async () =
     body: { uploadId: "upload-1" },
     overrides: stubbedDeps({
       db: {
+        async getLatestSubscription() { return { provider: "manual", status: "active", plan_id: "lite" }; },
         async getAttachment() { return attachment; },
         async completeDocumentUpload(params) {
           calls.push(params);
