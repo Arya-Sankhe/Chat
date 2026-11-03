@@ -438,17 +438,9 @@ async function runApp(app) {
       localStorage.setItem("klui.chat.controls.v1", JSON.stringify(value));
       return JSON.stringify(value);
     });
-    // This edits storage behind the app's back, since the app has no control for
-    // it. About one run in four the new app's copy came back at 100 (cause not
-    // found; a fast-write and a stale-storage test both held). Say so and retry.
-    for (let attempt = 1; ; attempt++) {
-      await nativeStore(page, app, "prefs.set", "klui.chat.controls.v1", settings);
-      page = await launch(app);
-      await page.until(booted, true, "relaunch");
-      const kept = await page.eval(() => JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}").uiTextScale);
-      if (kept === 115 || attempt === 3) break;
-      console.log(`TEXTZOOM-RETRY ${app.name}: stored text size came back ${kept}, attempt ${attempt}`);
-    }
+    await nativeStore(page, app, "prefs.set", "klui.chat.controls.v1", settings);
+    page = await launch(app);
+    await page.until(booted, true, "relaunch");
     await page.until(() => document.querySelectorAll(".conversation-item").length >= 3, undefined, "chats listed");
     await dropKeyboard();
     await page.until(() => !document.body.classList.contains("keyboard-open"), undefined, "keyboard down");

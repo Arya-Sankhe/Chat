@@ -13,18 +13,26 @@ import { KluiHost } from "../../modules/klui-host";
 
 // Preferences: small values the page keeps across launches, outside secure storage.
 const prefsFile = new File(Paths.document, "klui-preferences.json");
+const prefsBackup = new File(Paths.document, "klui-preferences.backup.json");
 let prefsCache: Record<string, string> | null = null;
-function prefs(): Record<string, string> {
-  if (prefsCache) return prefsCache;
+function readPrefs(file: File): Record<string, string> | null {
   try {
-    prefsCache = prefsFile.exists ? JSON.parse(prefsFile.textSync()) : {};
+    return file.exists ? JSON.parse(file.textSync()) : null;
   } catch {
-    prefsCache = {};
+    return null;
   }
-  return prefsCache!;
 }
+function prefs(): Record<string, string> {
+  prefsCache ??= readPrefs(prefsFile) ?? readPrefs(prefsBackup) ?? {};
+  return prefsCache;
+}
+/* Synchronous, so saves land in order and a success reply means it is on disk
+   (File.write is async and can overlap). The backup is complete before the main
+   file is touched, so a kill during a save leaves one of them whole. */
 function savePrefs() {
-  prefsFile.write(JSON.stringify(prefs()));
+  const contents = JSON.stringify(prefs());
+  prefsBackup.writeSync(contents);
+  prefsFile.writeSync(contents);
 }
 
 function safeFileName(value: string) {
@@ -114,7 +122,7 @@ const handlers: { [M in NativeHostMethod]: (args: any) => unknown } = {
   "clipboard.read": async () => (await Clipboard.hasStringAsync()) ? Clipboard.getStringAsync() : "",
   "files.shareText": async ({ fileName, contents, mime }) => {
     const file = new File(downloadsDir(), `${Date.now()}-${safeFileName(fileName)}`);
-    file.write(String(contents ?? ""));
+    await file.write(String(contents ?? ""));
     await Sharing.shareAsync(file.uri, { mimeType: mime, dialogTitle: "Save or open file" });
   },
   "files.shareDownload": async ({ url, fileName }) => {
