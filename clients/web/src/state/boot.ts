@@ -1,13 +1,14 @@
 /* Startup, ported from bootstrap() and loadChatApp() in public/js/app.js. The
    order, concurrency and render points follow the old code, because what the
    page shows (and how many times the home greeting restarts) depends on them. */
+import type { HostedSession } from "@klui/shared";
 import { api, session, webBuild } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
-import { isNative } from "../islands/platform/index.js";
-import { closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
+import { isEmbedded, isNative, nativeInfoTarget, onEmbeddedEvents } from "../islands/platform/index.js";
+import { chatHooks, closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, openSettings, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
 import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, loadPaymentRequests, openNativeConversation, refreshAfterMamoReturn, rejoinTurnsAfterResume, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
-import { checkAndShowAppUpdate, hideLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
+import { checkAndShowAppUpdate, hideLaunchScreenWaiting, showLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -48,8 +49,8 @@ function whenIdle(callback: () => void) {
   else setTimeout(callback, 2500);
 }
 
-export async function loadMe() {
-  const me = await api.fetchMe();
+export async function loadMe(init?: RequestInit) {
+  const me = await api.fetchMe(init);
   set({ me });
   if (typeof (me as any)?.settings?.systemPrompt === "string") {
     set((s) => ({ settings: { ...s.settings, systemPrompt: (me as any).settings.systemPrompt } }));
@@ -96,6 +97,59 @@ async function refreshAccountAfterResume() {
   await checkAndShowAppUpdate();
 }
 
+/* A slow network mustn't turn an embedded page into a guest while the app is signed in.
+   It waits on the launch screen and tries again; only the app ends the session. */
+async function establishEmbeddedAccount() {
+  for (;;) {
+    try {
+      await withTimeout(session.ensureFresh(), 8000, "Session refresh");
+      if (!session.current()) return false;
+      // Cancelled, not just abandoned: the browser queues a repeat of a request still open.
+      await withTimeout(loadMe({ signal: AbortSignal.timeout(8000) }), 8500, "Account load");
+      return true;
+    } catch (error) {
+      if (!session.current()) return false;
+      const status = (error as { status?: number })?.status ?? 0;
+      if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        // Waiting won't fix this one: the person decides.
+        await showAccountProblem((error as Error).message || "Your account could not be loaded.");
+        if (!session.current()) return false;
+        continue;
+      }
+      showLaunchScreenWaiting();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+}
+
+/** On the launch screen: Try again resolves; Sign out ends the session through the app. */
+function showAccountProblem(message: string) {
+  showLaunchScreenWaiting();
+  const launch = document.getElementById("mobileLaunchScreen")!;
+  launch.querySelector(".launch-status")!.textContent = message;
+  return new Promise<void>((resolve) => {
+    const actions = document.createElement("div");
+    actions.className = "launch-actions";
+    actions.style.cssText = "display:flex;gap:12px;margin-top:16px;pointer-events:auto";
+    const action = (label: string, run: () => void) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.style.cssText = "min-height:44px;padding:0 18px;border-radius:22px;border:1px solid currentColor;background:none;color:inherit;font:inherit";
+      button.onclick = () => {
+        actions.remove();
+        run();
+      };
+      actions.append(button);
+    };
+    action("Try again", resolve);
+    action("Sign out", () => void session.signOut().finally(resolve));
+    launch.append(actions);
+  });
+}
+
+let bootFinished = false;
+
 export async function bootstrap() {
   await hydrateNativeSettings();
   installNativeChrome();
@@ -132,7 +186,9 @@ export async function bootstrap() {
     if (authError) showToast(authError);
     // A Google sign-in that relaunched the app finishes during setupNativeLifecycle().
     let signedIn = Boolean(saved || session.current());
-    if (signedIn) {
+    if (signedIn && isEmbedded()) {
+      signedIn = await establishEmbeddedAccount();
+    } else if (signedIn) {
       try {
         signedIn = Boolean(await withTimeout(session.ensureFresh(), 8000, "Session refresh"));
       } catch {
@@ -140,7 +196,7 @@ export async function bootstrap() {
         signedIn = false;
       }
     }
-    if (signedIn) {
+    if (signedIn && !isEmbedded()) {
       try {
         if (get().mobile) prefetchRecentChats(api.listConversations({ limit: 10 }).then((conversations) => ({ conversations })).catch(() => ({ conversations: [] })));
         await withTimeout(loadMe(), 8000, "Account load");
@@ -165,11 +221,36 @@ export async function bootstrap() {
     }
     reassertNativeTextZoom();
     void checkAndShowAppUpdate();
+    if (isEmbedded()) openEmbeddedTarget(nativeInfoTarget());
   } catch (error) {
     set({ signedIn: false, me: null, conversations: [] });
     renderShell();
     showToast((error as Error).message);
   }
+  bootFinished = true;
+  // The app signed in while this boot was already going as a guest.
+  if (isEmbedded() && session.current() && !get().signedIn) void afterSignIn();
+}
+
+/** What the native app asked this surface to show. */
+function openEmbeddedTarget(target: string | undefined) {
+  if (target === "dojo") chatHooks.openStudyHub();
+  else if (target === "plans") chatHooks.openUpgradePlans();
+  else if (target === "settings") openSettings();
+  else if (target === "voice") document.getElementById("voiceModeButton")?.click();
+}
+
+if (isEmbedded()) {
+  onEmbeddedEvents({
+    onSession: (next: Parameters<HostedSession["update"]>[0]) => {
+      const wasGuest = !session.current();
+      (session as HostedSession).update(next);
+      // Signed in from this page as a guest: it carries on, sending what they wrote.
+      // During boot, bootstrap's own end picks this up.
+      if (bootFinished && wasGuest && session.current()) void afterSignIn();
+    },
+    onTarget: openEmbeddedTarget
+  });
 }
 
 // A dead refresh token (or another tab signing out) ends the session.

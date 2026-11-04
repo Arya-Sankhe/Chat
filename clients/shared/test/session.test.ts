@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AUTH_STORAGE_KEY, SessionManager, type KeyValueStorage } from "../src/session";
+import { AUTH_STORAGE_KEY, HostedSession, SessionManager, parseAuthCallback, sessionSnapshot, type KeyValueStorage, type SessionSnapshot } from "../src/session";
 
 function memoryStorage(initial: Record<string, string> = {}): KeyValueStorage & { data: Record<string, string> } {
   const data = { ...initial };
@@ -87,5 +87,69 @@ describe("persistence order", () => {
 
     expect(await refreshing).toBeNull();
     expect(storage.data[AUTH_STORAGE_KEY]).toBeUndefined();
+  });
+});
+
+describe("the session inside an embedded page", () => {
+  const snapshot = (access_token: string, expires_at: number, generation = 1) => ({
+    generation,
+    session: { access_token, expires_at, token_type: "bearer" } as SessionSnapshot
+  });
+  const inHour = () => Math.floor(Date.now() / 1000) + 3600;
+
+  it("refreshes only through the app, holds no refresh token, and clearing it stays local", async () => {
+    const host = {
+      snapshot: vi.fn(async () => snapshot("a1", Math.floor(Date.now() / 1000) + 30)),
+      refresh: vi.fn(async () => snapshot("a2", inHour())),
+      signOut: vi.fn(async () => {})
+    };
+    const session = new HostedSession(host);
+    await session.load();
+    expect((await session.ensureFresh())?.access_token).toBe("a2");
+    await session.ensureFresh();
+    expect(host.refresh).toHaveBeenCalledTimes(1);
+    expect(session.current()?.refresh_token).toBeNull();
+    await expect(session.save({ access_token: "x", refresh_token: "y", expires_at: 1, token_type: "bearer" })).rejects.toThrow();
+
+    const heard: unknown[] = [];
+    session.subscribe((next) => heard.push(next));
+    await session.save(null);
+    expect(heard).toEqual([null]);
+    expect(host.signOut).not.toHaveBeenCalled();
+    await session.signOut();
+    expect(host.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("a reply overtaken by a newer event from the app loses", async () => {
+    let answer: (state: ReturnType<typeof snapshot>) => void = () => {};
+    const host = {
+      snapshot: async () => snapshot("a1", Math.floor(Date.now() / 1000) + 30, 1),
+      refresh: () => new Promise<ReturnType<typeof snapshot>>((resolve) => { answer = resolve; }),
+      signOut: async () => {}
+    };
+    const session = new HostedSession(host);
+    await session.load();
+    const refreshing = session.ensureFresh();
+    session.update({ generation: 3, session: null });
+    answer(snapshot("stale", inHour(), 2));
+    await refreshing;
+    expect(session.current()).toBeNull();
+  });
+
+  it("what the app hands a page never carries the refresh token", () => {
+    expect(sessionSnapshot({ access_token: "a", refresh_token: "secret", expires_at: 5, token_type: "bearer" })).toEqual({ access_token: "a", expires_at: 5, token_type: "bearer" });
+    expect(sessionSnapshot(null)).toBeNull();
+  });
+});
+
+describe("the sign-in callback", () => {
+  const callback = "tech.klui.app://auth/callback";
+
+  it("takes the code or error only from this app's exact address", () => {
+    expect(parseAuthCallback(`${callback}?code=abc`, callback)).toEqual({ code: "abc", error: "" });
+    expect(parseAuthCallback(`${callback}#error=x&error_description=Nope+now`, callback)).toEqual({ code: "", error: "Nope now" });
+    for (const other of ["tech.klui.app://evil/callback?code=abc", "https://auth/callback?code=abc", `${callback}/more?code=abc`, `other://x?u=${callback}&code=abc`]) {
+      expect(parseAuthCallback(other, callback)).toBeNull();
+    }
   });
 });

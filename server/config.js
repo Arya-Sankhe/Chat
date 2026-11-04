@@ -130,6 +130,7 @@ export function loadConfig(env = process.env) {
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
+    "klui-app://localhost",
     ...readList(env.MOBILE_ALLOWED_ORIGINS)
   ]);
 

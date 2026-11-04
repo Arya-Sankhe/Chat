@@ -48,13 +48,38 @@ export interface ChatState {
   threads: Record<string, ThreadState>;
   runs: Record<string, RunState>;
   /** Text handed back to the composer when a turn is cancelled before it started. */
-  drafts: Record<string, string>;
+  drafts: Record<string, WithdrawnDraft>;
 }
 
 export type DisplayItem =
   | { kind: "stored"; key: string; message: StoredMessage; canRetry: boolean }
   | { kind: "live"; key: string; message: LiveAssistant; status: RunStatus }
   | { kind: "local-user"; key: string; message: StoredMessage };
+
+/** An uploaded file going out with a message. */
+export interface SendAttachment {
+  id: string;
+  category: "image" | "document";
+  fileName: string;
+  contentType: string;
+  /** Where to show it until the server's copy of the message loads. */
+  url: string;
+}
+
+/** A message taken back before the model answered, on its way back to the message box. */
+export interface WithdrawnDraft {
+  text: string;
+  attachments: SendAttachment[];
+}
+
+function localUserContent(text: string, attachments: SendAttachment[]): StoredMessage["content"] {
+  return [
+    ...attachments.map((item) => item.category === "image"
+      ? { type: "image_url", image_url: { url: item.url, attachment_id: item.id, file_name: item.fileName, content_type: item.contentType } }
+      : { type: "file", file: { url: "", attachment_id: item.id, file_name: item.fileName, content_type: item.contentType } }),
+    ...(text ? [{ type: "text", text }] : [])
+  ];
+}
 
 export interface ChatPreferences {
   role: string;
@@ -174,6 +199,7 @@ export function createChatController(options: ChatControllerOptions) {
     lastEventAt: number;
     publishTimer: ReturnType<typeof setTimeout> | null;
     draftText: string;
+    draftAttachments: SendAttachment[];
   }
   const handles = new Map<string, RunHandle>();
   const loadTokens = new Map<string, number>();
@@ -301,6 +327,7 @@ export function createChatController(options: ChatControllerOptions) {
     replacesMessageId?: string;
     turnRunId?: string;
     draftText?: string;
+    draftAttachments?: SendAttachment[];
   }
 
   async function startRun(start: StartRun): Promise<void> {
@@ -316,7 +343,8 @@ export function createChatController(options: ChatControllerOptions) {
       eventHighWater: 0,
       lastEventAt: Date.now(),
       publishTimer: null,
-      draftText: start.draftText ?? ""
+      draftText: start.draftText ?? "",
+      draftAttachments: start.draftAttachments ?? []
     };
     handles.set(conversationId, handle);
     set((state) => ({
@@ -446,9 +474,9 @@ export function createChatController(options: ChatControllerOptions) {
     void loadConversations();
   }
 
-  async function send({ conversationId, text }: { conversationId: string | null; text: string }): Promise<string> {
+  async function send({ conversationId, text, attachments = [] }: { conversationId: string | null; text: string; attachments?: SendAttachment[] }): Promise<string> {
     const trimmed = text.trim();
-    if (!trimmed) throw new Error("Write a message first.");
+    if (!trimmed && !attachments.length) throw new Error("Write a message first.");
     const prefs = preferences();
     let id = conversationId;
     if (!id) {
@@ -470,17 +498,18 @@ export function createChatController(options: ChatControllerOptions) {
     const userMessage: StoredMessage = {
       id: `local_user_${randomId()}`,
       role: "user",
-      content: trimmed,
+      content: attachments.length ? localUserContent(trimmed, attachments) : trimmed,
       created_at: new Date().toISOString()
     };
     void startRun({
       conversationId: id,
       userMessage,
       draftText: trimmed,
+      draftAttachments: attachments,
       payload: {
         text: trimmed,
         clientTurnKey: randomId(),
-        attachments: [],
+        attachments: attachments.map((item) => item.id),
         role: prefs.role,
         settings: prefs.systemPrompt ? { systemPrompt: prefs.systemPrompt } : {},
         writingStyle: prefs.writingStyle,
@@ -533,8 +562,19 @@ export function createChatController(options: ChatControllerOptions) {
         // Cancelled before the model started: the message is withdrawn and goes back to the composer.
         if (result?.run?.status === "cancelled") {
           const content = (result.user_message as StoredMessage | undefined)?.content;
-          const draft = content == null ? handle.draftText : textFromMessageContent(content);
-          if (draft) set((state) => ({ drafts: { ...state.drafts, [conversationId]: draft } }));
+          const text = content == null ? handle.draftText : textFromMessageContent(content);
+          // A turn picked up after a restart only knows its files from the server's reply.
+          const rows = (result.attachments ?? []) as Array<{ id: string; category?: string; file_name?: string; content_type?: string }>;
+          const attachments = rows.length
+            ? rows.map((row): SendAttachment => handle.draftAttachments.find((item) => item.id === row.id) ?? {
+              id: row.id,
+              category: row.category === "document" ? "document" : "image",
+              fileName: row.file_name ?? "",
+              contentType: row.content_type ?? "",
+              url: ""
+            })
+            : handle.draftAttachments;
+          if (text || attachments.length) set((state) => ({ drafts: { ...state.drafts, [conversationId]: { text, attachments } } }));
         }
       } catch {
         // The abort below still stops this device from following the turn.
@@ -543,8 +583,8 @@ export function createChatController(options: ChatControllerOptions) {
     handle.abort.abort();
   }
 
-  function takeDraft(conversationId: string): string {
-    const draft = store.getState().drafts[conversationId] ?? "";
+  function takeDraft(conversationId: string): WithdrawnDraft | null {
+    const draft = store.getState().drafts[conversationId] ?? null;
     if (draft) {
       set((state) => {
         const { [conversationId]: _, ...drafts } = state.drafts;

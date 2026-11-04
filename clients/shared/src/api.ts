@@ -1,5 +1,5 @@
 import { readSseStream } from "./sse";
-import type { SessionManager } from "./session";
+import type { SessionSource } from "./session";
 import type {
   ChatSearchHit,
   ConversationDetail,
@@ -42,7 +42,7 @@ function transportError(error: unknown, signal: AbortSignal | null | undefined):
 export interface ApiClientOptions {
   /** "" for same-origin web, "https://klui.ai" for native. */
   baseUrl: string;
-  session: SessionManager;
+  session: SessionSource;
   fetch?: typeof fetch;
   /** A fetch whose response body streams. React Native passes expo/fetch here. */
   streamFetch?: typeof fetch;
@@ -90,7 +90,7 @@ export function createApiClient(options: ApiClientOptions) {
 
     let session = await options.session.ensureFresh();
     let response = await send(session?.access_token);
-    if (response.status === 401 && session?.refresh_token && !init.signal?.aborted) {
+    if (response.status === 401 && session && !init.signal?.aborted) {
       session = await options.session.ensureFresh({ force: true });
       if (session?.access_token) response = await send(session.access_token);
     }
@@ -125,7 +125,7 @@ export function createApiClient(options: ApiClientOptions) {
     fetchPlans: () => publicJson<{ plans?: Plan[]; [key: string]: unknown }>("/api/plans", {}, "plans"),
     fetchBuild: () => publicJson<{ buildId?: string }>("/api/build", { cache: "no-store" }),
 
-    fetchMe: () => json<Me>("/api/me"),
+    fetchMe: (init: RequestInit = {}) => json<Me>("/api/me", init),
     fetchPaymentRequests: () => json<{ requests?: unknown[]; [key: string]: unknown }>("/api/payments/ziina"),
     listProjects: () => json<{ projects?: Project[]; [key: string]: unknown }>("/api/projects"),
     searchChats: (query: string) =>
@@ -161,6 +161,11 @@ export function createApiClient(options: ApiClientOptions) {
 
     deleteConversation: (id: string) =>
       json<unknown>(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    presignUpload: (body: { fileName: string; contentType: string; sizeBytes: number; category: string }) =>
+      json<{ uploadId: string; uploadUrl: string; method?: string; headers?: Record<string, string>; [key: string]: unknown }>("/api/uploads/presign", jsonBody("POST", body)),
+
+    completeUpload: (uploadId: string) => json<{ id: string; [key: string]: unknown }>("/api/uploads/complete", jsonBody("POST", { uploadId })),
 
     /** Streams one turn. Acceptance and the turn's run id arrive as a synthetic `turn:submitted` event. */
     async streamMessage(conversationId: string, payload: SendPayload, { signal, onEvent }: StreamOptions): Promise<void> {

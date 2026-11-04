@@ -89,8 +89,39 @@ describe("chat controller", () => {
     await vi.waitFor(() => expect(chat.store.getState().runs[id]).toBeUndefined());
 
     expect(api.cancelTurn).toHaveBeenCalledWith("c1", "r1");
-    expect(chat.takeDraft(id)).toBe("Draft me");
-    expect(chat.takeDraft(id)).toBe("");
+    expect(chat.takeDraft(id)).toEqual({ text: "Draft me", attachments: [] });
+    expect(chat.takeDraft(id)).toBeNull();
+  });
+
+  it("a resumed turn gets its files back from the server when stopped", async () => {
+    const { api } = fakeApi({
+      scripts: [async (emit, signal) => {
+        emit({ type: "turn:submitted", turnRunId: "r1" });
+        await waitForAbort(signal);
+      }]
+    });
+    api.cancelTurn.mockResolvedValueOnce({
+      run: { status: "cancelled" },
+      user_message: { id: "u1", role: "user", content: [] },
+      attachments: [
+        { id: "a1", category: "document", file_name: "notes.pdf", content_type: "application/pdf" },
+        { id: "a2", category: "image", file_name: "photo.png", content_type: "image/png" }
+      ]
+    } as never);
+    const chat = controllerFor(api);
+
+    void chat.resumeTurn("c1", "r1");
+    await settle();
+    await chat.stop("c1");
+    await vi.waitFor(() => expect(chat.store.getState().runs.c1).toBeUndefined());
+
+    expect(chat.takeDraft("c1")).toEqual({
+      text: "",
+      attachments: [
+        { id: "a1", category: "document", fileName: "notes.pdf", contentType: "application/pdf", url: "" },
+        { id: "a2", category: "image", fileName: "photo.png", contentType: "image/png", url: "" }
+      ]
+    });
   });
 
   it("rejoins a dropped stream from the replay without duplicating text", async () => {

@@ -12,6 +12,31 @@ export function isNative() {
   return Boolean(nativeInfo);
 }
 
+export function isEmbedded() {
+  return nativeInfo?.embedded === true;
+}
+
+export function nativeInfoTarget() {
+  return nativeInfo?.startTarget;
+}
+
+export function onEmbeddedEvents({ onSession, onTarget }) {
+  onNativeEvent("sessionChanged", ({ generation, session }) => onSession({ generation, session }));
+  // Hidden behind the native screens: the page keeps its state but stops being in use.
+  onNativeEvent("surfaceVisibility", ({ visible }) => {
+    if (visible) return;
+    document.activeElement?.blur?.();
+    for (const media of document.querySelectorAll("audio, video")) media.pause();
+  });
+  onNativeEvent("openTarget", (event) => onTarget(event.target));
+}
+
+export const sessionHost = {
+  snapshot: () => nativeCall("session.snapshot"),
+  refresh: (force) => nativeCall("session.refresh", { force }),
+  signOut: () => nativeCall("session.signOut")
+};
+
 export function nativePlatform() {
   return nativeInfo?.platform || "web";
 }
@@ -99,6 +124,10 @@ let googleSignInPromise = null;
 
 export async function signInWithGoogle(config) {
   if (!isNative()) return null;
+  if (isEmbedded()) {
+    await nativeCall("session.signIn");
+    return null;
+  }
   // Guard against concurrent sign-in attempts. Multiple PKCE flows
   // overwrite each other's code verifier in storage, causing the OAuth
   // callback to fail when the code verifier doesn't match the original

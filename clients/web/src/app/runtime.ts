@@ -1,5 +1,5 @@
-import { SessionManager, createApiClient, createChatController, type KeyValueStorage } from "@klui/shared";
-import { apiOrigin, isNative, storage } from "../islands/platform/index.js";
+import { HostedSession, SessionManager, createApiClient, createChatController, type KeyValueStorage } from "@klui/shared";
+import { apiOrigin, isEmbedded, isNative, sessionHost, storage } from "../islands/platform/index.js";
 
 /* One instance per tab. The site is served from the same origin as the API,
    so requests are relative and the session lives where the current site keeps
@@ -11,7 +11,10 @@ const localStore: KeyValueStorage = {
   async remove(key) { globalThis.localStorage?.removeItem(key); }
 };
 
-export const session = new SessionManager(isNative() ? storage : localStore);
+// Embedded in the native app, which owns the session and hands the page its token.
+export const session: SessionManager | HostedSession = isEmbedded()
+  ? new HostedSession(sessionHost)
+  : new SessionManager(isNative() ? storage : localStore);
 // index.html starts /api/config and /api/plans with the page (window.__kluiBoot).
 const boot = (globalThis as { __kluiBoot?: Record<string, Promise<Response | null> | undefined> }).__kluiBoot;
 

@@ -7,7 +7,8 @@ export const nativeInfo = globalThis.__kluiNative || null;
 
 const pending = new Map();
 const listeners = new Map();
-let nextId = 1;
+// Random per document, so a reply meant for a page that has since reloaded matches nothing.
+let nextId = Math.floor(Math.random() * 2 ** 31) * 1024 + 1;
 
 if (nativeInfo) {
   globalThis.__kluiNativeReply = (reply) => {

@@ -6,6 +6,7 @@ import { SETTINGS_KEY, clampTextScale, parseSettings, resolvedAppearance } from 
 import {
   configureNativeChrome,
   hideNativeKeyboard,
+  isEmbedded,
   isNative,
   listenForAuthCallback,
   listenForDeepLinks,
@@ -80,7 +81,7 @@ export async function loadBootData<T>(load: () => Promise<T>): Promise<T> {
   }
 }
 
-function showLaunchScreenWaiting() {
+export function showLaunchScreenWaiting() {
   let launch = document.getElementById("mobileLaunchScreen");
   if (!launch) {
     launch = document.createElement("div");
@@ -148,13 +149,16 @@ type Lifecycle = {
 
 export async function setupNativeLifecycle(handlers: Lifecycle) {
   if (!isNative()) return;
-  await listenForAuthCallback(get().config, {
-    onSession: handlers.onSession,
-    onError: (error: Error) => {
-      set({ authNotice: error?.message || "Google sign-in failed." });
-      openAuthDialog();
-    }
-  });
+  // Embedded, the app signs in and tells the page (sessionChanged).
+  if (!isEmbedded()) {
+    await listenForAuthCallback(get().config, {
+      onSession: handlers.onSession,
+      onError: (error: Error) => {
+        set({ authNotice: error?.message || "Google sign-in failed." });
+        openAuthDialog();
+      }
+    });
+  }
   await onResume(handlers.onResume);
   await listenForDeepLinks((url: URL) => {
     const match = url.pathname.match(/^\/c\/([^/]+)\/?$/);

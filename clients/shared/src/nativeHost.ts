@@ -5,6 +5,8 @@
    `window.__kluiNativeEvent(event)`. These are the capabilities the Capacitor
    plugins gave the old app (platform/index.js), one method each. */
 
+import type { HostedSessionState } from "./session";
+
 /** Set on window.__kluiNative before the page's own scripts run. */
 export type NativeHostInfo = {
   platform: "android" | "ios";
@@ -14,9 +16,19 @@ export type NativeHostInfo = {
   authCallback: string;
   version: string;
   build: string;
+  /** The page is one surface inside the native app, which owns the session. */
+  embedded?: boolean;
+  /** What the surface opens on. */
+  startTarget?: WebSurfaceTarget;
 };
 
+export type WebSurfaceTarget = "chat" | "dojo" | "plans" | "voice" | "settings";
+
 export type NativeHostMethods = {
+  "session.snapshot": (args: Record<string, never>) => HostedSessionState;
+  "session.refresh": (args: { force: boolean }) => HostedSessionState;
+  "session.signOut": (args: Record<string, never>) => void;
+  "session.signIn": (args: Record<string, never>) => void;
   "secure.get": (args: { key: string }) => string | null;
   "secure.set": (args: { key: string; value: string }) => void;
   "secure.remove": (args: { key: string }) => void;
@@ -57,4 +69,7 @@ export type NativeHostEvent =
   | { type: "appUrlOpen"; url: string }
   | { type: "appStateChange"; isActive: boolean }
   | { type: "backButton" }
-  | { type: "voiceEnd" };
+  | { type: "voiceEnd" }
+  | ({ type: "sessionChanged" } & HostedSessionState)
+  | { type: "surfaceVisibility"; visible: boolean }
+  | { type: "openTarget"; target: WebSurfaceTarget };
