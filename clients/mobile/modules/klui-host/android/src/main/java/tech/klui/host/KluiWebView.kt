@@ -155,6 +155,12 @@ class KluiWebView(context: Context, appContext: AppContext) : ExpoView(context, 
     keyboardHeight = -1
     load(url)
     syncSystemBarInsets()
+    // React Native owns this view's layout and won't lay out a child added later.
+    webView.measure(
+      View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+    )
+    webView.layout(0, 0, width, height)
   }
 
   // endregion

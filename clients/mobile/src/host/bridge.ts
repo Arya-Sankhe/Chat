@@ -4,36 +4,17 @@ import { Directory, File, Paths } from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import * as WebBrowser from "expo-web-browser";
-import { BackHandler, Linking, Platform } from "react-native";
-import type { NativeHostEvent, NativeHostMethod, NativeHostReply, NativeHostRequest } from "@klui/shared";
+import { Platform } from "react-native";
+import { AUTH_STORAGE_KEY, SETTINGS_KEY, type NativeHostEvent, type NativeHostMethod, type NativeHostReply, type NativeHostRequest } from "@klui/shared";
 import { KluiHost } from "../../modules/klui-host";
+import { applyAppearance } from "../core/account";
+import { signIn } from "../core/auth";
+import { prefs } from "../core/prefs";
+import { hostedSessionState, session } from "../core/runtime";
+import { closeWebSurface, useShell } from "../core/shell";
 
 /* The page's Capacitor plugins, re-implemented over the host bridge (see
    @klui/shared nativeHost.ts). Behaviour follows the old platform/index.js. */
-
-// Preferences: small values the page keeps across launches, outside secure storage.
-const prefsFile = new File(Paths.document, "klui-preferences.json");
-const prefsBackup = new File(Paths.document, "klui-preferences.backup.json");
-let prefsCache: Record<string, string> | null = null;
-function readPrefs(file: File): Record<string, string> | null {
-  try {
-    return file.exists ? JSON.parse(file.textSync()) : null;
-  } catch {
-    return null;
-  }
-}
-function prefs(): Record<string, string> {
-  prefsCache ??= readPrefs(prefsFile) ?? readPrefs(prefsBackup) ?? {};
-  return prefsCache;
-}
-/* Synchronous, so saves land in order and a success reply means it is on disk
-   (File.write is async and can overlap). The backup is complete before the main
-   file is touched, so a kill during a save leaves one of them whole. */
-function savePrefs() {
-  const contents = JSON.stringify(prefs());
-  prefsBackup.writeSync(contents);
-  prefsFile.writeSync(contents);
-}
 
 function safeFileName(value: string) {
   return String(value || "download").replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "download";
@@ -89,11 +70,9 @@ export async function migrateLegacyStorage() {
   const prefKeys = Object.keys(legacy.prefs);
   if (prefKeys.length) {
     try {
-      for (const key of prefKeys) if (!(key in prefs())) prefs()[key] = legacy.prefs[key]!;
-      savePrefs();
+      prefs.merge(legacy.prefs);
       movedPrefs.push(...prefKeys);
     } catch (error) {
-      prefsCache = null; // the file did not take the merge; read it again
       console.warn("Could not carry over the previous app's preferences", error);
     }
   }
@@ -101,23 +80,57 @@ export async function migrateLegacyStorage() {
   await KluiHost.clearLegacyStorage(movedSecure, movedPrefs).catch((error) => console.warn("Could not drop the previous app's storage", error));
 }
 
-let launchUrlTaken = false;
+/* A link is handed to the page once the page has asked for it, which it does when its
+   boot reaches the link handling. Until then it waits here, through sign-in if need be. */
+let pendingLink: string | null = null;
+let pageListening = false;
+
+export function deliverLink(url: string) {
+  if (pageListening) emit({ type: "appUrlOpen", url });
+  else pendingLink = url;
+}
+
+export const hasPendingLink = () => pendingLink !== null;
+
+export function pageGone() {
+  pageListening = false;
+}
+
+/* A page never reads or replaces the session's tokens directly: it asks (session.*). */
+function pageKey(key: string) {
+  if (key === AUTH_STORAGE_KEY || key.startsWith("klui.auth.")) throw new Error("The app owns the session.");
+  return key;
+}
 
 const handlers: { [M in NativeHostMethod]: (args: any) => unknown } = {
-  "secure.get": ({ key }) => SecureStore.getItemAsync(key),
-  "secure.set": ({ key, value }) => SecureStore.setItemAsync(key, String(value)),
-  "secure.remove": ({ key }) => SecureStore.deleteItemAsync(key),
-  "prefs.get": ({ key }) => prefs()[key] ?? null,
-  "prefs.set": ({ key, value }) => { prefs()[key] = String(value); savePrefs(); },
-  "prefs.remove": ({ key }) => { delete prefs()[key]; savePrefs(); },
+  "session.snapshot": () => hostedSessionState(),
+  "session.refresh": async ({ force }) => {
+    await session.ensureFresh({ force: Boolean(force) });
+    return hostedSessionState();
+  },
+  "session.signOut": () => session.signOut(),
+  "session.signIn": () => signIn(),
+  "secure.get": ({ key }) => SecureStore.getItemAsync(pageKey(key)),
+  "secure.set": ({ key, value }) => SecureStore.setItemAsync(pageKey(key), String(value)),
+  "secure.remove": ({ key }) => SecureStore.deleteItemAsync(pageKey(key)),
+  "prefs.get": ({ key }) => prefs.get(key),
+  "prefs.set": ({ key, value }) => {
+    prefs.set(key, String(value));
+    if (key === SETTINGS_KEY) applyAppearance();
+  },
+  "prefs.remove": ({ key }) => prefs.remove(key),
   "browser.open": async ({ url }) => { await WebBrowser.openBrowserAsync(url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN }); },
   "browser.close": () => { try { WebBrowser.dismissBrowser(); } catch { /* Android closes the tab itself */ } },
-  "app.launchUrl": async () => {
-    if (launchUrlTaken) return null;
-    launchUrlTaken = true;
-    return Linking.getInitialURL();
+  "app.launchUrl": () => {
+    pageListening = true;
+    // A page that reloaded while hidden missed the event.
+    if (!useShell.getState().webVisible) emit({ type: "surfaceVisibility", visible: false });
+    const url = pendingLink;
+    pendingLink = null;
+    return url;
   },
-  "app.exit": () => BackHandler.exitApp(),
+  // At its root the page's Back leaves: that is back to the native screens now.
+  "app.exit": () => closeWebSurface(),
   "clipboard.write": ({ text }) => Clipboard.setStringAsync(String(text ?? "")),
   "clipboard.read": async () => (await Clipboard.hasStringAsync()) ? Clipboard.getStringAsync() : "",
   "files.shareText": async ({ fileName, contents, mime }) => {

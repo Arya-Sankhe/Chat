@@ -25,7 +25,13 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: appId,
     supportsTablet: true,
-    config: { usesNonExemptEncryption: false }
+    config: { usesNonExemptEncryption: false },
+    associatedDomains: ["applinks:klui.ai", "applinks:klui.tech"],
+    infoPlist: {
+      NSMicrophoneUsageDescription: "Klui uses the microphone for voice mode and recording lectures.",
+      NSCameraUsageDescription: "Klui uses the camera to add photos to a chat.",
+      NSPhotoLibraryUsageDescription: "Klui lets you add photos to a chat."
+    }
   },
   android: {
     package: appId,
@@ -58,7 +64,8 @@ const config: ExpoConfig = {
   extra: {
     apiOrigin: process.env.EXPO_PUBLIC_KLUI_API_ORIGIN || "https://klui.ai",
     authCallback: `${appId}://auth/callback`,
-    webDebugging: parity
+    webDebugging: parity,
+    parity
   }
 };
 
