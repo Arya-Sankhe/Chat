@@ -110,7 +110,7 @@ const proSql = (user) => `insert into public.subscriptions (user_id, provider, p
 
 /** Puts one user on the free plan until the next reset(). */
 export async function useUpFreeMessages(name) {
-  sql(`insert into public.free_daily_usage (user_id, usage_day, messages) values (${lit(USERS[name].id)}, (now() at time zone 'utc')::date, 1000)
+  sql(`insert into public.free_daily_usage (user_id, usage_day, messages) values (${lit(USERS[name].id)}, (now() at time zone 'Asia/Dubai')::date, 1000)
        on conflict (user_id, usage_day) do update set messages = 1000;`);
 }
 

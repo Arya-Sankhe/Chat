@@ -16,6 +16,7 @@ const SITES = [
 const normalize = (value) => JSON.parse(JSON.stringify(value)
   .replace(/student@(new\.)?klui\.test/g, "student@klui.test")
   .replace(/localhost:518[01]/g, "<origin>")
+  .replace(/\/c\/[0-9a-f-]{36}/g, "/c/<chat>")
   // Minutes to the daily reset move while the probe runs.
   .replace(/Resets in \d+[mh]/g, "Resets in <time>"));
 
