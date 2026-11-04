@@ -3,11 +3,12 @@
 source ~/.klui/android-env.sh
 case "$1" in
   ref) pkg=tech.klui.app.ref; act=tech.klui.app.MainActivity; port=${2:-9334}; other=tech.klui.app.dev ;;
-  new) pkg=tech.klui.app.dev; act=tech.klui.app.dev.MainActivity; port=${2:-9333}; other=tech.klui.app.ref ;;
+  # The web surface opens on a test link; the app itself starts on native screens.
+  new) pkg=tech.klui.app.dev; act=tech.klui.app.dev.MainActivity; port=${2:-9333}; other=tech.klui.app.ref; open="-a android.intent.action.VIEW -d tech.klui.app.dev://test/open?target=chat" ;;
 esac
 adb shell am force-stop $other
 adb shell am force-stop $pkg
-adb shell am start -n $pkg/$act >/dev/null
+adb shell "am start -n $pkg/$act $open" >/dev/null
 for i in $(seq 1 40); do
   pid=$(adb shell pidof $pkg | tr -d '\r')
   [ -n "$pid" ] && adb shell cat /proc/net/unix | grep -q "webview_devtools_remote_$pid" && break

@@ -126,6 +126,8 @@ export async function reset() {
     // uploads left out of a chat (Settings > Storage lists them) go too.
     sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email, role = 'user';
          delete from public.free_daily_usage where user_id = ${lit(user.id)};
+         delete from public.usage_api_weekly where user_id = ${lit(user.id)};
+         delete from public.usage_api_events where user_id = ${lit(user.id)};
          delete from public.conversations where user_id = ${lit(user.id)};
          delete from public.projects where user_id = ${lit(user.id)};
          delete from public.document_files where user_id = ${lit(user.id)};

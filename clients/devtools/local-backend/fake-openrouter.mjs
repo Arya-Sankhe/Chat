@@ -3,6 +3,7 @@
 // user message. Prompt words steer it:
 //   long    a long multi-section reply
 //   slow    tokens arrive slowly (for stop and reconnect tests)
+//   crawl   tokens arrive very slowly (long enough to tap Stop from a device test)
 //   reason  emits reasoning before the answer
 //   fail    the request fails with a 500
 // Usage: node fake-openrouter.mjs [port=55500]
@@ -66,6 +67,7 @@ async function streamCompletion(res, body) {
   const id = `gen-${randomUUID()}`;
   const model = body.model || "fake/model";
   const prompt = lastUserText(body);
+  const crawl = /\bcrawl\b/i.test(prompt);
   const slow = /\bslow\b/i.test(prompt);
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,7 +81,7 @@ async function streamCompletion(res, body) {
   for (let i = 0; i < text.length; i += 24) {
     if (res.destroyed) return;
     res.write(chunk(id, model, { content: text.slice(i, i + 24) }));
-    await wait(slow ? 250 : 15);
+    await wait(crawl ? 1000 : slow ? 250 : 15);
   }
   res.write(chunk(id, model, {}, "stop"));
   res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", model, choices: [], usage })}\n\n`);

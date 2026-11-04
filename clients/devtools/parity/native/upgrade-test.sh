@@ -16,6 +16,6 @@ node cdp.mjs 9334 "(async()=>{const P=Capacitor.Plugins;await P.SecureStorage.in
 sleep 2; ./launch.sh ref >/dev/null; sleep 2
 echo "capacitor: $(node cdp.mjs 9334 'JSON.stringify({guest:document.body.classList.contains("guest-mode")})') zoom=$(node cdp.mjs 9334 "$M")"
 adb shell am force-stop tech.klui.app.ref; adb install -r "$HOME/.klui/parity/upgrade.apk" >/dev/null
-adb logcat -c; adb shell am start -n tech.klui.app.ref/.MainActivity >/dev/null; attach
+adb logcat -c; adb shell "am start -n tech.klui.app.ref/.MainActivity -a android.intent.action.VIEW -d tech.klui.app.ref://test/open?target=chat" >/dev/null; attach
 echo "upgraded first launch: $(node cdp.mjs 9334 'JSON.stringify({v:window.__kluiNative?.version,guest:document.body.classList.contains("guest-mode")})') zoom=$(node cdp.mjs 9334 "$M")"
 adb logcat -d -s KluiWebView:* KluiHost:* KluiLegacyStorage:* ReactNativeJS:* | tail -15

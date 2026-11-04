@@ -241,23 +241,15 @@ const FAKE_UPDATE = (required) => ({
 });
 
 async function seed(page, app, auth) {
-  // The old app keeps the session in Capacitor SecureStorage; the new one in the host's secure store.
-  await page.eval(async ({ old, value }) => {
-    if (old) {
-      await window.Capacitor.Plugins.SecureStorage.internalSetItem({ prefixedKey: "capacitor-storage_klui.auth.v1", data: JSON.stringify(value), sync: false });
-      return;
-    }
-    await new Promise((resolve, reject) => {
-      const id = 900001;
-      const previous = window.__kluiNativeReply;
-      window.__kluiNativeReply = (reply) => {
-        if (reply.id !== id) return previous(reply);
-        window.__kluiNativeReply = previous;
-        reply.ok ? resolve() : reject(new Error(reply.error));
-      };
-      window.KluiNativeHost.postMessage(JSON.stringify({ id, method: "secure.set", args: { key: "klui.auth.v1", value } }));
-    });
-  }, { old: app.name === "old", value: auth });
+  // The old app keeps the session in Capacitor SecureStorage; the new app owns its session, and test builds take one by link.
+  if (app.name !== "old") {
+    sh(`am start -a android.intent.action.VIEW -d '${app.pkg}://test/session?data=${encodeURIComponent(auth)}' ${app.pkg}`);
+    await flushed();
+    return;
+  }
+  await page.eval(async ({ value }) => {
+    await window.Capacitor.Plugins.SecureStorage.internalSetItem({ prefixedKey: "capacitor-storage_klui.auth.v1", data: JSON.stringify(value), sync: false });
+  }, { value: auth });
   await flushed();
 }
 
@@ -290,7 +282,8 @@ async function nativeStore(page, app, method, key, value) {
 async function launch(app, { clear = false } = {}) {
   for (const other of APPS) sh(`am force-stop ${other.pkg}`);
   if (clear) sh(`pm clear ${app.pkg}`);
-  sh(`am start -n ${app.pkg}/${app.activity}`);
+  // The new app's web surface opens on a test link; its first screen is native.
+  sh(`am start -n ${app.pkg}/${app.activity}${app.name === "old" ? "" : ` -a android.intent.action.VIEW -d ${app.pkg}://test/open?target=chat`}`);
   const page = new Page(app);
   await page.connect();
   await page.until(() => document.readyState === "complete" && Boolean(document.body?.dataset.mode) && !document.getElementById("mobileLaunchScreen"), undefined, "boot");
@@ -474,7 +467,8 @@ async function runApp(app) {
       await nativeStore(page, app, "secure.remove", "klui.mobile.last-update-check.v1");
       key(3); // Home, then back into the app: resume runs the update check.
       await inFront(app, false);
-      sh(`am start -n ${app.pkg}/${app.activity}`);
+      // The new app's web surface opens on a test link; its first screen is native.
+  sh(`am start -n ${app.pkg}/${app.activity}${app.name === "old" ? "" : ` -a android.intent.action.VIEW -d ${app.pkg}://test/open?target=chat`}`);
       await inFront(app, true);
       await page.until(() => !document.getElementById("appUpdateDialog")?.classList.contains("hidden"), undefined, "update dialog");
       await dropKeyboard();

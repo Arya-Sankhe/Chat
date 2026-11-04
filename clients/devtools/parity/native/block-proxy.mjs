@@ -7,9 +7,14 @@ const server = http.createServer((req, res) => {
   // Not a proxy request (a stray local connection): refuse it, don't crash.
   if (!URL.canParse(req.url)) { res.writeHead(400); return res.end(); }
   const url = new URL(req.url);
+  // A test can put its own server in front of a local port: PROXY_REMAP=55421:55431,55600:55432
+  for (const pair of (process.env.PROXY_REMAP || "").split(",")) {
+    const [from, to] = pair.split(":");
+    if (from && url.port === from) { url.port = to; break; }
+  }
   if (BLOCK.test(url.hostname)) { console.log("blocked", req.method, req.url); res.writeHead(403); return res.end("blocked by parity proxy"); }
-  const upstream = http.request(req.url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
-  upstream.on("error", () => { res.writeHead(502); res.end(); });
+  const upstream = http.request(url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+  upstream.on("error", (error) => { console.log("upstream failed", req.url, error.message); res.writeHead(502); res.end(); });
   req.pipe(upstream);
 });
 server.on("connect", (req, socket, head) => {
