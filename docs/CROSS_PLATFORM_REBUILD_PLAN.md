@@ -56,6 +56,18 @@ foreground service and the mail composer. The page is served from the APK at
 fully native React Native UI would be a second implementation of every screen
 and could not be held to pixel parity; it stays an option per screen later.
 
+## Native decision, revised (2026-11-04)
+
+The app now mixes the two: React Native screens where that is the better
+experience, and the web client in a persistent WebView for the rest. Native:
+sign-in, chat list, chat thread with streaming, message box with attachments,
+settings. Web: Compare, Council, Research, Skills, voice, Dojo, plans, memory and
+storage, and replies with content the native renderer doesn't draw yet. The native
+app owns the session and hands the page only what it needs
+(`HostedSession` in `clients/shared/src/session.ts`), so the page never holds the
+refresh token. Android is tested first; iOS is written alongside and has not been
+compiled yet. This replaces the 2026-10-21 decision below where they differ.
+
 ## Execution sequence
 
 1. **Isolation and inventory.** Create a dedicated rebuild worktree and development

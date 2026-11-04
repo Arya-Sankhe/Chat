@@ -20,13 +20,16 @@ The web client reproduces the current site screen for screen except Projects,
 which is out of scope for now (Dojo courses are in). `devtools/parity/` holds
 the probes that compare it with the old site against a local backend
 (`devtools/local-backend/`): chat, turns, composer, settings, modes, paywall,
-surfaces, study, voice and admin. The Android app runs the same build, so it
-inherits all of that; its native adapters are compared with the Capacitor app
-by `devtools/parity/native-probe.mjs`. There is no iOS host yet: `klui-host`
-registers only Android, so an iOS build fails at launch until a WKWebView host
-implementing the same contract exists. Its reference is the unmerged Capacitor
-iOS target on `origin/codex/ios-port-latest`; building and comparing it needs
-Xcode.
+surfaces, study, voice and admin.
+
+The mobile app has native screens for sign-in, the chat list, chats, the message
+box and settings, and shows the web client in a WebView for everything else.
+`devtools/parity/native/run-chat.sh` and `run-slice.sh` test it on an emulator;
+`native-probe.mjs` compares its adapters with the Capacitor app. Still to come
+natively: upgrade prompts, the app-update prompt, the wait for document processing,
+guest limits and rich blocks (math, diagrams). The iOS host in
+`modules/klui-host/ios` is written but has never been compiled; that needs Xcode
+and CocoaPods.
 
 ## Commands
 
