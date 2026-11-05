@@ -424,6 +424,22 @@ async function loadActiveProject() {
   state.activeProject = await fetchProject(state.session, state.activeProjectId);
 }
 
+/* The app changed chats while this page was hidden. Only navigation updates: the open chat,
+   the route and the saved pins are the page's own, and may have moved on while this loads. */
+let chatListRefreshes = 0;
+async function refreshChatList() {
+  const refresh = ++chatListRefreshes;
+  const userId = state.me?.user?.id;
+  const payload = await listConversations(state.session);
+  if (refresh !== chatListRefreshes || state.me?.user?.id !== userId || !state.session) return;
+  const conversations = payload.conversations || [];
+  const listed = new Set(conversations.map((chat) => chat.id));
+  const inUse = state.conversations.filter((chat) => !listed.has(chat.id)
+    && (chat.id === state.activeConversationId || conversationRuns.has(chat.id)));
+  state.conversations = [...inUse, ...conversations];
+  renderConversations();
+}
+
 async function loadConversations() {
   const payload = await listConversations(state.session);
   state.conversations = payload.conversations || [];
@@ -9220,6 +9236,7 @@ export function mountChat() {
   Object.assign(chatHooks, {
     openUpgradePlans,
     openAdminDrawer,
+    refreshChatList,
     deletePendingAttachment,
     deletePendingProject,
     openStudyHub: () => { void loadStudyHub().then((hub) => hub.openCourses()); },

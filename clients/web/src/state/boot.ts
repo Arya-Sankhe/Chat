@@ -239,8 +239,18 @@ function openEmbeddedTarget(target: string | undefined) {
   else if (target === "voice") document.getElementById("voiceModeButton")?.click();
 }
 
+/** The native screens changed these while this page was hidden. */
+async function catchUpWithApp() {
+  if (!bootFinished || !get().signedIn) return;
+  await hydrateNativeSettings();
+  await restoreNativePins();
+  loadPinnedChatIds();
+  await chatHooks.refreshChatList().catch(() => {});
+}
+
 if (isEmbedded()) {
   onEmbeddedEvents({
+    onShown: () => void catchUpWithApp(),
     onSession: (next: Parameters<HostedSession["update"]>[0]) => {
       const wasGuest = !session.current();
       (session as HostedSession).update(next);

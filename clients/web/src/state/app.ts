@@ -504,6 +504,7 @@ export const chatHooks = {
   deletePendingProject: async (_id: string) => {},
   openStudyHub: () => {},
   openAdminDrawer: () => {},
+  refreshChatList: async () => {},
   /** Pending attachments block Deep Research: shows why and returns true. */
   researchBlocked: () => false,
   /** Clears clarifications (and, turning research on, the slash menu). */

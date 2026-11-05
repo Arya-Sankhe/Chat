@@ -22,7 +22,7 @@ export type NativeHostInfo = {
   startTarget?: WebSurfaceTarget;
 };
 
-export type WebSurfaceTarget = "chat" | "dojo" | "plans" | "voice" | "settings";
+export type WebSurfaceTarget = "chat" | "dojo" | "voice" | "settings";
 
 export type NativeHostMethods = {
   "session.snapshot": (args: Record<string, never>) => HostedSessionState;

@@ -20,11 +20,11 @@ export function nativeInfoTarget() {
   return nativeInfo?.startTarget;
 }
 
-export function onEmbeddedEvents({ onSession, onTarget }) {
+export function onEmbeddedEvents({ onSession, onTarget, onShown }) {
   onNativeEvent("sessionChanged", ({ generation, session }) => onSession({ generation, session }));
   // Hidden behind the native screens: the page keeps its state but stops being in use.
   onNativeEvent("surfaceVisibility", ({ visible }) => {
-    if (visible) return;
+    if (visible) return void onShown();
     document.activeElement?.blur?.();
     for (const media of document.querySelectorAll("audio, video")) media.pause();
   });
