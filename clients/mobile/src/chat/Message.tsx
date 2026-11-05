@@ -6,10 +6,10 @@ import * as WebBrowser from "expo-web-browser";
 import { textFromMessageContent, type DisplayItem, type LiveAssistant, type StoredMessage } from "@klui/shared";
 import { useTheme } from "../theme";
 import { Icon } from "../ui/Icon";
-import { Markdown } from "./Markdown";
+import { Markdown, OpenFullView } from "./Markdown";
 
 const FULL_VIEW_META = ["council", "compare", "research"];
-const FULL_VIEW_FENCE = /```(visualize|email|mermaid|html)\b|\$\$/;
+const FULL_VIEW_FENCE = /```html\b/;
 
 /** Replies with parts only the web client draws yet: the row offers it instead of hiding them. */
 export function needsFullView(message: StoredMessage | LiveAssistant): boolean {
@@ -102,7 +102,7 @@ function AssistantRow({ message, live, canRetry, onRetry, onOpenFull }: Assistan
       {reasoning ? <Reasoning text={reasoning} working={live && !text} /> : null}
       {live && lastStep && !text ? <Text style={[styles.meta, { color: colors.textSecondary }]}>{lastStep}</Text> : null}
       {live && !text && !reasoning && !lastStep ? <ActivityIndicator testID="replyStarting" style={styles.spinner} color={colors.textSecondary} /> : null}
-      {text ? <Markdown text={text} streaming={live} /> : null}
+      {text ? <OpenFullView.Provider value={live ? undefined : onOpenFull}><Markdown text={text} streaming={live} /></OpenFullView.Provider> : null}
       {images.map((url) => <Image key={url} source={{ uri: url }} style={styles.replyImage} contentFit="contain" accessibilityLabel="Image from the reply" />)}
       {needsFullView(message) && !live && onOpenFull ? (
         <Pressable testID="openFullView" accessibilityRole="button" onPress={onOpenFull} style={[styles.fullView, { borderColor: colors.border }]}>

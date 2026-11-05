@@ -27,7 +27,7 @@ export const chat = createChatController({
     return {
       role: savedRole(),
       writingStyle: typeof saved.writingStyle === "string" ? saved.writingStyle : "normal",
-      systemPrompt: typeof saved.systemPrompt === "string" ? saved.systemPrompt : "",
+      systemPrompt: "",
       webSearch: "auto" as const
     };
   }

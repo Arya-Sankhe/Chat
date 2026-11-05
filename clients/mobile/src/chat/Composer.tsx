@@ -1,12 +1,12 @@
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { NATIVE_ROLES, saveRole, savedRole } from "../core/chat";
 import { openWeb } from "../core/shell";
 import type { WithdrawnDraft } from "@klui/shared";
-import { uploadPicked, type PickedFile } from "../core/uploads";
+import { PICKABLE_TYPES, documentType, uploadPicked, waitForDocument, type PickedFile } from "../core/uploads";
 import { useTheme } from "../theme";
 import { Icon } from "../ui/Icon";
 import { ActionSheet } from "../ui/Sheet";
@@ -46,6 +46,15 @@ export function Composer({ busy, draft, onDraftTaken, onSend, onStop }: {
     onDraftTaken();
   }, [draft]);
 
+  const current = useRef(files);
+  current.current = files;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const isCurrent = (key: string) => mounted.current && current.current.some((item) => item.key === key);
+
   const uploading = files.some((file) => !file.attachmentId && !file.failed);
   const ready = files.filter((file) => file.attachmentId);
   const canSend = !busy && !sending && !uploading && (Boolean(text.trim()) || ready.length > 0);
@@ -61,11 +70,14 @@ export function Composer({ busy, draft, onDraftTaken, onSend, onStop }: {
     for (const file of picked) {
       const key = String(nextKey++);
       setFiles((current) => [...current, { key, file, attachmentId: "", failed: false }]);
-      uploadPicked(file).then((uploaded: { id: string }) => {
+      uploadPicked(file).then(async (uploaded: { id: string }) => {
+        if (file.category === "document") await waitForDocument(uploaded.id, () => isCurrent(key));
         setFiles((current) => current.map((item) => (item.key === key ? { ...item, attachmentId: uploaded.id } : item)));
       }).catch((error: Error) => {
+        if (!isCurrent(key)) return;
         setFiles((current) => current.map((item) => (item.key === key ? { ...item, failed: true } : item)));
-        Alert.alert("Upload failed", error?.message || "The file could not be uploaded.");
+        // A plan's limit has already said why.
+        if (!(error as Error & { code?: string }).code) Alert.alert("Upload failed", error?.message || "The file could not be uploaded.");
       });
     }
   }
@@ -91,12 +103,12 @@ export function Composer({ busy, draft, onDraftTaken, onSend, onStop }: {
   }
 
   async function pickFiles() {
-    const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+    const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: PICKABLE_TYPES });
     if (result.canceled) return;
     add(result.assets.map((asset) => ({
       uri: asset.uri,
       name: asset.name,
-      mimeType: asset.mimeType || "application/octet-stream",
+      mimeType: asset.mimeType?.startsWith("image/") ? asset.mimeType : documentType(asset.name, asset.mimeType || "application/octet-stream"),
       size: asset.size || 0,
       category: asset.mimeType?.startsWith("image/") ? "image" : "document"
     })));

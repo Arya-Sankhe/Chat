@@ -9,6 +9,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { handleAppUrl, listenForAppUrls } from "./core/auth";
 import { applyAppearance, clearAccount, loadAccount } from "./core/account";
 import { chat } from "./core/chat";
+import { checkForUpdate } from "./core/updates";
 import { hostedSessionState, loadConfig, session } from "./core/runtime";
 import { openWeb, useShell } from "./core/shell";
 import { deliverLink, emit, hasPendingLink, migrateLegacyStorage, pageGone } from "./host/bridge";
@@ -18,6 +19,8 @@ import type { RootStack } from "./screens/navigation";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ThreadScreen } from "./screens/ThreadScreen";
 import { SignInScreen } from "./screens/SignInScreen";
+import { Toast } from "./ui/Toast";
+import { UpdateDialog } from "./ui/UpdateDialog";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -89,7 +92,10 @@ export function App() {
         console.warn("Start failed", error);
         useShell.setState({ phase: "signedOut" });
       })
-      .finally(() => void SplashScreen.hideAsync());
+      .finally(() => {
+        void SplashScreen.hideAsync();
+        void checkForUpdate();
+      });
     return () => {
       unwatch();
       links.remove();
@@ -98,19 +104,25 @@ export function App() {
 
   // Back in front after a while: dropped streams reattach.
   useEffect(() => {
-    const state = AppState.addEventListener("change", (next) => { if (next === "active") chat.onAppResumed(); });
+    const state = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      chat.onAppResumed();
+      void checkForUpdate();
+    });
     return () => state.remove();
   }, []);
 
+  // Added as the surface opens, so it runs before the navigator's handler: the newest goes first,
+  // and otherwise Back would pop the screen hidden underneath.
   useEffect(() => {
+    if (!webVisible) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (!useShell.getState().webVisible) return false;
       // The page decides what Back closes; at its root it calls app.exit, which closes the surface.
       emit({ type: "backButton" });
       return true;
     });
     return () => back.remove();
-  }, []);
+  }, [webVisible]);
 
   if (phase === "starting") return <View style={styles.root} />;
   return (
@@ -139,6 +151,8 @@ export function App() {
             <WebClient key={generation} target={webTarget} />
           </View>
         ) : null}
+        <Toast />
+        <UpdateDialog />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

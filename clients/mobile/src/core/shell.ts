@@ -1,3 +1,4 @@
+import { Keyboard } from "react-native";
 import { create } from "zustand";
 import type { WebSurfaceTarget } from "@klui/shared";
 
@@ -13,6 +14,7 @@ type ShellState = {
   webRequest: number;
   /** Bumped when another account signs in: the web surface starts over. */
   webGeneration: number;
+  toast: string;
 };
 
 export const useShell = create<ShellState>(() => ({
@@ -22,13 +24,23 @@ export const useShell = create<ShellState>(() => ({
   webVisible: false,
   webTarget: null,
   webRequest: 0,
-  webGeneration: 0
+  webGeneration: 0,
+  toast: ""
 }));
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+export function showToast(message: string) {
+  useShell.setState({ toast: message });
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => useShell.setState({ toast: "" }), 3200);
+}
 
 export function closeWebSurface() {
   useShell.setState({ webVisible: false });
 }
 
 export function openWeb(target: WebSurfaceTarget) {
+  // Otherwise it stays up over the page, and Back only closes it.
+  Keyboard.dismiss();
   useShell.setState((state) => ({ webVisible: true, webTarget: target, webRequest: state.webRequest + 1 }));
 }

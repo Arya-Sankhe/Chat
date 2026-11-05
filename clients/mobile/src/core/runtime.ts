@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { fetch as streamingFetch } from "expo/fetch";
 import * as SecureStore from "expo-secure-store";
-import { SessionManager, createApiClient, type KeyValueStorage, type KluiConfig, sessionSnapshot, type HostedSessionState } from "@klui/shared";
+import { SessionManager, createApiClient, type ApiClientOptions, type KeyValueStorage, type KluiConfig, sessionSnapshot, type HostedSessionState } from "@klui/shared";
 import { prefs } from "./prefs";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as { apiOrigin?: string; authCallback?: string; parity?: boolean };
@@ -30,9 +30,13 @@ export function hostedSessionState(): HostedSessionState {
   return { generation: sessionGeneration, session: sessionSnapshot(session.current()) };
 }
 
+/* Set by account.ts, which knows the plan. */
+export const upgradeRequired: { handle: NonNullable<ApiClientOptions["onUpgradeRequired"]> } = { handle: () => {} };
+
 export const api = createApiClient({
   baseUrl: API_ORIGIN,
   session,
+  onUpgradeRequired: (problem) => upgradeRequired.handle(problem),
   streamFetch: streamingFetch as unknown as typeof fetch
 });
 

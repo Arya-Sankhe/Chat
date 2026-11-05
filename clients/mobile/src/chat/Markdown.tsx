@@ -1,14 +1,17 @@
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
+import { extractMath, type MathSlot } from "@klui/shared";
 import { marked, type Token, type Tokens } from "marked";
-import { memo, useMemo } from "react";
+import { createContext, memo, useContext, useMemo } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../theme";
 import { Icon } from "../ui/Icon";
+import { MathBlock } from "./MathBlock";
 
 const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
 
 type Colors = ReturnType<typeof useTheme>["colors"];
+type BlockProps = { token: Token; colors: Colors; math: MathSlot[]; unfinished: boolean };
 
 function openLink(url: string) {
   if (/^https?:\/\//i.test(url)) void WebBrowser.openBrowserAsync(url);
@@ -53,7 +56,23 @@ function decode(text: string) {
   return text.replace(/&(amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity] ?? entity);
 }
 
+/** Opens the reply in the web client, for what it alone can draw. */
+export const OpenFullView = createContext<(() => void) | undefined>(undefined);
+
+const WEB_ONLY_BLOCKS: Record<string, string> = { mermaid: "Diagram", visualize: "Visual", email: "Email draft" };
+
 function CodeBlock({ token, colors }: { token: Tokens.Code; colors: Colors }) {
+  const openFull = useContext(OpenFullView);
+  const webOnly = WEB_ONLY_BLOCKS[token.lang?.split(/\s/)[0] ?? ""];
+  if (webOnly) {
+    return (
+      <Pressable testID="webOnlyBlock" accessibilityRole="button" disabled={!openFull} onPress={openFull}
+        style={[styles.webOnly, { backgroundColor: colors.codeBg, borderColor: colors.borderLight }]}>
+        <Icon name="open" size={16} color={colors.text} />
+        <Text style={[styles.body, { color: colors.text }]}>{webOnly}: open in full view</Text>
+      </Pressable>
+    );
+  }
   return (
     <View style={[styles.code, { backgroundColor: colors.codeBg, borderColor: colors.borderLight }]}>
       <View style={styles.codeHead}>
@@ -90,7 +109,18 @@ function Table({ token, colors }: { token: Tokens.Table; colors: Colors }) {
   );
 }
 
-function BlockView({ token, colors }: { token: Token; colors: Colors }) {
+const HELD_MATH = /KLUIMATHHOLD\d+END/;
+
+function BlockView({ token, colors, math, unfinished }: BlockProps) {
+  if (HELD_MATH.test(token.raw)) {
+    // Still arriving: its source for now, since a web view per update would be heavy.
+    if (unfinished) {
+      let source = token.raw;
+      for (const slot of math) source = source.replaceAll(slot.token, () => (slot.display ? `$$${slot.latex}$$` : `$${slot.latex}$`));
+      return <Text selectable style={[styles.body, { color: colors.text }]}>{source.trim()}</Text>;
+    }
+    return <MathBlock token={token} slots={math} colors={colors} onLink={openLink} />;
+  }
   switch (token.type) {
     case "heading": {
       const heading = token as Tokens.Heading;
@@ -135,25 +165,38 @@ function BlockView({ token, colors }: { token: Token; colors: Colors }) {
 }
 
 /* Finished blocks don't change as a reply streams, so only the last one renders again. */
-const MemoBlock = memo(BlockView, (a, b) => a.token.raw === b.token.raw && a.colors === b.colors);
+/* The block's text with its math back in: the same raw text can hold different formulas. */
+const blockSource = ({ token, math }: BlockProps) => token.raw.replace(/KLUIMATHHOLD\d+END/g, (held) => {
+  const slot = math.find((candidate) => candidate.token === held);
+  return slot ? `${slot.display ? "$$" : "$"}${slot.latex}` : held;
+});
 
-function Blocks({ tokens, colors }: { tokens?: Token[]; colors: Colors }) {
-  return <View style={styles.blocks}>{(tokens ?? []).map((token, index) => <MemoBlock key={index} token={token} colors={colors} />)}</View>;
+const MemoBlock = memo(BlockView, (a, b) => blockSource(a) === blockSource(b) && a.colors === b.colors && a.unfinished === b.unfinished);
+
+function Blocks({ tokens, colors, math = [], streaming = false }: { tokens?: Token[]; colors: Colors; math?: MathSlot[]; streaming?: boolean }) {
+  const list = tokens ?? [];
+  return (
+    <View style={styles.blocks}>
+      {list.map((token, index) => <MemoBlock key={index} token={token} colors={colors} math={math} unfinished={streaming && index === list.length - 1} />)}
+    </View>
+  );
 }
 
 export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const { colors } = useTheme();
-  const tokens = useMemo(() => {
-    const all = marked.lexer(text);
+  const { tokens, math } = useMemo(() => {
+    const held = extractMath(text);
+    const all = marked.lexer(held.text);
     // A table only parses once its divider row is whole; until then it would show as raw pipes.
     const last = all[all.length - 1];
-    return streaming && last?.type === "paragraph" && last.raw.startsWith("|") ? all.slice(0, -1) : all;
+    return { tokens: streaming && last?.type === "paragraph" && last.raw.startsWith("|") ? all.slice(0, -1) : all, math: held.slots };
   }, [text, streaming]);
-  return <Blocks tokens={tokens} colors={colors} />;
+  return <Blocks tokens={tokens} colors={colors} math={math} streaming={streaming} />;
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  webOnly: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingHorizontal: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   blocks: { gap: 10 },
   body: { fontSize: 16, lineHeight: 24 },
   heading: { fontWeight: "600", marginTop: 4 },

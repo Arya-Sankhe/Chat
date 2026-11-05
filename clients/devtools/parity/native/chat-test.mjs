@@ -1,7 +1,10 @@
 // The native chat screens end to end on the emulator, behind the block proxy.
 // Fake OpenRouter answers. Prints one line per check; exits 1 on any failure.
-import { execFileSync } from "node:child_process";
-import { reset, session as fixtureSession } from "../../local-backend/fixtures.mjs";
+import { execFileSync, spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import http from "node:http";
+import { deflateSync } from "node:zlib";
+import { reset, session as fixtureSession, setFree, useUpFreeMessages } from "../../local-backend/fixtures.mjs";
 
 const PKG = "tech.klui.app.dev";
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -10,12 +13,14 @@ const sh = (command) => adb("shell", command);
 const CHAT_ID = "00000000-0000-4000-8000-b00000000001";
 const SHOTS = process.env.SHOTS || "/tmp/x";
 
-function nodes() {
-  const xml = adb("exec-out", "uiautomator", "dump", "/dev/stdout");
+/* compressed honors what's hidden from screen readers: what's really on top. */
+function nodes(onTop = false) {
+  const xml = adb("exec-out", "uiautomator", "dump", ...(onTop ? ["--compressed"] : []), "/dev/stdout");
   return [...xml.matchAll(/<node [^>]*>/g)].map(([tag]) => ({
     id: (/resource-id="([^"]*)"/.exec(tag)?.[1] || "").split("/").pop(),
     text: (/text="([^"]*)"/.exec(tag)?.[1] || "").replace(/&amp;/g, "&"),
     desc: /content-desc="([^"]*)"/.exec(tag)?.[1] || "",
+    enabled: !/enabled="false"/.test(tag),
     bounds: /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(tag)?.slice(1).map(Number)
   }));
 }
@@ -40,6 +45,64 @@ const typeText = (text) => sh(`input text '${text.replace(/ /g, "%s")}'`);
 const shot = (name) => execFileSync("sh", ["-c", `adb exec-out screencap -p > ${SHOTS}/${name}.png`]);
 const sql = (text) => execFileSync("docker", ["exec", "supabase_db_klui-parity", "psql", "-U", "postgres", "-tAc", text], { encoding: "utf8" }).trim();
 const back = () => sh("input keyevent 4");
+
+const crcTable = [...Array(256)].map((_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+const crc = (bytes) => {
+  let c = ~0;
+  for (const byte of bytes) c = crcTable[(c ^ byte) & 255] ^ (c >>> 8);
+  return ~c >>> 0;
+};
+function png(width, height) {
+  const part = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const end = Buffer.alloc(4);
+    end.writeUInt32BE(crc(body));
+    return Buffer.concat([length, body, end]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const raw = Buffer.alloc((width * 3 + 1) * height, 120);
+  for (let row = 0; row < height; row++) raw[row * (width * 3 + 1)] = 0; // each row's filter byte
+  const pixels = deflateSync(raw);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), part("IHDR", header), part("IDAT", pixels), part("IEND", Buffer.alloc(0))]);
+}
+function pushFile(name, bytes) {
+  writeFileSync(`${SHOTS}/${name}`, bytes);
+  adb("push", `${SHOTS}/${name}`, `/sdcard/Download/${name}`);
+  sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/${name}`);
+}
+const tapNode = (node) => {
+  const [a, b, c, d] = node.bounds;
+  sh(`input tap ${(a + c) >> 1} ${(b + d) >> 1}`);
+};
+/* Through the real system picker. */
+async function attachFile(name) {
+  await tap("attachButton");
+  await tap("attachFiles");
+  await until(() => !find("promptInput"), 8000);
+  if (!(await until(() => hasText(name), 8000))) {
+    const roots = await until(() => nodes().find((node) => node.desc === "Show roots"), 5000);
+    if (roots) {
+      tapNode(roots);
+      tapNode(await until(() => nodes().find((node) => node.text === "Downloads"), 5000));
+    }
+  }
+  const picked = await until(() => nodes().find((node) => node.text === name), 10000);
+  if (picked) tapNode(picked);
+}
+const restart = () => {
+  sh(`am force-stop ${PKG}`);
+  sh(`am start -n ${PKG}/${PKG}.MainActivity`);
+};
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -146,37 +209,10 @@ check("delete removes the chat", await until(() => !find("chatRow-00000000-0000-
 
 // Attach a real file through the system picker; it goes to local storage and on with the message.
 const NAME = "klui-upload-test.png";
-execFileSync("sh", ["-c", `node -e "
-const z = require('zlib');
-const crcTable = [...Array(256)].map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
-const crc = (b) => { let c = ~0; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return ~c >>> 0; };
-const part = (t, d) => { const h = Buffer.from(t); const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const e = Buffer.alloc(4); e.writeUInt32BE(crc(Buffer.concat([h, d]))); return Buffer.concat([l, h, d, e]); };
-const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(64, 0); ihdr.writeUInt32BE(64, 4); ihdr[8] = 8; ihdr[9] = 2;
-const raw = Buffer.alloc(65 * 3 * 64 + 64, 120);
-process.stdout.write(Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), part('IHDR', ihdr), part('IDAT', z.deflateSync(raw.subarray(0, (64 * 3 + 1) * 64))), part('IEND', Buffer.alloc(0))]));
-" > ${SHOTS}/${NAME}`]);
-adb("push", `${SHOTS}/${NAME}`, `/sdcard/Download/${NAME}`);
-sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/${NAME}`);
+pushFile(NAME, png(64, 64));
 await tap("newChat");
 await until(() => find("newChatHint"), 8000);
-await tap("attachButton");
-await tap("attachFiles");
-await until(() => !find("promptInput"), 8000);
-if (!(await until(() => hasText(NAME), 8000))) {
-  const roots = await until(() => nodes().find((node) => node.desc === "Show roots"), 5000);
-  if (roots) {
-    const [a, b, c, d] = roots.bounds;
-    sh(`input tap ${(a + c) >> 1} ${(b + d) >> 1}`);
-    const downloads = await until(() => nodes().find((node) => node.text === "Downloads"), 5000);
-    const [e, f, g, h] = downloads.bounds;
-    sh(`input tap ${(e + g) >> 1} ${(f + h) >> 1}`);
-  }
-}
-const picked = await until(() => nodes().find((node) => node.text === NAME), 10000);
-if (picked) {
-  const [a, b, c, d] = picked.bounds;
-  sh(`input tap ${(a + c) >> 1} ${(b + d) >> 1}`);
-}
+await attachFile(NAME);
 check("the picked file appears on the message", await until(() => find("composerFile"), 15000));
 const uploaded = await until(() => sql(`select status from attachments where file_name='${NAME}' order by created_at desc limit 1`) === "uploaded", 20000);
 check("the bytes reached storage", uploaded);
@@ -210,6 +246,116 @@ shot("native-settings-dark");
 await tap("appearance-light");
 await tap("settingsBack");
 await until(() => find("chatList"));
+
+// Math is drawn; a diagram offers the web client, which opens that chat.
+await tap("newChat");
+await until(() => find("newChatHint"), 8000);
+await tap("promptInput");
+typeText("math please");
+await tap("sendButton");
+check("a reply with math finishes", await until(() => find("sendButton") && hasText("Done."), 30000));
+check("math draws in its own view", await until(() => nodes().filter((node) => node.id === "mathBlock").length === 3, 8000));
+await wait(800);
+const mathViews = nodes().filter((node) => node.id === "mathBlock");
+// A hostile block tries to report a height of 3000 from script.
+check("nothing in a reply runs, and each is sized to its content", mathViews.every(({ bounds: [, top, , bottom] }) => bottom - top > 40 && bottom - top < 400), mathViews.map(({ bounds: [, t, , b] }) => b - t).join(","));
+shot("native-math");
+// Only a tapped web link leaves the view, and it goes to the system's browser.
+adb("logcat", "-c");
+const [left, top] = mathViews[1].bounds;
+adb("shell", "input", "tap", String(left + 60), String(top + 30));
+await wait(1500);
+check("a link in a math block opens outside the app", adb("logcat", "-d", "-s", "ActivityTaskManager:I").includes("example.invalid"));
+adb("shell", "am", "force-stop", "com.android.chrome");
+adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`);
+check("and the chat is still there", await until(() => find("sendButton") && hasText("Done."), 8000));
+check("math isn't left as source", !hasText("$$"));
+await tap("webOnlyBlock");
+check("a diagram opens the full view", await until(() => find("webSurface") && !find("threadBack", nodes(true)), 8000));
+await wait(1500);
+back();
+check("Back returns to the chat", await until(() => find("threadBack", nodes(true)), 8000));
+check("the page doesn't raise the keyboard by itself", !/mInputShown=true/.test(sh("dumpsys input_method")));
+await tap("threadBack");
+await until(() => find("chatList"));
+
+// A big photo gets smaller on the phone, as on the web.
+const BIG = "klui-big-photo.png";
+pushFile(BIG, png(3000, 1000));
+await tap("newChat");
+await until(() => find("newChatHint"), 8000);
+await attachFile(BIG);
+await until(() => sql(`select status from attachments where file_name='${BIG}' order by created_at desc limit 1`) === "uploaded", 30000);
+const bigKey = sql(`select object_key from attachments where file_name='${BIG}' order by created_at desc limit 1`);
+const stored = Buffer.from(await (await fetch(`http://localhost:55900/klui-parity/${bigKey}`)).arrayBuffer());
+check("a big image is scaled to the app's limit", stored.readUInt32BE(16) === 2048, `width ${stored.length > 20 ? stored.readUInt32BE(16) : "?"}`);
+await tap("threadBack");
+await until(() => find("chatList"));
+
+// A document holds the message back until the server has read it.
+const DOC = "klui-notes.csv";
+pushFile(DOC, Buffer.from("topic,note\nphotosynthesis,light into energy\n".repeat(20)));
+await tap("newChat");
+await until(() => find("newChatHint"), 8000);
+await attachFile(DOC);
+await until(() => find("composerFile"), 15000);
+await tap("promptInput");
+typeText("Summarize this");
+await wait(4000);
+check("a document being read holds Send back", (await until(() => find("sendButton")))?.enabled === false);
+const worker = spawn("sh", ["-c", `cd ../../../../worker; set -a; . ../clients/devtools/local-backend/parity.env; set +a; DOCUMENT_QUEUE=local exec "$HOME/.klui/parity/docworker-venv/bin/python" -u worker.py`], { cwd: import.meta.dirname, stdio: "ignore" });
+check("Send opens once it's read", await until(() => find("sendButton")?.enabled, 90000));
+await tap("sendButton");
+check("the message goes with the document", await until(() => hasText("Done."), 60000));
+worker.kill();
+await tap("threadBack");
+await until(() => find("chatList"));
+sh(`rm -f /sdcard/Download/${BIG} /sdcard/Download/${DOC}`);
+
+// Out of free messages: it says why and where to subscribe; the app doesn't sell plans.
+await setFree("new");
+await useUpFreeMessages("new");
+restart();
+await until(() => find("chatList"), 30000);
+await tap("newChat");
+await until(() => find("newChatHint"), 8000);
+await tap("promptInput");
+typeText("One more");
+await tap("sendButton");
+// The toast is brief, so its wording comes from the same read that found it.
+const limitToast = await until(() => find("toast"), 8000);
+check("the spent allowance says why", limitToast);
+check("and where to subscribe", limitToast?.text?.includes("Subscribe on the website"), limitToast?.text);
+check("without leaving the chat", find("promptInput") && !find("webSurface"));
+shot("native-free-limit");
+
+// Updates.
+let feed = {};
+const feedServer = http.createServer((req, res) => {
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify(feed));
+}).listen(55433);
+adb("reverse", "tcp:55433", "tcp:55433");
+feed = { published: true, versionCode: 999999, minimumVersionCode: 0, body: "A newer Klui." };
+restart();
+check("an available update asks", await until(() => find("updateDialog"), 30000));
+shot("native-update");
+await tap("updateLater");
+check("and Later closes it", await until(() => !find("updateDialog"), 8000));
+feed = { published: true, versionCode: 999999, minimumVersionCode: 999999 };
+restart();
+check("a required update asks", await until(() => find("updateDialog"), 30000));
+check("with no way past it", !find("updateLater"));
+back();
+await wait(800);
+check("Back doesn't close it", find("updateDialog"));
+feed = { published: true, versionCode: 1, minimumVersionCode: 0 };
+restart();
+await until(() => find("chatList"), 30000);
+check("an older feed stays quiet", !find("updateDialog"));
+sh(`am force-stop ${PKG}`);
+adb("reverse", "--remove", "tcp:55433");
+feedServer.close();
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

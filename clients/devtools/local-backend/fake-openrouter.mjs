@@ -31,6 +31,22 @@ function replyFor(prompt) {
   if (/\blong\b/i.test(prompt)) {
     return Array.from({ length: 12 }, (_, i) => `## Section ${i + 1}\n\nThis is paragraph ${i + 1} of a long reply about *${subject}*. It has enough words to wrap across several lines on a phone screen.\n\n- point one\n- point two\n`).join("\n");
   }
+  if (/\bmath\b/i.test(prompt)) {
+    return [
+      "The area is $x^2$ when each side is $x$.",
+      "",
+      // A hostile reply: nothing here may run or load inside the math view.
+      '[open this link](https://example.invalid/math-link) and not code: $y$ <script nonce="klui-math">window.ReactNativeWebView.postMessage("3000")</script> <img src=x onerror="window.ReactNativeWebView.postMessage(\'3000\')"> [link](javascript:window.ReactNativeWebView.postMessage("3000"))',
+      "",
+      "$$\\frac{a}{b} = \\sqrt{c}$$",
+      "",
+      "```mermaid",
+      "graph TD; A-->B;",
+      "```",
+      "",
+      "Done."
+    ].join("\n");
+  }
   return [
     `Here is a reply to **${subject}**.`,
     "",

@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WRITING_STYLE_LABELS } from "@klui/shared";
 import { readControls, useAccount, writeControls } from "../core/account";
@@ -90,14 +90,6 @@ export function SettingsScreen({ navigation }: NativeStackScreenProps<RootStack,
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.heading, { color: colors.text }]}>Custom instructions</Text>
-          <TextInput testID="systemPrompt" multiline defaultValue={String(controls.systemPrompt || "")} placeholder="How should Klui respond?" placeholderTextColor={colors.textTertiary}
-            onEndEditing={(event) => change({ systemPrompt: event.nativeEvent.text })}
-            style={[styles.prompt, { color: colors.text, borderColor: colors.border }]} accessibilityLabel="Custom instructions" />
-        </View>
-
-        <View style={styles.section}>
-          <LinkRow id="openPlans" label="Plans and upgrade" onPress={() => openWeb("plans")} />
           <LinkRow id="openAllSettings" label="Memory, voice, storage and more" onPress={() => openWeb("settings")} />
           <LinkRow id="signOut" label="Sign out" danger onPress={confirmSignOut} />
         </View>
@@ -119,7 +111,6 @@ const styles = StyleSheet.create({
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   choice: { minHeight: 40, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, justifyContent: "center" },
   choiceLabel: { fontSize: 14 },
-  prompt: { minHeight: 90, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 12, fontSize: 15, textAlignVertical: "top" },
   link: { minHeight: 50, justifyContent: "center", borderBottomWidth: StyleSheet.hairlineWidth },
   linkLabel: { fontSize: 16 }
 });
