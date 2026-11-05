@@ -44,9 +44,14 @@ transcriber container (one job at a time) ◀── claim (lease) ───┘
 - **Length limit**: ffmpeg stops decoding just past `STUDY_AUDIO_MAX_SECONDS`, and the decoded length is checked, so a file whose header is missing or wrong (recorded WebM has none) can't get around the limit.
 - **Search**: transcript chunks are about 4,000 characters, labelled by time range (`12:30–18:05`), with a `[m:ss]` marker on every line. The document worker's embedding healer indexes them like any other source.
 
+- **Capture and speech detection**: the recorder turns the browser's noise suppression off and Silero runs at threshold 0.25, 0.8 s minimum silence, 30 s maximum segment. Scored against human captions on three MIT 7.013 lectures, degraded to sound far from the mic and captured through real Chrome: word errors fell from 15.8% to 8.1%, and from 17.5% to 11.3% with added chatter and fan noise. Room noise alone still produced no words. The detector can run far past its maximum in non-stop speech, so `transcribe.py` also cuts anything over 30 s at its quietest moment; on 17 minutes of non-stop speech that took peak memory from 2.2 GB to 1.35 GB and decoding from 496 s to 44 s.
+- **AI correction** (`transcriber/cleanup.py`): before publishing, one model call reads the whole transcript plus the course text closest to the lecture and returns word fixes, not a rewrite, so timestamps can't move and no passage can be lost. Code rejects any fix that changes a number's value, a unit, or a negation, swaps in a known opposite, or isn't similar to the original. A failure or timeout publishes the machine transcript. The audit, including each changed line's original text, is in `document_files.metadata.transcript_cleanup`. The cost is ours and isn't charged to the student's allowance; each job logs its tokens and cost. Set `TRANSCRIPT_CLEANUP_ENABLED=false` to turn it off or `TRANSCRIPT_CLEANUP_MODEL` to change the model.
+
 Limits are set in `.env` (`STUDY_AUDIO_*`, `TRANSCRIBE_*`); see `.env.example`.
 
 ## Deploying
+
+Apply `supabase/migrations/20261105120000_transcript_cleanup_audit.sql` before deploying the transcriber that passes `p_cleanup`. The previous build keeps working after the migration.
 
 1. Apply `supabase/migrations/20260926120000_study_audio_sources.sql`, `20260926160000_study_audio_hardening.sql`, `20260926180000_study_audio_cleanup.sql` and `20260926200000_study_audio_claim_recovery.sql` before deploying the app. (All four were applied to the hosted project on 26 September 2026.)
 2. On the VPS, set the production queue once. Both klui-chat and the transcriber read it from `.env`:

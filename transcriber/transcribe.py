@@ -18,6 +18,8 @@ from pathlib import Path
 SAMPLE_RATE = 16000
 BLOCK_SAMPLES = SAMPLE_RATE // 2
 EXIT_BAD_INPUT = 3
+MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 30
+SPLIT_WINDOW_SAMPLES = SAMPLE_RATE // 10
 
 
 def emit(event, **fields):
@@ -89,6 +91,27 @@ def prepare_audio(source, pcm_path, compact_path, duration, threads, limit_secon
         fail_input("unreadable_audio", f"This audio could not be decoded. {stderr.strip()[-300:]}".strip())
 
 
+def split_points(samples, max_samples, window):
+    """Where to cut one speech stretch so no piece is longer than max_samples: at the quietest
+    moment of each piece's last quarter, which is usually a breath between words. Sensitive
+    speech detection can hear a stretch of a minute or more, and the recognizer's memory and
+    time grow quickly with length."""
+    import numpy as np
+
+    cuts, start, total = [], 0, len(samples)
+    while total - start > max_samples:
+        search = start + max_samples * 3 // 4
+        end = start + max_samples
+        best, best_energy = end, None
+        for at in range(search, end, window):
+            energy = float(np.mean(np.square(samples[at:at + window])))
+            if best_energy is None or energy < best_energy:
+                best, best_energy = at + window // 2, energy
+        cuts.append(best)
+        start = best
+    return cuts
+
+
 def transcribe(pcm_path, model_dir, threads):
     import numpy as np
     import sherpa_onnx
@@ -104,8 +127,11 @@ def transcribe(pcm_path, model_dir, threads):
     )
     config = sherpa_onnx.VadModelConfig()
     config.silero_vad.model = str(model_dir / "silero_vad.onnx")
-    config.silero_vad.min_silence_duration = 0.4
-    config.silero_vad.max_speech_duration = 20
+    # Tuned on classroom recordings from the back of a room: stricter settings drop quiet
+    # speech and cut pauses mid-sentence, which the recognizer can't recover from.
+    config.silero_vad.threshold = 0.25
+    config.silero_vad.min_silence_duration = 0.8
+    config.silero_vad.max_speech_duration = 30
     config.sample_rate = SAMPLE_RATE
     config.num_threads = 1
     vad = sherpa_onnx.VoiceActivityDetector(config, buffer_size_in_seconds=60)
@@ -117,15 +143,18 @@ def transcribe(pcm_path, model_dir, threads):
     def drain():
         while not vad.empty():
             front = vad.front
-            stream = recognizer.create_stream()
-            stream.accept_waveform(SAMPLE_RATE, front.samples)
-            recognizer.decode_stream(stream)
-            start = front.start / SAMPLE_RATE
-            segments.append({
-                "start": start,
-                "end": start + len(front.samples) / SAMPLE_RATE,
-                "text": stream.result.text,
-            })
+            # The detector's maximum is soft: it can run far past it in continuous speech.
+            samples = np.asarray(front.samples, dtype=np.float32)
+            edges = [0, *split_points(samples, MAX_SEGMENT_SAMPLES, SPLIT_WINDOW_SAMPLES), len(samples)]
+            for begin, end in zip(edges, edges[1:]):
+                stream = recognizer.create_stream()
+                stream.accept_waveform(SAMPLE_RATE, samples[begin:end])
+                recognizer.decode_stream(stream)
+                segments.append({
+                    "start": (front.start + begin) / SAMPLE_RATE,
+                    "end": (front.start + end) / SAMPLE_RATE,
+                    "text": stream.result.text,
+                })
             vad.pop()
 
     # Stream the PCM file in half-second blocks; hours of audio never sit in memory.

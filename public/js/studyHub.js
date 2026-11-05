@@ -778,7 +778,7 @@ export function createStudyHubController({
       if (length) bits.push(length);
       entries.push({
         key: `doc:${doc.id}`, docId: doc.id, title, phase: `running-${stage}`,
-        label: stage === "preparing" ? "Preparing audio" : stage === "saving" ? "Saving transcript" : "Transcribing",
+        label: stage === "preparing" ? "Preparing audio" : stage === "saving" ? "Saving transcript" : stage === "polishing" ? "Polishing transcript" : "Transcribing",
         detail: bits.join(" · "), progress: overall, active: true
       });
     }
