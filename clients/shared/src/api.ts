@@ -13,7 +13,7 @@ import type {
 } from "./types";
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code = "", readonly kind = "") {
     super(message);
     this.name = "ApiError";
   }
@@ -55,6 +55,8 @@ export interface ApiClientOptions {
   buildId?: () => string;
   /** Called on a 404, 410 or 426 so the page can check for a newer build. */
   onStaleBuild?: () => void;
+  /** A paid feature (402 upgrade_required) or a spent free allowance (429 free_limit). */
+  onUpgradeRequired?: (problem: { message: string; code: string; kind: string; method: string }) => void;
 }
 
 export interface StreamOptions {
@@ -62,12 +64,12 @@ export interface StreamOptions {
   onEvent: (event: StreamEvent) => void;
 }
 
-async function readProblem(response: Response): Promise<string> {
+async function readProblem(response: Response): Promise<ApiError> {
   try {
-    const json = await response.json() as { error?: string };
-    return json.error || "Request failed.";
+    const json = await response.json() as { error?: string; details?: { code?: string; kind?: string } };
+    return new ApiError(json.error || "Request failed.", response.status, json.details?.code, json.details?.kind);
   } catch {
-    return response.statusText || "Request failed.";
+    return new ApiError(response.statusText || "Request failed.", response.status);
   }
 }
 
@@ -99,9 +101,17 @@ export function createApiClient(options: ApiClientOptions) {
     return response;
   }
 
+  async function refused(response: Response, method = "GET"): Promise<ApiError> {
+    const problem = await readProblem(response);
+    if (problem.code === "upgrade_required" || problem.code === "free_limit") {
+      options.onUpgradeRequired?.({ message: problem.message, code: problem.code, kind: problem.kind, method });
+    }
+    return problem;
+  }
+
   async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await request(path, init);
-    if (!response.ok) throw new ApiError(await readProblem(response), response.status);
+    if (!response.ok) throw await refused(response, init.method);
     return response.json() as Promise<T>;
   }
 
@@ -116,7 +126,7 @@ export function createApiClient(options: ApiClientOptions) {
     const prefetched = boot ? await options.takeBootResponse?.(boot) : null;
     const response = prefetched?.ok ? prefetched : await plainFetch(url(path), init)
       .catch((error: unknown) => { throw transportError(error, null); });
-    if (!response.ok) throw new ApiError(await readProblem(response), response.status);
+    if (!response.ok) throw await readProblem(response);
     return response.json() as Promise<T>;
   }
 
@@ -165,6 +175,9 @@ export function createApiClient(options: ApiClientOptions) {
     presignUpload: (body: { fileName: string; contentType: string; sizeBytes: number; category: string }) =>
       json<{ uploadId: string; uploadUrl: string; method?: string; headers?: Record<string, string>; [key: string]: unknown }>("/api/uploads/presign", jsonBody("POST", body)),
 
+    fetchDocumentStatus: (attachmentId: string) =>
+      json<{ document?: { usable?: boolean; status?: string; error?: { message?: string } } }>(`/api/documents/${encodeURIComponent(attachmentId)}/status`),
+
     completeUpload: (uploadId: string) => json<{ id: string; [key: string]: unknown }>("/api/uploads/complete", jsonBody("POST", { uploadId })),
 
     /** Streams one turn. Acceptance and the turn's run id arrive as a synthetic `turn:submitted` event. */
@@ -174,7 +187,7 @@ export function createApiClient(options: ApiClientOptions) {
         { ...jsonBody("POST", payload), ...(signal ? { signal } : {}) },
         { stream: true }
       );
-      if (!response.ok) throw new ApiError(await readProblem(response), response.status);
+      if (!response.ok) throw await refused(response, "POST");
       // Emitted on every accepted request, so callers know the server owns the turn now.
       onEvent({
         type: "turn:submitted",

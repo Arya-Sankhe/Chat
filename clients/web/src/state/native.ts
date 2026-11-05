@@ -124,6 +124,8 @@ function waitForConnection(delay: number) {
 
 /** checkAndShowAppUpdate(): at launch and on every resume. */
 export async function checkAndShowAppUpdate() {
+  // Embedded, the app checks and asks by itself.
+  if (isEmbedded()) return;
   const update = await checkForAppUpdate().catch(() => null);
   if (!update || !document.getElementById("appUpdateDialog")) return;
   if (isNative()) {

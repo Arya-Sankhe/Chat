@@ -189,6 +189,7 @@ import {
   copyText,
   exitApp,
   hideNativeKeyboard as hideNativeKeyboardNow,
+  isEmbedded,
   isNative,
   keepVoiceSessionAlive,
   keyboardHiddenOnPurposeAt,
@@ -9393,7 +9394,8 @@ export async function handleNativeBack() {
     dismissComposerKeyboard();
     return;
   }
-  if (state.activeConversationId || window.location.pathname !== "/") {
+  // Inside the app, the native screens are what's behind a chat.
+  if (!isEmbedded() && (state.activeConversationId || window.location.pathname !== "/")) {
     openNewChat({ replaceUrl: true });
     return;
   }
@@ -9432,7 +9434,8 @@ export function rejoinTurnsAfterResume() {
 
 /** focusPromptInputSoon(): start the editor/IME as the app opens. */
 export function focusPromptInputSoon() {
-  if (!isNative() || location.hash === "#settings") return;
+  // Inside the app the keyboard comes up when asked for, not when this page appears.
+  if (!isNative() || isEmbedded() || location.hash === "#settings") return;
   if (studyRouteFromLocation() || projectsRouteFromLocation() || researchIdFromLocation()) return;
   focusPromptInput();
 }

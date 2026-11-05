@@ -235,7 +235,6 @@ export async function bootstrap() {
 /** What the native app asked this surface to show. */
 function openEmbeddedTarget(target: string | undefined) {
   if (target === "dojo") chatHooks.openStudyHub();
-  else if (target === "plans") chatHooks.openUpgradePlans();
   else if (target === "settings") openSettings();
   else if (target === "voice") document.getElementById("voiceModeButton")?.click();
 }
