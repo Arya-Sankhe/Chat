@@ -1,12 +1,12 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { buildDisplayItems, type DisplayItem } from "@klui/shared";
 import { Composer, type ReadyAttachment } from "../chat/Composer";
 import { MessageRow } from "../chat/Message";
 import { chat, useChat } from "../core/chat";
-import { openWeb } from "../core/shell";
+import { openWeb, useShell } from "../core/shell";
 import { API_ORIGIN } from "../core/runtime";
 import { deliverLink } from "../host/bridge";
 import { useTheme } from "../theme";
@@ -41,9 +41,11 @@ export function ThreadScreen({ route, navigation }: NativeStackScreenProps<RootS
   const keyboard = useKeyboardInset();
   const list = useRef<FlatList<DisplayItem>>(null);
 
+  // Also when the page closes: the full view can send in this chat too.
+  const pageOpen = useShell((state) => state.webVisible);
   useEffect(() => {
-    if (conversationId) void chat.openConversation(conversationId);
-  }, [conversationId]);
+    if (conversationId && !pageOpen) void chat.openConversation(conversationId);
+  }, [conversationId, pageOpen]);
 
   // Newest first: the list is inverted, so it stays at the bottom as a reply grows.
   const items = useMemo(() => buildDisplayItems(thread, run).slice().reverse(), [thread, run]);
@@ -65,9 +67,14 @@ export function ThreadScreen({ route, navigation }: NativeStackScreenProps<RootS
     list.current?.scrollToOffset({ offset: 0, animated: true });
   }
 
-  const retry = (messageId: string) => {
-    if (conversationId) chat.retry(conversationId, messageId).catch((error: Error) => Alert.alert("Try again", error.message));
-  };
+  // Rows only draw again when their message changes, so these always read the current chat.
+  const currentId = useRef(conversationId);
+  currentId.current = conversationId;
+  const retry = useCallback((messageId: string) => {
+    if (currentId.current) chat.retry(currentId.current, messageId).catch((error: Error) => Alert.alert("Try again", error.message));
+  }, []);
+  const openFull = useCallback(() => openFullChat(currentId.current), []);
+  const renderRow = useCallback(({ item }: { item: DisplayItem }) => <MessageRow item={item} onRetry={retry} onOpenFull={openFull} />, [retry, openFull]);
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -87,7 +94,7 @@ export function ThreadScreen({ route, navigation }: NativeStackScreenProps<RootS
         data={items}
         inverted
         keyExtractor={(item) => item.key}
-        renderItem={({ item }) => <MessageRow item={item} onRetry={retry} onOpenFull={() => openFullChat(conversationId)} />}
+        renderItem={renderRow}
         onEndReached={() => { if (conversationId) void chat.loadOlder(conversationId); }}
         onEndReachedThreshold={0.4}
         keyboardShouldPersistTaps="handled"

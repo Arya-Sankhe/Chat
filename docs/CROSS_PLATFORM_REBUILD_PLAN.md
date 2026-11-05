@@ -61,12 +61,21 @@ and could not be held to pixel parity; it stays an option per screen later.
 The app now mixes the two: React Native screens where that is the better
 experience, and the web client in a persistent WebView for the rest. Native:
 sign-in, chat list, chat thread with streaming, message box with attachments,
-settings. Web: Compare, Council, Research, Skills, voice, Dojo, plans, memory and
-storage, and replies with content the native renderer doesn't draw yet. The native
+settings, update prompts, and math (each block in its own sealed WebView). Web:
+Compare, Council, Research, Skills, voice, Dojo, memory and storage, and replies
+with diagrams or other content the native renderer doesn't draw. The app doesn't
+sell plans: a spent free allowance says to subscribe on the website. The native
 app owns the session and hands the page only what it needs
 (`HostedSession` in `clients/shared/src/session.ts`), so the page never holds the
 refresh token. Android is tested first; iOS is written alongside and has not been
 compiled yet. This replaces the 2026-10-21 decision below where they differ.
+
+Measured 2026-11-05 on the software-rendered Pixel 8 emulator (API 36), with 300
+chats and one of 200 messages (`devtools/parity/native/perf-test.mjs`): first frame
+in about 250 ms, chat data about 570 ms later (now covered by the saved list), and
+scrolling at 17-20 ms median frames with 5 or fewer janky frames in 330-420. One
+300 ms frame showed on the first reply in a new chat; its cause wasn't traced.
+These aren't phone numbers: a physical device still needs measuring.
 
 ## Execution sequence
 

@@ -1,16 +1,41 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChatSearchHit, ConversationSummary } from "@klui/shared";
 import { usePinnedChats } from "../core/account";
 import { chat, useChat } from "../core/chat";
 import { api } from "../core/runtime";
-import { openWeb } from "../core/shell";
+import { openWeb, useShell } from "../core/shell";
 import { useTheme } from "../theme";
 import { Icon } from "../ui/Icon";
 import { ActionSheet } from "../ui/Sheet";
 import type { RootStack } from "./navigation";
+
+type RowProps = {
+  item: ConversationSummary;
+  isPinned: boolean;
+  colors: ReturnType<typeof useTheme>["colors"];
+  onOpen: (id: string) => void;
+  onMenu: (row: ConversationSummary) => void;
+};
+
+/* Pinning or renaming one chat draws that row, not the whole list. */
+const ChatRow = memo(function ChatRow({ item, isPinned, colors, onOpen, onMenu }: RowProps) {
+  return (
+    <Pressable testID={`chatRow-${item.id}`} accessibilityRole="button" onPress={() => onOpen(item.id)} onLongPress={() => onMenu(item)}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+      {isPinned ? <Icon name="pin" size={15} color={colors.textSecondary} /> : null}
+      <View style={styles.flex}>
+        <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.text }]}>{item.title || "New chat"}</Text>
+        {typeof item.snippet === "string" && item.snippet ? <Text numberOfLines={1} style={[styles.snippet, { color: colors.textSecondary }]}>{item.snippet}</Text> : null}
+      </View>
+      <Pressable testID={`chatMenu-${item.id}`} accessibilityRole="button" accessibilityLabel={`More for ${item.title || "chat"}`} hitSlop={8} onPress={() => onMenu(item)} style={styles.more}>
+        <Icon name="more" size={20} color={colors.textTertiary} />
+      </Pressable>
+    </Pressable>
+  );
+});
 
 export function ChatListScreen({ navigation }: NativeStackScreenProps<RootStack, "Chats">) {
   const { colors } = useTheme();
@@ -24,7 +49,9 @@ export function ChatListScreen({ navigation }: NativeStackScreenProps<RootStack,
   const [renaming, setRenaming] = useState<ConversationSummary | null>(null);
   const [renameText, setRenameText] = useState("");
 
-  useEffect(() => { void chat.loadConversations(); }, []);
+  // Also when the page closes: chats can change there too.
+  const pageOpen = useShell((state) => state.webVisible);
+  useEffect(() => { if (!pageOpen) void chat.loadConversations(); }, [pageOpen]);
 
   // Titles filter at once; message text comes from the server, a moment after typing stops.
   useEffect(() => {
@@ -40,6 +67,7 @@ export function ChatListScreen({ navigation }: NativeStackScreenProps<RootStack,
     };
   }, [query]);
 
+  const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase();
     const byTitle = term ? conversations.filter((row) => String(row.title || "").toLowerCase().includes(term)) : conversations;
@@ -48,10 +76,14 @@ export function ChatListScreen({ navigation }: NativeStackScreenProps<RootStack,
       .filter((hit) => !shown.has(hit.conversation_id))
       .map((hit) => ({ id: hit.conversation_id, title: hit.title || "Chat", snippet: hit.snippet } as ConversationSummary));
     const all = [...byTitle, ...extra];
-    return [...all.filter((row) => pinned.includes(row.id)), ...all.filter((row) => !pinned.includes(row.id))];
-  }, [conversations, hits, pinned, query]);
+    return [...all.filter((row) => pinnedSet.has(row.id)), ...all.filter((row) => !pinnedSet.has(row.id))];
+  }, [conversations, hits, pinnedSet, query]);
 
-  const open = (id: string | null) => navigation.navigate("Thread", { id });
+  const open = useCallback((id: string | null) => navigation.navigate("Thread", { id }), [navigation]);
+  const renderRow = useCallback(
+    ({ item }: { item: ConversationSummary }) => <ChatRow item={item} isPinned={pinnedSet.has(item.id)} colors={colors} onOpen={open} onMenu={setMenuFor} />,
+    [pinnedSet, colors, open]
+  );
 
   function confirmDelete(row: ConversationSummary) {
     Alert.alert("Delete chat?", row.title || "This chat will be gone for good.", [
@@ -96,19 +128,7 @@ export function ChatListScreen({ navigation }: NativeStackScreenProps<RootStack,
         keyExtractor={(row) => row.id}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={status === "loading" && conversations.length > 0} onRefresh={() => void chat.loadConversations()} />}
-        renderItem={({ item }) => (
-          <Pressable testID={`chatRow-${item.id}`} accessibilityRole="button" onPress={() => open(item.id)} onLongPress={() => setMenuFor(item)}
-            style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
-            {pinned.includes(item.id) ? <Icon name="pin" size={15} color={colors.textSecondary} /> : null}
-            <View style={styles.flex}>
-              <Text numberOfLines={1} style={[styles.rowTitle, { color: colors.text }]}>{item.title || "New chat"}</Text>
-              {typeof item.snippet === "string" && item.snippet ? <Text numberOfLines={1} style={[styles.snippet, { color: colors.textSecondary }]}>{item.snippet}</Text> : null}
-            </View>
-            <Pressable testID={`chatMenu-${item.id}`} accessibilityRole="button" accessibilityLabel={`More for ${item.title || "chat"}`} hitSlop={8} onPress={() => setMenuFor(item)} style={styles.more}>
-              <Icon name="more" size={20} color={colors.textTertiary} />
-            </Pressable>
-          </Pressable>
-        )}
+        renderItem={renderRow}
         ListEmptyComponent={
           status === "error"
             ? <Text testID="chatListError" style={[styles.empty, { color: colors.danger }]}>{error}</Text>

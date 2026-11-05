@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { PINNED_CHATS_KEY, SETTINGS_KEY, type Me } from "@klui/shared";
 import { prefs } from "./prefs";
 import { api, upgradeRequired } from "./runtime";
-import { showToast } from "./shell";
+import { showToast, useShell } from "./shell";
 
 /* The signed-in person, and the settings native screens share with the web client. */
 export const useAccount = create<{ me: Me | null; error: string }>(() => ({ me: null, error: "" }));
@@ -63,6 +63,8 @@ export function usePinnedChats() {
   const userId = useAccount((state) => state.me?.user?.id);
   const key = userId ? `${PINNED_CHATS_KEY}.${userId}` : "";
   const [pinned, setPinned] = useState<string[]>([]);
+  // The page can pin too, so its changes are read back when it closes.
+  const pageOpen = useShell((state) => state.webVisible);
 
   useEffect(() => {
     if (!key) return setPinned([]);
@@ -72,7 +74,7 @@ export function usePinnedChats() {
     } catch {
       setPinned([]);
     }
-  }, [key]);
+  }, [key, pageOpen]);
 
   const togglePin = useCallback((id: string) => {
     setPinned((current) => {

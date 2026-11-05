@@ -91,6 +91,7 @@ export function deliverLink(url: string) {
 }
 
 export const hasPendingLink = () => pendingLink !== null;
+export const pageIsListening = () => pageListening;
 
 export function pageGone() {
   pageListening = false;

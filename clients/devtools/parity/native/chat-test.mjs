@@ -279,6 +279,41 @@ check("the page doesn't raise the keyboard by itself", !/mInputShown=true/.test(
 await tap("threadBack");
 await until(() => find("chatList"));
 
+// The page was running when these changed, and they stay the same on both sides.
+const PIN_ID = "00000000-0000-4000-8000-b00000000002";
+const inPage = (expression) => {
+  adb("forward", "tcp:9333", `localabstract:webview_devtools_remote_${sh(`pidof ${PKG}`)}`);
+  return execFileSync("node", [new URL("cdp.mjs", import.meta.url).pathname, "9333", expression], { encoding: "utf8", timeout: 30000 }).trim();
+};
+const rowOrder = () => nodes().filter((node) => node.id.startsWith("chatRow-")).map((node) => node.id.slice(-1));
+await tap(`chatMenu-${PIN_ID}`);
+await tap("chatPin");
+await tap("openDojo");
+await until(() => find("webSurface") && !find("chatList", nodes(true)), 8000);
+const pinnedInPage = `!!document.querySelector('#pinnedConversationList [data-open-chat-id="${PIN_ID}"]')`;
+check("a chat unpinned here is unpinned in the page", await until(() => inPage(pinnedInPage) === "false", 8000));
+inPage(`document.querySelector('[data-pin-chat-id="${PIN_ID}"]')?.click()`);
+check("a chat pinned in the page shows there", await until(() => inPage(pinnedInPage) === "true", 8000));
+back();
+await until(() => find("chatList", nodes(true)) || (back(), false), 12000);
+check("a chat pinned in the page is pinned here", await until(() => rowOrder()[0] === "2", 8000), rowOrder().join(","));
+
+// A slow refresh from the page, ending after the app has changed a pin, doesn't undo the change.
+inPage(`window.__fetch = window.fetch; window.fetch = (url, options) => String(url).includes("/conversations") ? window.__fetch(url, options).then((reply) => new Promise((done) => setTimeout(() => done(reply), 4000))) : window.__fetch(url, options); 1`);
+await tap("openDojo");
+await until(() => !find("chatList", nodes(true)), 8000);
+back();
+await until(() => find("chatList", nodes(true)) || (back(), false), 12000);
+await tap(`chatMenu-${PIN_ID}`);
+await tap("chatPin");
+await wait(5000);
+await tap("openDojo");
+await until(() => !find("chatList", nodes(true)), 8000);
+check("a slow page refresh keeps a newer pin", await until(() => inPage(pinnedInPage) === "false", 8000) && (await wait(5000), inPage(pinnedInPage) === "false"));
+inPage(`window.fetch = window.__fetch; 1`);
+back();
+await until(() => find("chatList", nodes(true)) || (back(), false), 12000);
+
 // A big photo gets smaller on the phone, as on the web.
 const BIG = "klui-big-photo.png";
 pushFile(BIG, png(3000, 1000));
@@ -311,6 +346,12 @@ worker.kill();
 await tap("threadBack");
 await until(() => find("chatList"));
 sh(`rm -f /sdcard/Download/${BIG} /sdcard/Download/${DOC}`);
+
+// With no connection the app still opens on the chats it last saw.
+adb("reverse", "--remove", "tcp:55600");
+restart();
+check("the last list shows without a connection", await until(() => nodes().some((node) => node.id.startsWith("chatRow-")), 30000));
+adb("reverse", "tcp:55600", "tcp:55600");
 
 // Out of free messages: it says why and where to subscribe; the app doesn't sell plans.
 await setFree("new");

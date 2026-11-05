@@ -33,6 +33,28 @@ export const chat = createChatController({
   }
 });
 
+/* The last list shows at once on the next launch, and without a connection; the server's follows. */
+const LIST_KEY = "klui.native.chatList.v1";
+
+export function showSavedChatList() {
+  try {
+    const saved = JSON.parse(prefs.get(LIST_KEY) || "null");
+    if (Array.isArray(saved)) chat.store.setState({ conversations: saved, conversationsStatus: "ready" });
+  } catch {
+    prefs.remove(LIST_KEY);
+  }
+}
+
+export function forgetChatList() {
+  prefs.remove(LIST_KEY);
+}
+
+chat.store.subscribe((state, previous) => {
+  if (state.conversationsStatus === "ready" && state.conversations !== previous.conversations) {
+    prefs.set(LIST_KEY, JSON.stringify(state.conversations.slice(0, 40)));
+  }
+});
+
 export function useChat<T>(selector: (state: ChatState) => T): T {
   return useStore(chat.store, selector);
 }

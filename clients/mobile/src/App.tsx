@@ -3,22 +3,24 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { AppState, BackHandler, StyleSheet, View } from "react-native";
+import { AppState, BackHandler, Platform, Pressable, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { handleAppUrl, listenForAppUrls } from "./core/auth";
 import { applyAppearance, clearAccount, loadAccount } from "./core/account";
-import { chat } from "./core/chat";
+import { chat, forgetChatList, showSavedChatList } from "./core/chat";
 import { checkForUpdate } from "./core/updates";
 import { hostedSessionState, loadConfig, session } from "./core/runtime";
-import { openWeb, useShell } from "./core/shell";
-import { deliverLink, emit, hasPendingLink, migrateLegacyStorage, pageGone } from "./host/bridge";
+import { closeWebSurface, openWeb, useShell } from "./core/shell";
+import { deliverLink, emit, hasPendingLink, migrateLegacyStorage, pageGone, pageIsListening } from "./host/bridge";
 import { WebClient } from "./host/WebClient";
 import { ChatListScreen } from "./screens/ChatListScreen";
 import type { RootStack } from "./screens/navigation";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ThreadScreen } from "./screens/ThreadScreen";
 import { SignInScreen } from "./screens/SignInScreen";
+import { useTheme } from "./theme";
+import { Icon } from "./ui/Icon";
 import { Toast } from "./ui/Toast";
 import { UpdateDialog } from "./ui/UpdateDialog";
 
@@ -33,7 +35,10 @@ async function start() {
   await loadConfig();
   applyAppearance();
   useShell.setState({ phase: session.current() ? "signedIn" : "signedOut" });
-  if (session.current()) void loadAccount();
+  if (session.current()) {
+    showSavedChatList();
+    void loadAccount();
+  } else forgetChatList();
   const launch = await Linking.getInitialURL();
   if (launch && !(await handleAppUrl(launch))) openLink(launch);
 }
@@ -57,6 +62,7 @@ function watchSession() {
     if (signingIn) void loadAccount();
     else {
       chat.reset();
+      forgetChatList();
       clearAccount();
     }
     // A guest's open page carries on signed in, sending what they wrote.
@@ -76,6 +82,25 @@ function watchSession() {
     }));
     if (signingIn && hasPendingLink()) openWeb("chat");
   });
+}
+
+/* The page decides what Back closes, and at its root it calls app.exit, which closes the surface.
+   A page still starting can't answer, so Back closes the surface itself. */
+function goBackFromWeb() {
+  if (pageIsListening()) emit({ type: "backButton" });
+  else closeWebSurface();
+}
+
+/* iPhones have no Back button, so the surface needs one of its own. */
+function IosWebBar() {
+  const { colors } = useTheme();
+  return (
+    <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bg }}>
+      <Pressable testID="webBack" accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} onPress={goBackFromWeb} style={styles.webBack}>
+        <Icon name="back" color={colors.text} />
+      </Pressable>
+    </SafeAreaView>
+  );
 }
 
 export function App() {
@@ -117,8 +142,7 @@ export function App() {
   useEffect(() => {
     if (!webVisible) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
-      // The page decides what Back closes; at its root it calls app.exit, which closes the surface.
-      emit({ type: "backButton" });
+      goBackFromWeb();
       return true;
     });
     return () => back.remove();
@@ -148,7 +172,10 @@ export function App() {
             accessibilityElementsHidden={!webVisible}
             importantForAccessibility={webVisible ? "auto" : "no-hide-descendants"}
             style={[StyleSheet.absoluteFill, webVisible ? styles.shown : styles.hidden]}>
-            <WebClient key={generation} target={webTarget} />
+            {Platform.OS === "ios" ? <IosWebBar /> : null}
+            <View style={styles.root}>
+              <WebClient key={generation} target={webTarget} />
+            </View>
           </View>
         ) : null}
         <Toast />
@@ -160,6 +187,7 @@ export function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#020611" },
+  webBack: { width: 44, height: 44, marginLeft: 8, alignItems: "center", justifyContent: "center" },
   shown: { opacity: 1 },
   hidden: { opacity: 0 }
 });
