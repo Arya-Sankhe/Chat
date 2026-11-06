@@ -2127,7 +2127,7 @@ export function createStudyHubController({
     const currentCollectionScroll = els.studyView.querySelector(".dojo-collection")?.scrollTop;
     const studioScroll = els.studyView.querySelector(".dojo-studio-view .dojo-view-body")?.scrollTop;
     const lectureBox = els.studyView.querySelector("[data-lec-scroll]");
-    if (lectureBox && lectureBox.dataset.lecture) lectureScroll.set(lectureBox.dataset.lecture, lectureBox.scrollTop);
+    if (lectureBox && lectureBox.dataset.lecFor) lectureScroll.set(lectureBox.dataset.lecFor, lectureBox.scrollTop);
     const jotsBox = els.studyView.querySelector("[data-jots]");
     const jotsFocus = jotsBox && document.activeElement === jotsBox ? [jotsBox.selectionStart, jotsBox.selectionEnd, jotsBox.scrollTop] : null;
     const openLecture = lectureDocs().find((item) => item.id === activeLectureId);
@@ -2156,7 +2156,8 @@ export function createStudyHubController({
     if (studioBody && studioScroll) studioBody.scrollTop = studioScroll;
     const nextLectureBox = els.studyView.querySelector("[data-lec-scroll]");
     if (nextLectureBox) {
-      nextLectureBox.dataset.lecture = activeLectureId;
+      // Not `data-lecture`: that marks lecture rows, and taps on timestamps inside the box would re-open the lecture.
+      nextLectureBox.dataset.lecFor = activeLectureId;
       nextLectureBox.scrollTop = lectureScroll.get(activeLectureId) || 0;
     }
     const nextJots = els.studyView.querySelector("[data-jots]");
