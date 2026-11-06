@@ -203,7 +203,7 @@ export function createStudyHubController({
     onInline() {
       const id = sourceDialog.recorder.recordingId;
       if (pendingJots && id) {
-        saveJots(id, jotsFromText(pendingJots, [], 0));
+        warnIfJotsUnsaved(saveJots(id, jotsFromText(pendingJots, [], 0)));
         pendingJots = "";
       }
       if (studyVisible()) render();
@@ -850,10 +850,13 @@ export function createStudyHubController({
     const rec = sourceDialog.recorder;
     const key = rec.recordingId;
     if (!key) { pendingJots = area.value; return; }
-    if (!saveJots(key, jotsFromText(area.value, loadJots(key), Math.round(rec.elapsed))) && !jotsBackupWarned) {
-      jotsBackupWarned = true;
-      showToast("Your typing can't be backed up on this device. Keep this tab open until the notes are written.");
-    }
+    warnIfJotsUnsaved(saveJots(key, jotsFromText(area.value, loadJots(key), Math.round(rec.elapsed))));
+  }
+
+  function warnIfJotsUnsaved(saved) {
+    if (saved || jotsBackupWarned) return;
+    jotsBackupWarned = true;
+    showToast("Your typing can't be backed up on this device. Keep this tab open until the notes are written.");
   }
 
   // The little player under the notes follows whatever the lecture audio is doing.
@@ -1999,7 +2002,8 @@ export function createStudyHubController({
     if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
     if (els.studyNoteBody) {
       try {
-        els.studyNoteBody.innerHTML = isMindMap(studyNote) ? mindMapMarkup(studyNote) : renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
+        const html = isMindMap(studyNote) ? mindMapMarkup(studyNote) : renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
+        els.studyNoteBody.innerHTML = isLectureNote(studyNote) ? lectureNoteStaticHtml(html) : html;
       } catch {
         els.studyNoteBody.innerHTML = `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       }
