@@ -1,3 +1,4 @@
+import { navigateTabs } from "./tabs";
 // One lecture on a sheet of paper: the live notepad while recording, "klui is writing" after
 // Finish, then the notes (with Transcript and Ask on the same page).
 import { useLayoutEffect, useRef, useState } from "react";
@@ -173,9 +174,9 @@ function NotePaper({ view, lecture }: { hub: DojoHub; view: DojoView; lecture: N
     <div className="d3-stage">
       <div className={`d3-paper is-note is-${tab}`}>
         <div className="d3-paper-top">
-          <div className="d3-seg" role="tablist" aria-label="Lecture">
+          <div className="d3-seg" role="tablist" onKeyDown={navigateTabs} aria-label="Lecture">
             {([["notes", "Notes"], ["transcript", "Transcript"], ["ask", "Ask"]] as const).map(([key, label]) => (
-              <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} data-lecture-tab={key}>{label}</button>
+              <button key={key} type="button" role="tab" id={`d3-lecture-tab-${key}`} aria-controls="d3-lecture-panel" tabIndex={tab === key ? 0 : -1} aria-selected={tab === key} className={tab === key ? "is-on" : ""} data-lecture-tab={key}>{label}</button>
             ))}
           </div>
           <span className="d3-paper-meta">{meta}</span>
@@ -184,6 +185,7 @@ function NotePaper({ view, lecture }: { hub: DojoHub; view: DojoView; lecture: N
             <button type="button" className="d3-mi is-danger" role="menuitem" data-delete-doc={lecture.id}><Icon name="trash" size={16} />delete lecture</button>
           </Menu>
         </div>
+        <div id="d3-lecture-panel" role="tabpanel" aria-labelledby={`d3-lecture-tab-${tab}`} style={{ display: "contents" }}>
         {tab !== "transcript" && lecture.html && (
           <div className="d3-player dojo-lec-strip" data-lec-strip>
             <button type="button" className="d3-pbtn" data-strip-toggle="" aria-label="Play lecture" title="Play lecture"><Icon name="play" size={12} /></button>
@@ -236,6 +238,7 @@ function NotePaper({ view, lecture }: { hub: DojoHub; view: DojoView; lecture: N
             </div>
           </div>
         )}
+        </div>
         <div className="d3-paperfoot is-ask">
           {tab === "ask"
             ? <div className="study-composer-slot" />

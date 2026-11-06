@@ -1258,7 +1258,7 @@ export function createStudyHubController({
     if (!studyVisible() || !state.activeCourseId || !els.studyView) return;
     const entries = audioCardEntries();
     const nodes = [...els.studyView.querySelectorAll("[data-audio-card]")];
-    const board = host ? true : !sourcePreviewId && els.studyView.querySelector(".dojo-workspace");
+    const board = host ? state.activeCourseTab === "notes" && !activeLectureId : !sourcePreviewId && els.studyView.querySelector(".dojo-workspace");
     const structural = Boolean(board) && (nodes.length !== entries.length
       || entries.some((entry, index) => nodes[index]?.dataset.audioCard !== entry.key || nodes[index]?.dataset.phase !== entry.phase));
     if (structural) { render(); return; }
@@ -1357,6 +1357,7 @@ export function createStudyHubController({
     const attachmentId = doc?.attachment_id || attachment?.id;
     if (!attachmentId) { showToast("This source has no file preview."); return; }
     const start = workspaceColumns();
+    if (host) { activeLectureId = ""; state.activeCourseTab = "materials"; }
     sourcePreviewId = id;
     sourcesCollapsed = false;
     quizMenuKey = "";
@@ -1385,6 +1386,7 @@ export function createStudyHubController({
   }
 
   function openStudioView(kind, id, event) {
+    if (host) { activeLectureId = ""; state.activeCourseTab = "practice"; }
     const workspace = els.studyView.querySelector(".dojo-workspace");
     const start = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
     let layout = "flip";
@@ -2089,14 +2091,19 @@ export function createStudyHubController({
     }
     patchLectureStrip();
     const slot = els.studyView.querySelector(".study-composer-slot");
-    if (slot && els.composerArea) { slot.append(els.composerArea); els.composerArea.classList.remove("hidden"); }
+    if (slot && els.composerArea) {
+      if (els.composerArea.parentElement !== slot) slot.append(els.composerArea);
+      els.composerArea.classList.remove("hidden");
+    }
     else els.composerArea?.classList.add("hidden");
     const messagesSlot = els.studyView.querySelector(".dojo-messages-slot");
     if (messagesSlot && els.messages) {
-      messagesSlot.append(els.messages);
+      if (els.messages.parentElement !== messagesSlot) messagesSlot.append(els.messages);
       els.messages.classList.toggle("hidden", !state.activeConversationId && !state.messages?.length);
     }
     contextPicker.render();
+    const contextWrap = document.getElementById("composerContextWrap");
+    if (contextWrap) contextWrap.hidden = Boolean(activeLectureId && lectureTab === "ask");
     mountTutorCall();
     bindMaterialsDnD();
     renderNoteOverlay();
@@ -2119,6 +2126,8 @@ export function createStudyHubController({
       pruneDeletedCourseGenerations();
     }
     const visible = studyVisible();
+    const contextWrap = document.getElementById("composerContextWrap");
+    if (contextWrap) contextWrap.hidden = Boolean(visible && activeLectureId && lectureTab === "ask");
     if (podcastAudio && (!visible || !state.activeCourseId || studioView?.kind !== "podcast" || !studioItem())) podcastAudio.pause();
     if (tutorCall?.active && (!visible || !state.activeCourseId)) tutorCall.pause();
     if (!visible || !state.activeCourseId) audioViewer.pause();
@@ -2195,8 +2204,6 @@ export function createStudyHubController({
 
   // The React Dojo draws the page from view(); the engine keeps its islands mounted.
   function renderHost() {
-    parkComposer();
-    parkMessages();
     const lectureBox = els.studyView.querySelector("[data-lec-scroll]");
     if (lectureBox && lectureBox.dataset.lecFor) lectureScroll.set(lectureBox.dataset.lecFor, lectureBox.scrollTop);
     const jotsBox = els.studyView.querySelector("[data-jots]");
@@ -2208,6 +2215,8 @@ export function createStudyHubController({
       if (studioView && !studioItem()) studioView = null;
     }
     host.update();
+    if (!els.studyView.querySelector(".study-composer-slot")) parkComposer();
+    if (!els.studyView.querySelector(".dojo-messages-slot")) parkMessages();
     if (state.activeCourseId) {
       paintStudio();
       finishCoursePaint();
@@ -5952,8 +5961,8 @@ export function createStudyHubController({
     closeWhiteboard: () => whiteboards.close(),
     loadCourse,
     resetCourseCaches,
-    chatSources: contextPicker.sources,
-    chatSourcePages: contextPicker.sourcePages,
+    chatSources: () => lectureTab === "ask" && activeLectureId && lectureDocs().some(doc => doc.id === activeLectureId) ? [activeLectureId] : contextPicker.sources(),
+    chatSourcePages: () => lectureTab === "ask" && activeLectureId ? {} : contextPicker.sourcePages(),
     openSourcePage(documentFileId, page, event) {
       if (!state.activeCourseId || !(state.studyMaterials?.documents || []).some((doc) => doc.id === documentFileId)) return false;
       openSource(documentFileId, event, page);

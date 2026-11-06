@@ -105,6 +105,7 @@ function CollectionRow({ item }: { item: CollectionItem }) {
         <span className="d3-row-action">{ACTION[item.kind]}</span>
       </button>
       <Menu label={`Options for ${item.title}`}>
+        {item.kind === "note" && ([["flashcards", "rapid", "create flashcards"], ["flashcards", "deep", "create deep flashcards"], ["quiz", "", "create practice test"]] as const).map(([type, mode, label]) => <button key={label} type="button" className="d3-mi" role="menuitem" data-study-generate={type} data-gen-kind="note" data-gen-id={item.id} data-mode={mode}>{label}</button>)}
         <button type="button" className="d3-mi" role="menuitem" data-collection-pin-kind={item.kind} data-collection-pin-id={item.id}><Icon name="pin" size={16} />{item.pinned ? "unpin" : "pin to top"}</button>
         {renameAttr && <button type="button" className="d3-mi" role="menuitem" {...renameAttr}><Icon name="edit" size={16} />rename</button>}
         <button type="button" className="d3-mi is-danger" role="menuitem" {...deleteAttr}><Icon name="trash" size={16} />delete</button>

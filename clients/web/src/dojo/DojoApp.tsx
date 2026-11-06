@@ -1,3 +1,4 @@
+import { navigateTabs } from "./tabs";
 // The Dojo: an AI note app for lectures. Home (record + recent notes + courses) and a course
 // (Notes · Study · Materials · Ask). Navigation state lives in the engine; this only draws it.
 import { useEffect } from "react";
@@ -206,16 +207,18 @@ function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
               <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.renameCourse(view.courseId)}><Icon name="edit" size={16} />rename course</button>
               <button type="button" className="d3-mi is-danger" role="menuitem" onClick={() => actions.deleteCourse(view.courseId)}><Icon name="trash" size={16} />delete course</button>
             </Menu>
-            <div className="d3-tabs" role="tablist" aria-label="Course sections">
+            <div className="d3-tabs" role="tablist" onKeyDown={navigateTabs} aria-label="Course sections">
               {TABS.map(([tab, label]) => (
-                <button key={tab} type="button" role="tab" aria-selected={view.tab === tab} className={view.tab === tab ? "is-on" : ""} onClick={() => void actions.setTab(tab)}>{label}</button>
+                <button key={tab} type="button" role="tab" id={`d3-course-tab-${tab}`} aria-controls="d3-course-panel" tabIndex={view.tab === tab ? 0 : -1} aria-selected={view.tab === tab} className={view.tab === tab ? "is-on" : ""} onClick={() => void actions.setTab(tab)}>{label}</button>
               ))}
             </div>
           </div>
+          <div id="d3-course-panel" role="tabpanel" aria-labelledby={`d3-course-tab-${view.tab}`}>
           {view.tab === "notes" && <NotesTab hub={hub} view={view} />}
           {view.tab === "practice" && <StudyTab hub={hub} view={view} />}
           {view.tab === "materials" && <MaterialsTab hub={hub} view={view} />}
           {view.tab === "chat" && <AskTab hub={hub} view={view} />}
+          </div>
         </div>
       </div>
     </div>

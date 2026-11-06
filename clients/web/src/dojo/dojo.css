@@ -353,3 +353,16 @@ body[data-mode="dark"] .d3 {
 .d3-paperfoot.is-ask:has(.study-composer-slot) { padding: 8px 12px 10px; }
 .d3 .study-composer-slot .composer-area { position: relative !important; inset: auto !important; padding: 0 !important; width: 100%; }
 .d3 .study-composer-slot .composer-wrap { width: 100% !important; max-width: none !important; }
+
+/* Keep navigation available while the course body scrolls. */
+.d3-coursehead { position: sticky; top: 0; z-index: 5; background: var(--d3-bg); padding-block: 12px; }
+.d3-history-search { width: 100%; padding: 8px; background: var(--d3-paper); color: var(--d3-tx); border: 1px solid var(--d3-bd); border-radius: 8px; }
+.d3-menu { max-height: min(440px, 70vh); overflow-y: auto; }
+@media (max-width: 600px) {
+  .d3-listen { flex-wrap: wrap; }
+  .d3-listen-copy { flex-basis: calc(100% - 65px); }
+  .d3-levels { display: none; }
+  .d3-listen > button { flex: 1; white-space: normal; }
+  .d3-coursehead { flex-wrap: wrap; }
+  .d3-tabs { max-width: 100%; flex-wrap: wrap; }
+}
