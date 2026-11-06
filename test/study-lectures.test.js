@@ -43,4 +43,7 @@ test("each typed line keeps the moment it was first written", () => {
   const first = jotsFromText("mitosis", [], 30);
   const second = jotsFromText("mitosis!\nask about G2", first, 95);
   assert.deepEqual(second, [{ t: 30, text: "mitosis!" }, { t: 95, text: "ask about G2" }]);
+  const inserted = jotsFromText("new first\nmitosis!\nask about G2", second, 300);
+  assert.deepEqual(inserted.map((line) => line.t), [300, 30, 95]);
+  assert.deepEqual(jotsFromText("ask about G2", second, 400).map((line) => line.t), [95]);
 });

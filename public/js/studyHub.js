@@ -749,12 +749,13 @@ export function createStudyHubController({
   function lectureMarkup(doc) {
     const note = lectureNoteOf(doc.id);
     const entry = audioCardEntries().find((item) => item.docId === doc.id);
-    if (entry || !note) {
-      return `<header class="dojo-panel-header dojo-lec-head"><h2 title="${escapeHtml(documentDisplayName(doc))}">${escapeHtml(documentDisplayName(doc))}</h2>${lectureCloseMarkup()}</header>${writingMarkup({ entry, doc: entry ? null : doc })}`;
+    if (entry) {
+      return `<header class="dojo-panel-header dojo-lec-head"><h2 title="${escapeHtml(documentDisplayName(doc))}">${escapeHtml(documentDisplayName(doc))}</h2>${lectureCloseMarkup()}</header>${writingMarkup({ entry })}`;
     }
+    // Once transcribed, the recording and Ask work even while (or if) the notes aren't ready.
     const pane = lectureTab === "transcript"
       ? '<div class="dojo-lec-audio-slot"></div>'
-      : lectureTab === "ask" ? chatMarkup({ lecture: true }) : lectureNotesMarkup(doc, note);
+      : lectureTab === "ask" ? chatMarkup({ lecture: true }) : note ? lectureNotesMarkup(doc, note) : writingMarkup({ doc });
     return `<header class="dojo-panel-header dojo-lec-head">${lectureTabsMarkup()}<div class="dojo-chat-actions">${lectureTab === "ask" ? `<button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}` : ""}${lectureCloseMarkup()}</div></header>
       <div class="dojo-lec-pane" data-lec-pane="${lectureTab}">${pane}</div>`;
   }
@@ -899,9 +900,15 @@ export function createStudyHubController({
     if (t.closest("[data-lecture-close]")) { closeLecture(); return true; }
     const retry = t.closest("[data-lecture-retry]");
     if (retry) {
-      const doc = lectureDocs().find((item) => item.id === retry.dataset.lectureRetry);
-      ensureLectureNotes(doc, { retry: true });
-      render();
+      const id = retry.dataset.lectureRetry;
+      retry.disabled = true;
+      // The notes may already exist (only loading them failed), so look before writing again.
+      void loadMaterials(true).catch(() => {}).then(() => {
+        const doc = lectureDocs().find((item) => item.id === id);
+        if (lectureNoteOf(id)) lectureNoteErrors.delete(id);
+        else ensureLectureNotes(doc, { retry: true });
+        render();
+      });
       return true;
     }
     const tab = t.closest("[data-lecture-tab]");
@@ -2328,6 +2335,7 @@ export function createStudyHubController({
         forgetJots(job.documentFileId);
         // Show the notes as soon as they're saved, before the materials reload.
         await loadMaterials(true).catch(() => {});
+        if (!lectureNoteOf(job.documentFileId)) lectureNoteErrors.set(job.documentFileId, "Your notes are saved but didn't load.");
       }
       if (state.activeCourseId === courseId) revealNewCollectionItem(job.type);
       toastForGeneration(job);
@@ -2347,8 +2355,10 @@ export function createStudyHubController({
       if (!generations.has(job.id)) return;
       if (job.mode === "lecture") {
         generations.delete(job.id);
-        if (/already created/i.test(error?.message || "")) await loadMaterials(true).catch(() => {});
-        else {
+        if (/already created/i.test(error?.message || "")) {
+          await loadMaterials(true).catch(() => {});
+          if (!lectureNoteOf(job.documentFileId)) lectureNoteErrors.set(job.documentFileId, "Your notes are saved but didn't load.");
+        } else {
           lectureNoteErrors.set(job.documentFileId, error?.message || "Could not write the notes.");
           if (activeLectureId !== job.documentFileId) showToast(error?.message || "Could not write the lecture notes.");
         }

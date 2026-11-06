@@ -293,6 +293,8 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
   function open(doc) {
     if (view?.id === doc.id) return;
     if (player.id && player.id !== doc.id) player.pause();
+    // A timestamp asked for in another lecture must not play this one.
+    pendingSeek = null;
     view = { id: doc.id, title: doc.title, audio: null, error: "", speedOpen: false, scrubbing: null };
     void load();
   }

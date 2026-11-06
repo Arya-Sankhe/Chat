@@ -68,10 +68,20 @@ export function forgetJots(key) {
 }
 
 // Each line of the notepad keeps the moment it was first typed, so the notes can put it in place.
+// Lines unchanged at the start and end keep their times; in the edited middle, lines edited in
+// place keep theirs and newly added lines get now.
 export function jotsFromText(text, previous, now) {
   const lines = String(text || "").split("\n");
+  const old = previous || [];
+  let head = 0;
+  while (head < lines.length && head < old.length && lines[head] === old[head].text) head += 1;
+  let tail = 0;
+  while (tail < lines.length - head && tail < old.length - head && lines[lines.length - 1 - tail] === old[old.length - 1 - tail].text) tail += 1;
   return lines.map((line, index) => {
-    const before = previous[index];
+    let before = null;
+    if (index < head) before = old[index];
+    else if (index >= lines.length - tail) before = old[old.length - (lines.length - index)];
+    else before = old[head + (index - head)] && head + (index - head) < old.length - tail ? old[head + (index - head)] : null;
     const t = before && (before.text.trim() || !line.trim()) ? before.t : now;
     return { t, text: line };
   });
