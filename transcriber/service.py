@@ -26,6 +26,7 @@ import requests
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
+from transcriber import cleanup
 from transcriber.shaping import build_chunks, build_lines, word_count
 
 LEASE_SECONDS = 120
@@ -34,6 +35,13 @@ IDLE_MIN_SECONDS = 2.0
 IDLE_MAX_SECONDS = 10.0
 SWEEP_SECONDS = 300
 EXIT_BAD_INPUT = 3
+CLEANUP_SECONDS = 240
+CLEANUP_GRACE_SECONDS = 15
+COURSE_FILES_LIMIT = 20
+COURSE_CHUNK_PAGE = 1000
+COURSE_CHUNK_PAGES = 5
+DEFAULT_CLEANUP_MODEL = "deepseek/deepseek-v4-flash-0731"
+DEFAULT_CLEANUP_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def env(name, default=""):
@@ -91,6 +99,39 @@ class Supabase:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    def course_chunks(self, project_id, user_id):
+        """Extracted text of the course's newest files. Other lecture recordings are left
+        out: they carry the same kind of mishearings this pass is meant to fix."""
+        files = self.session.get(
+            f"{self.url}/rest/v1/document_files",
+            params={
+                "project_id": f"eq.{project_id}", "user_id": f"eq.{user_id}", "processing_status": "eq.ready",
+                "kind": "neq.audio", "select": "id", "order": "updated_at.desc", "limit": str(COURSE_FILES_LIMIT),
+            },
+            timeout=30,
+        )
+        files.raise_for_status()
+        ids = [row["id"] for row in files.json()]
+        if not ids:
+            return []
+        chunks = []
+        for page in range(COURSE_CHUNK_PAGES):
+            response = self.session.get(
+                f"{self.url}/rest/v1/document_chunks",
+                params={
+                    "document_file_id": f"in.({','.join(ids)})", "user_id": f"eq.{user_id}", "select": "text",
+                    "order": "document_file_id,chunk_index",
+                    "limit": str(COURSE_CHUNK_PAGE), "offset": str(page * COURSE_CHUNK_PAGE),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            rows = response.json()
+            chunks.extend(row.get("text") for row in rows)
+            if len(rows) < COURSE_CHUNK_PAGE:
+                break
+        return chunks
 
 
 class R2:
@@ -287,6 +328,8 @@ class Service:
             lines = build_lines(result["segments"])
             if not lines:
                 raise JobFailed("no_speech", "No speech was found in this recording.", False)
+            lines, cleanup_audit = self.clean_transcript(job, lines, heartbeat)
+            heartbeat.update(stage="saving", progress=1.0)
             chunks = build_chunks(lines)
             new_key = f"users/{job['user_id']}/audio/{job['document_file_id']}-{uuid.uuid4().hex[:8]}.m4a"
             compact = work / "audio.m4a"
@@ -305,6 +348,7 @@ class Service:
                     "p_duration_seconds": round(result["duration"], 2),
                     "p_audio_key": new_key, "p_audio_content_type": "audio/mp4",
                     "p_audio_bytes": compact.stat().st_size, "p_model": result["model"],
+                    "p_cleanup": cleanup_audit,
                 })
             except RuntimeError as error:
                 raise friendly_storage_error(str(error)) or JobFailed("publish_failed", "Could not save the transcript. Retrying.", True)
@@ -328,6 +372,50 @@ class Service:
                 self.discard_upload(job, new_key)
             shutil.rmtree(work, ignore_errors=True)
             self.child = None
+
+    def clean_transcript(self, job, lines, heartbeat):
+        """Correct the transcript if we can. Any failure here publishes the machine transcript
+        unchanged: the student always gets their lecture, only a little less polished."""
+        api_key = env("OPENROUTER_API_KEY")
+        if not api_key or env("TRANSCRIPT_CLEANUP_ENABLED", "true").lower() == "false":
+            return lines, None
+        heartbeat.update(stage="polishing", progress=1.0)
+        model = env("TRANSCRIPT_CLEANUP_MODEL") or DEFAULT_CLEANUP_MODEL
+        started = time.monotonic()
+        outcome = {}
+
+        def work():
+            try:
+                chunks = self.db.course_chunks(job["project_id"], job["user_id"])
+                context = cleanup.select_course_context(chunks, lines)
+                reply, usage = cleanup.complete(
+                    api_key=api_key, base_url=env("OPENROUTER_BASE_URL") or DEFAULT_CLEANUP_BASE_URL,
+                    model=model, lines=lines, course_context=context, deadline=started + CLEANUP_SECONDS,
+                )
+                outcome["result"] = (*cleanup.apply_fixes(lines, cleanup.parse_fixes(reply)), usage, len(context))
+            except Exception as error:
+                outcome["error"] = error
+
+        # On a thread so a cancel or shutdown is noticed while the model is still answering.
+        # complete() stops itself at the deadline; the grace is for it to return what it has.
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        while thread.is_alive() and time.monotonic() - started < CLEANUP_SECONDS + CLEANUP_GRACE_SECONDS:
+            if heartbeat.lost.is_set():
+                raise JobFailed("cancelled", "Transcription was cancelled.", False)
+            if self.stopping:
+                raise JobFailed("worker_restart", "The transcriber restarted. Your recording is back in the queue.", True)
+            self.beat()
+            thread.join(1)
+        if "result" not in outcome:
+            log("transcript cleanup skipped", job=job["id"], error=repr(outcome.get("error", "timeout"))[:200],
+                seconds=round(time.monotonic() - started, 1))
+            return lines, None
+        cleaned, audit, usage, context_chars = outcome["result"]
+        log("transcript cleanup", job=job["id"], applied=audit["applied"], rejected=sum(audit["rejected"].values()),
+            context_chars=context_chars, seconds=round(time.monotonic() - started, 1),
+            tokens_in=usage.get("prompt_tokens"), tokens_out=usage.get("completion_tokens"), cost=usage.get("cost"))
+        return cleaned, {**audit, "model": model}
 
     def discard_upload(self, job, key):
         """Delete a compact copy that never got published. If the publish call failed after

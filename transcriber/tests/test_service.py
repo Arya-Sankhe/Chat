@@ -1,6 +1,10 @@
+import os
 import sys
+import tempfile
+import threading
 import types
 import unittest
+from pathlib import Path
 
 # The service imports boto3/requests at module load; the logic under test needs neither.
 for name in ("boto3", "requests", "botocore", "botocore.config", "botocore.exceptions"):
@@ -77,6 +81,61 @@ class CleanupListTest(unittest.TestCase):
         worker = make(FakeDb({"object_key": "users/u/orig.mp3"}))
         worker.discard_upload({"attachment_id": "att-1"}, "users/u/audio/new.m4a")
         self.assertEqual(worker.db.calls, [("klui_finish_audio_object_cleanup", {"p_keys": ["users/u/audio/new.m4a"]})])
+
+
+class FakeHeartbeat:
+    def __init__(self, lost=False):
+        self.lost = types.SimpleNamespace(is_set=lambda: lost)
+        self.stages = []
+
+    def update(self, stage=None, progress=None, duration=None):
+        self.stages.append(stage)
+
+
+class CleanTranscriptTest(unittest.TestCase):
+    LINES = [[0.0, 10.0, "During my tosis it splits."]]
+    JOB = {"id": "job", "project_id": "course", "user_id": "user"}
+
+    def setUp(self):
+        self.addCleanup(setattr, service.cleanup, "complete", service.cleanup.complete)
+        self.addCleanup(os.environ.pop, "OPENROUTER_API_KEY", None)
+        os.environ["OPENROUTER_API_KEY"] = "key"
+        self.worker = make(FakeDb())
+        self.worker.stopping = False
+        self.worker.work_root = Path(tempfile.gettempdir())
+        self.worker.db.course_chunks = lambda _project, _user: ["Mitosis is cell division."]
+
+    def test_publishes_corrected_lines_with_their_audit(self):
+        seen = {}
+
+        def complete(**kwargs):
+            seen.update(kwargs)
+            return '{"line":1,"from":"my tosis","to":"mitosis"}', {}
+
+        service.cleanup.complete = complete
+        heartbeat = FakeHeartbeat()
+        lines, audit = self.worker.clean_transcript(self.JOB, self.LINES, heartbeat)
+        self.assertEqual(lines[0][2], "During mitosis it splits.")
+        self.assertEqual(audit["original_lines"][0]["text"], self.LINES[0][2])
+        self.assertIn("Mitosis is cell division.", seen["course_context"])
+        self.assertEqual(heartbeat.stages, ["polishing"])
+
+    def test_any_failure_keeps_the_machine_transcript(self):
+        def complete(**_kwargs):
+            raise RuntimeError("model down")
+
+        service.cleanup.complete = complete
+        self.assertEqual(self.worker.clean_transcript(self.JOB, self.LINES, FakeHeartbeat()), (self.LINES, None))
+        del os.environ["OPENROUTER_API_KEY"]
+        self.assertEqual(self.worker.clean_transcript(self.JOB, self.LINES, FakeHeartbeat()), (self.LINES, None))
+
+    def test_a_cancelled_job_stops_instead_of_publishing(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+        service.cleanup.complete = lambda **_kwargs: release.wait(5) and ("", {})
+        with self.assertRaises(service.JobFailed) as caught:
+            self.worker.clean_transcript(self.JOB, self.LINES, FakeHeartbeat(lost=True))
+        self.assertEqual(caught.exception.code, "cancelled")
 
 
 class QueueNameTest(unittest.TestCase):
