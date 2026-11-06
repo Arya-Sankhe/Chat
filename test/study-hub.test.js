@@ -35,7 +35,7 @@ test("photo transcript menus generate flashcards and practice tests from the not
     escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
     isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
     startGeneration: job => jobs.push(job), studioItem: () => null, handleAudioCardClick: () => false,
-    handleLectureClick: () => false, isLectureNote: () => false, studyToolsMarkup: () => ""
+    handleLectureClick: () => false, isLectureNote: () => false, studyToolsMarkup: () => "", lectureDocs: () => []
   };
   runInNewContext(functions, ctx);
   const markup = ctx.practiceMarkup();

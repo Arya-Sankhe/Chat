@@ -13,7 +13,7 @@ import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup
 import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
-import { formatClock as lectureClock, isLectureNote, jotsFromText, kluiMarkup, lectureNoteFor, lectureNoteHtml, loadJots, moveJots, forgetJots, saveJots } from "./studyLectures.js";
+import { formatClock as lectureClock, isLectureNote, lectureNoteStaticHtml, jotsFromText, kluiMarkup, lectureNoteFor, lectureNoteHtml, loadJots, moveJots, forgetJots, saveJots } from "./studyLectures.js";
 
 // The tutor's icon is a tiny version of its call orb: grass green into sky blue with a soft highlight.
 let tutorOrbIconId = 0;
@@ -159,6 +159,7 @@ export function createStudyHubController({
   let stripLectureId = "";
   // Lines typed while the browser is still asking for the mic, before the recording has an id.
   let pendingJots = "";
+  let jotsBackupWarned = false;
   let citeTime = null;
   const recordToKey = "klui.dojo.recordTo";
   // Entrance animations play once per item; later repaints of the same item stay still.
@@ -339,6 +340,7 @@ export function createStudyHubController({
   function noteKindLabel(note) {
     if (isMindMap(note)) return "Mind map";
     if (note?.kind === "image_transcript") return "Image transcript";
+    if (isLectureNote(note)) return "Lecture notes";
     if (isDetailedNote(note)) return "Detailed";
     return "Summary";
   }
@@ -848,7 +850,10 @@ export function createStudyHubController({
     const rec = sourceDialog.recorder;
     const key = rec.recordingId;
     if (!key) { pendingJots = area.value; return; }
-    saveJots(key, jotsFromText(area.value, loadJots(key), Math.round(rec.elapsed)));
+    if (!saveJots(key, jotsFromText(area.value, loadJots(key), Math.round(rec.elapsed))) && !jotsBackupWarned) {
+      jotsBackupWarned = true;
+      showToast("Your typing can't be backed up on this device. Keep this tab open until the notes are written.");
+    }
   }
 
   // The little player under the notes follows whatever the lecture audio is doing.
@@ -1867,6 +1872,7 @@ export function createStudyHubController({
     let body;
     try {
       body = isMindMap(item) ? mindMapMarkup(item) : renderContent(noteBody(item)) || `<pre>${escapeHtml(noteBody(item))}</pre>`;
+      if (isLectureNote(item)) body = lectureNoteStaticHtml(body);
     } catch {
       body = `<pre>${escapeHtml(noteBody(item))}</pre>`;
     }
@@ -1878,7 +1884,9 @@ export function createStudyHubController({
     if (openItem) return studioViewMarkup(openItem);
     const decks = state.studyPractice?.decks || [];
     const quizzes = state.studyPractice?.quizzes || [];
-    const notes = (state.studyMaterials?.notes || []).filter((note) => !isLectureNote(note));
+    // Lecture notes live with their lecture; once the recording is removed they join the collection.
+    const lectureIds = new Set(lectureDocs().map((doc) => doc.id));
+    const notes = (state.studyMaterials?.notes || []).filter((note) => !isLectureNote(note) || !lectureIds.has(note.document_file_id));
     const podcasts = state.studyPractice?.podcasts || [];
     const tutors = state.studyPractice?.tutors || [];
     const whiteboards = state.studyPractice?.whiteboards || [];

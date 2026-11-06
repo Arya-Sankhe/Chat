@@ -79,7 +79,7 @@
 .dojo-lec-body blockquote p { margin: 2px 0; }
 .dojo-lec-body blockquote strong:first-child { color: color-mix(in srgb, var(--dojo-hue-depth) 75%, var(--text)); }
 /* The student's own words, kept in their notes. */
-.dojo-lec-body mark.dojo-mine { padding: 0 2px; border-radius: 3px; background: linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--dojo-hue-b) 55%, transparent) 58%); color: inherit; }
+mark.dojo-mine { padding: 0 2px; border-radius: 3px; background: linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--dojo-hue-b) 55%, transparent) 58%); color: inherit; }
 /* [12:41] → play the lecture from there. */
 .dojo-cite { display: inline-flex; align-items: center; margin: 0 1px 0 4px; padding: 0 6px; height: 18px; vertical-align: 1px; border: 1px solid color-mix(in srgb, var(--dojo-hue-c) 35%, transparent); border-radius: 999px; background: transparent; color: color-mix(in srgb, var(--dojo-hue-depth) 80%, var(--text)); font: 600 10.5px var(--dojo-display); font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color 140ms ease, color 140ms ease; }
 .dojo-cite:hover, .dojo-cite.is-playing { background: var(--dojo-hue-c); border-color: var(--dojo-hue-c); color: #fff; }

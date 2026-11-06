@@ -483,7 +483,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
     open(event, { panel = "" } = {}) {
       if (state.studyUploading) return;
       // A live or unsent recording belongs to the course it was made in.
-      const pinned = (recorder.active || recorder.state === "stopped") && recorder.courseId;
+      const pinned = (inline && courseId) || ((recorder.active || recorder.state === "stopped") && recorder.courseId);
       if (!pinned && !state.activeCourseId) return;
       courseId = pinned || state.activeCourseId;
       forms.forEach(form => { if (form.tagName === "FORM") form.reset(); });

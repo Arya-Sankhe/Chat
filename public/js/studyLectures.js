@@ -7,6 +7,8 @@ import { kluiSvgMarkup } from "./klui.js";
 
 export const LECTURE_NOTE_MARK = "<!--klui:lecture-->";
 const JOTS_PREFIX = "klui.dojo.jots.";
+// The jots in this tab. Storage is only a backup, so a full or blocked storage loses nothing here.
+const jotsMemory = new Map();
 let kluiId = 0;
 
 export function isLectureNote(note) {
@@ -43,27 +45,35 @@ function readJots(key) {
 }
 
 export function loadJots(key) {
-  return readJots(key)?.lines || [];
+  return jotsMemory.get(key) || readJots(key)?.lines || [];
 }
 
+// Returns false when the device backup failed (the jots still live in this tab).
 export function saveJots(key, lines) {
-  if (!key) return;
+  if (!key) return true;
+  jotsMemory.set(key, lines);
   try {
     if (lines.some((line) => line.text.trim())) localStorage.setItem(JOTS_PREFIX + key, JSON.stringify({ lines, savedAt: Date.now() }));
     else localStorage.removeItem(JOTS_PREFIX + key);
-  } catch { /* Storage is optional; the notes are written from the lecture alone. */ }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function moveJots(from, to) {
-  const saved = readJots(from);
-  if (!saved || !to) return;
+  const lines = loadJots(from);
+  if (!lines.length || !to) return;
+  jotsMemory.set(to, lines);
+  jotsMemory.delete(from);
   try {
-    localStorage.setItem(JOTS_PREFIX + to, JSON.stringify(saved));
+    localStorage.setItem(JOTS_PREFIX + to, JSON.stringify({ lines, savedAt: Date.now() }));
     localStorage.removeItem(JOTS_PREFIX + from);
-  } catch { /* Storage is optional. */ }
+  } catch { /* The copy in memory carries them to the notes. */ }
 }
 
 export function forgetJots(key) {
+  jotsMemory.delete(key);
   try { localStorage.removeItem(JOTS_PREFIX + key); } catch { /* Storage is optional. */ }
 }
 
@@ -102,6 +112,11 @@ export function lectureNoteHtml(html, escapeHtml) {
     .replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>/, "")
     .replace(/⟦([\s\S]*?)⟧/g, (_, text) => `<mark class="dojo-mine">${text}</mark>`)
     .replace(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g, (_, time) => `<button class="dojo-cite" type="button" data-cite-time="${clockSeconds(time)}" title="Play from ${escapeHtml(time)}">${escapeHtml(time)}</button>`);
+}
+
+// Lecture notes opened outside their lecture (e.g. the recording was removed): highlights, no playback.
+export function lectureNoteStaticHtml(html) {
+  return String(html || "").replace(/⟦([\s\S]*?)⟧/g, (_, text) => `<mark class="dojo-mine">${text}</mark>`);
 }
 
 export function hasMine(body) {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildLectureInput, cleanJots, LECTURE_NOTE_MARK } from "../server/study/lectureNotes.js";
 import { noteBody, noteModeAllowed, noteModesFromNotes } from "../server/study/generate.js";
-import { jotsFromText, lectureNoteHtml } from "../public/js/studyLectures.js";
+import { jotsFromText, lectureNoteHtml, loadJots, moveJots, saveJots } from "../public/js/studyLectures.js";
 
 const lecture = {
   id: "doc-1",
@@ -46,4 +46,12 @@ test("each typed line keeps the moment it was first written", () => {
   const inserted = jotsFromText("new first\nmitosis!\nask about G2", second, 300);
   assert.deepEqual(inserted.map((line) => line.t), [300, 30, 95]);
   assert.deepEqual(jotsFromText("ask about G2", second, 400).map((line) => line.t), [95]);
+});
+
+test("typed lines survive when the device can't back them up", () => {
+  const lines = [{ t: 4, text: "why p53?" }];
+  saveJots("rec-1", lines);
+  moveJots("rec-1", "doc-9");
+  assert.deepEqual(loadJots("doc-9"), lines);
+  assert.deepEqual(loadJots("rec-1"), []);
 });
