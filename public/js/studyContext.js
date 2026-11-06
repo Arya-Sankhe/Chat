@@ -261,6 +261,12 @@ export function createCourseContextPicker({ state, escapeHtml, readyDocs, docume
     bind,
     render,
     close: () => setOpen(false),
+    // Scope the next chat turns to just these sources (e.g. "Ask about this lecture").
+    only(ids) {
+      clearAll();
+      for (const id of ids) if (id) chosen().add(id);
+      changed();
+    },
     pageOn,
     togglePage,
     pageThumb(id, page, thumb) {

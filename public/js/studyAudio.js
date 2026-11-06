@@ -16,10 +16,12 @@ const ICONS = {
   speed: svg('<path d="M12 20a8 8 0 1 1 8-8"/><path d="m12 12 4-3"/>')
 };
 
-export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onClose, reducedMotion = () => false }) {
+export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onClose, onPlayerUpdate, reducedMotion = () => false }) {
   let view = null; // { id, audio, error, speedOpen, scrubbing }
   let root = null;
   let scrolledAt = 0;
+  // A timestamp asked for before the recording finished loading.
+  let pendingSeek = null;
   const player = createPodcastAudio({
     onUpdate: patch,
     refreshUrl: async (id) => (await fetchAudio(id))?.audio?.audioUrl || ""
@@ -102,6 +104,7 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
   }
 
   function patch(kind) {
+    onPlayerUpdate?.(kind);
     if (!root || !view?.audio || player.id !== view.id) return;
     if (kind === "error") {
       showToast("This recording could not play. Try opening it again.");
@@ -259,6 +262,12 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
       current.audio = payload?.audio || null;
       if (!current.audio) throw new Error("This recording is no longer available.");
       current.error = "";
+      if (pendingSeek != null && current.audio.audioUrl) {
+        const at = pendingSeek;
+        pendingSeek = null;
+        ensureLoaded();
+        player.seek(at, { play: true });
+      }
     } catch (error) {
       if (view !== current) return;
       current.error = error.message || "Please try again.";
@@ -288,9 +297,21 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     void load();
   }
 
+  // Plays a lecture from a moment, e.g. a timestamp in its notes. Works without the viewer on screen.
+  function playAt(doc, seconds) {
+    if (view?.id !== doc.id) open(doc);
+    scrolledAt = 0;
+    if (view.audio?.audioUrl) {
+      ensureLoaded();
+      player.seek(seconds, { play: true });
+    } else pendingSeek = seconds;
+    onPlayerUpdate?.("state");
+  }
+
   function close(event, { silent = false } = {}) {
     if (!view) return;
     player.pause();
+    pendingSeek = null;
     const id = view.id;
     view = null;
     root = null;
@@ -301,6 +322,14 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     open,
     mount,
     close,
+    playAt,
+    toggle() { if (!view?.audio?.audioUrl) return; ensureLoaded(); void player.toggle(); },
+    seek(seconds) { if (!view?.audio?.audioUrl) return; ensureLoaded(); player.seek(seconds); },
+    status() {
+      const now = player.state();
+      const mine = Boolean(view) && player.id === view.id;
+      return { id: view?.id || "", loading: Boolean(view && !view.audio && !view.error), playing: mine && now.playing, time: mine ? now.time : (pendingSeek ?? 0), duration: view?.audio?.durationSeconds || 0 };
+    },
     pause() { player.pause(); },
     get id() { return view?.id || ""; }
   };

@@ -1,0 +1,158 @@
+/* Dojo lectures: record a class, type along if you like, and read the notes Klui writes. */
+
+/* Klui, small, with a mood. */
+.dojo-klui { display: inline-grid; flex: none; width: var(--klui-size, 32px); height: var(--klui-size, 32px); }
+.dojo-klui svg { width: 100%; height: 100%; overflow: visible; }
+.dojo-klui[data-mood="listening"] svg { animation: dojo-klui-listen 2.4s ease-in-out infinite; }
+.dojo-klui[data-mood="writing"] svg { animation: dojo-klui-write 1.6s ease-in-out infinite; transform-origin: 50% 80%; }
+@keyframes dojo-klui-listen { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px) scale(1.02); } }
+@keyframes dojo-klui-write { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(3deg) translateY(-1px); } }
+
+/* One dark pill for "record": the only loud thing on the page. */
+.dojo-record-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; height: 38px; padding: 0 18px 0 15px; border: 0; border-radius: 999px; background: var(--text); color: var(--bg); font: 600 13px var(--dojo-display); white-space: nowrap; cursor: pointer; transition: transform 160ms var(--ease-out), opacity 160ms ease; }
+.dojo-record-btn:hover { opacity: .9; }
+.dojo-record-btn:active { transform: scale(.97); }
+.dojo-record-btn:disabled { opacity: .45; cursor: default; transform: none; }
+.dojo-record-btn:focus-visible { outline: 2px solid var(--dojo-hue-c); outline-offset: 2px; }
+.dojo-record-btn .dojo-rec-dot { width: 8px; height: 8px; animation: none; box-shadow: none; }
+.dojo-record-btn--block { width: calc(100% - 24px); margin: 12px 12px 6px; }
+
+/* Home: record a lecture into a course. */
+.dojo-rec-hero { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; padding: 12px 12px 12px 16px; border: 1px solid color-mix(in srgb, var(--text) 8%, transparent); border-radius: 18px; background: linear-gradient(180deg, color-mix(in srgb, var(--dojo-hue-a) 16%, var(--dojo-surface)), var(--dojo-surface)); }
+.dojo-rec-hero-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.dojo-rec-hero-copy strong { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.dojo-rec-hero-copy span { color: var(--study-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dojo-rec-dest { display: inline-flex; align-items: center; gap: 6px; color: var(--study-muted); font-size: 12.5px; white-space: nowrap; }
+.dojo-rec-dest select { max-width: 200px; height: 32px; padding: 0 26px 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: 600 12.5px var(--dojo-display); cursor: pointer; }
+
+/* Left panel: Lectures on top, Materials under it. */
+.dojo-lectures { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: 62%; }
+.dojo-lec-list { min-height: 0; overflow-y: auto; padding: 4px 8px 10px; scrollbar-width: thin; }
+.dojo-lec-empty { margin: 6px 8px 4px; color: var(--study-muted); font-size: 12px; line-height: 1.5; }
+.dojo-lec-row-wrap { position: relative; }
+.dojo-lec-row-wrap > .study-card-menu-wrap, .dojo-lec-row-wrap > .dojo-lec-act { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); opacity: 0; transition: opacity 140ms ease; }
+.dojo-lec-row-wrap:hover > .study-card-menu-wrap, .dojo-lec-row-wrap:focus-within > .study-card-menu-wrap, .dojo-lec-row-wrap > .study-card-menu-wrap:has([aria-expanded="true"]), .dojo-lec-row-wrap:hover > .dojo-lec-act, .dojo-lec-row-wrap:focus-within > .dojo-lec-act { opacity: 1; }
+.dojo-lec-act { display: grid; place-items: center; width: 26px; height: 26px; padding: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--study-muted); cursor: pointer; }
+.dojo-lec-act:hover { background: var(--dojo-soft); color: var(--text); }
+.dojo-lec-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 7px 34px 7px 10px; border: 0; border-radius: 11px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background-color 140ms ease; }
+.dojo-lec-row:hover { background: var(--dojo-soft); }
+.dojo-lec-row.is-active { background: color-mix(in srgb, var(--dojo-hue-b) 20%, var(--dojo-surface)); }
+.dojo-lec-row:focus-visible { outline: 2px solid var(--dojo-hue-c); outline-offset: -2px; }
+.dojo-lec-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.dojo-lec-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.dojo-lec-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--study-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.dojo-lec-row.is-live strong { color: var(--dojo-audio); }
+.dojo-lec-row.is-failed small { color: var(--study-red); }
+.dojo-lec-state { display: grid; flex: none; place-items: center; width: 18px; height: 18px; color: var(--study-muted); font-weight: 700; font-size: 12px; }
+.dojo-lec-row.is-failed .dojo-lec-state { color: var(--study-red); }
+.dojo-lec-state .study-spin { width: 13px; height: 13px; }
+.dojo-materials-head { height: 50px; border-top: 1px solid var(--study-stroke); }
+.dojo-lectures + .dojo-materials-head { margin-top: 2px; }
+.dojo-materials-empty { width: 100%; background: transparent; color: var(--study-muted); border: 1.5px dashed color-mix(in srgb, var(--text) 14%, transparent); font-weight: 600; }
+.dojo-materials-empty:hover { color: var(--text); border-color: color-mix(in srgb, var(--text) 24%, transparent); }
+
+/* Middle panel header: tabs on the left, quiet actions on the right. */
+.dojo-lec-head { gap: 12px; }
+.dojo-lec-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.dojo-lec-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--dojo-soft); }
+.dojo-lec-tabs button { height: 28px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--study-muted); font: 600 12.5px var(--dojo-display); cursor: pointer; transition: background-color 140ms ease, color 140ms ease; }
+.dojo-lec-tabs button:hover { color: var(--text); }
+.dojo-lec-tabs button.is-on { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px #00000014; }
+.dojo-lec-pane { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.dojo-lec-audio-slot { display: flex; flex: 1; min-height: 0; }
+.dojo-lec-audio-slot [data-lec-close] { display: none; }
+
+/* The notes. */
+.dojo-lec-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 30px clamp(22px, 4vw, 60px) 24px; }
+.dojo-lec-notes { max-width: 700px; margin: 0 auto; font-family: var(--study-note); animation: dojo-view-in 260ms var(--ease-out); }
+.dojo-lec-meta { margin: 0 0 6px; color: var(--study-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dojo-lec-notes h1 { margin: 0 0 18px; font: 650 clamp(23px, 2.1vw, 28px)/1.2 var(--dojo-display); letter-spacing: -.03em; }
+.dojo-lec-body { font-size: 14.5px; line-height: 1.65; }
+.dojo-lec-body > :first-child { margin-top: 0; }
+.dojo-lec-body h2 { margin: 26px 0 8px; font: 650 16px/1.3 var(--dojo-display); letter-spacing: -.01em; }
+.dojo-lec-body h3 { margin: 18px 0 6px; font: 650 14.5px/1.3 var(--dojo-display); }
+.dojo-lec-body p { margin: 8px 0; }
+.dojo-lec-body ul, .dojo-lec-body ol { margin: 6px 0; padding-left: 20px; }
+.dojo-lec-body li { margin: 4px 0; }
+.dojo-lec-body li::marker { color: color-mix(in srgb, var(--text) 35%, transparent); }
+.dojo-lec-body blockquote { margin: 14px 0; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--dojo-hue-c) 28%, transparent); border-radius: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--dojo-hue-a) 22%, var(--bg)), var(--bg)); color: var(--text); font-size: 13.5px; }
+.dojo-lec-body blockquote p { margin: 2px 0; }
+.dojo-lec-body blockquote strong:first-child { color: color-mix(in srgb, var(--dojo-hue-depth) 75%, var(--text)); }
+/* The student's own words, kept in their notes. */
+.dojo-lec-body mark.dojo-mine { padding: 0 2px; border-radius: 3px; background: linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--dojo-hue-b) 55%, transparent) 58%); color: inherit; }
+/* [12:41] → play the lecture from there. */
+.dojo-cite { display: inline-flex; align-items: center; margin: 0 1px 0 4px; padding: 0 6px; height: 18px; vertical-align: 1px; border: 1px solid color-mix(in srgb, var(--dojo-hue-c) 35%, transparent); border-radius: 999px; background: transparent; color: color-mix(in srgb, var(--dojo-hue-depth) 80%, var(--text)); font: 600 10.5px var(--dojo-display); font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color 140ms ease, color 140ms ease; }
+.dojo-cite:hover, .dojo-cite.is-playing { background: var(--dojo-hue-c); border-color: var(--dojo-hue-c); color: #fff; }
+.dojo-cite:focus-visible { outline: 2px solid var(--dojo-hue-c); outline-offset: 1px; }
+
+/* Under the notes: a slim player and the way into Ask. */
+.dojo-lec-dock { display: flex; flex: none; flex-direction: column; gap: 8px; padding: 0 20px 16px; }
+.dojo-lec-dock > * { width: 100%; max-width: 760px; margin: 0 auto; }
+.dojo-lec-strip { display: flex; align-items: center; gap: 10px; height: 0; padding: 0 10px 0 6px; overflow: hidden; border: 1px solid transparent; border-radius: 14px; opacity: 0; transition: height 200ms var(--ease-out), opacity 160ms ease; }
+.dojo-lec-strip.is-on { height: 42px; opacity: 1; border-color: color-mix(in srgb, var(--dojo-hue-c) 24%, transparent); background: color-mix(in srgb, var(--dojo-hue-a) 14%, var(--bg)); }
+.dojo-lec-play { display: grid; flex: none; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); cursor: pointer; }
+.dojo-lec-play svg { width: 13px; height: 13px; }
+.dojo-lec-now, .dojo-lec-dur { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.dojo-lec-now { font-weight: 650; color: color-mix(in srgb, var(--dojo-hue-depth) 80%, var(--text)); }
+.dojo-lec-dur { color: var(--study-muted); }
+.dojo-lec-track { position: relative; flex: 1; height: 18px; cursor: pointer; }
+.dojo-lec-track::before, .dojo-lec-track i { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; }
+.dojo-lec-track::before { background: color-mix(in srgb, var(--dojo-hue-b) 40%, transparent); }
+.dojo-lec-track i { background: var(--dojo-hue-c); transform: scaleX(0); transform-origin: left; }
+.dojo-lec-ask { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 16px 0 12px; border: 1px solid color-mix(in srgb, var(--text) 9%, transparent); border-radius: 22px; background: var(--bg); color: var(--study-muted); font: 14px var(--study-font); text-align: left; cursor: text; box-shadow: 0 1px 2px #0000000a, 0 10px 30px -14px #00000026; transition: border-color 140ms ease; }
+.dojo-lec-ask:hover { border-color: color-mix(in srgb, var(--text) 16%, transparent); color: var(--text); }
+
+/* Recording: a quiet bar, then a blank page to type on. */
+.dojo-live { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.dojo-live-bar { display: flex; align-items: center; gap: 12px; margin: 14px 16px 0; padding: 8px 8px 8px 12px; border-radius: 16px; background: color-mix(in srgb, var(--dojo-hue-a) 16%, var(--dojo-surface)); border: 1px solid color-mix(in srgb, var(--dojo-hue-c) 20%, transparent); }
+.dojo-live-status { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.dojo-live-status strong { font-size: 13px; font-weight: 650; }
+.dojo-live-status span { color: var(--study-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dojo-live-levels { display: flex; flex: 1; align-items: center; gap: 3px; height: 26px; min-width: 40px; color: var(--dojo-hue-c); }
+.dojo-live-levels i { flex: 1; max-width: 4px; height: 100%; border-radius: 3px; background: currentColor; transform: scaleY(.08); transform-origin: center; transition: transform 90ms linear; }
+.dojo-live-bar.is-waiting .dojo-live-levels { visibility: hidden; }
+.dojo-live-bar.is-paused .dojo-live-levels { color: var(--text-tertiary, var(--study-muted)); }
+.dojo-live-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: 600 12.5px var(--dojo-display); cursor: pointer; }
+.dojo-live-btn:disabled { opacity: .5; cursor: default; }
+.dojo-live-btn--finish { border-color: var(--text); background: var(--text); color: var(--bg); }
+.dojo-live-btn--finish span { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+.dojo-live-pad { flex: 1; min-height: 0; width: 100%; max-width: 780px; margin: 0 auto; padding: 26px clamp(22px, 4vw, 60px); border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font: 15px/1.75 var(--study-note); }
+.dojo-live-pad::placeholder { color: color-mix(in srgb, var(--text) 38%, transparent); }
+.dojo-live-foot { flex: none; margin: 0; padding: 0 20px 14px; color: var(--study-muted); font-size: 11.5px; text-align: center; }
+.dojo-live-foot.is-warning { color: var(--dojo-audio); }
+
+/* "Writing your notes" */
+.dojo-writing { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-height: 0; padding: 24px 32px 48px; text-align: center; }
+.dojo-writing .dojo-klui { margin-bottom: 14px; }
+.dojo-writing h2 { margin: 0 0 6px; font: 650 19px/1.25 var(--dojo-display); letter-spacing: -.02em; }
+.dojo-writing > p { max-width: 340px; margin: 0; color: var(--study-muted); font-size: 13px; line-height: 1.55; }
+.dojo-writing-steps { display: flex; flex-direction: column; gap: 10px; width: min(280px, 100%); margin: 24px 0 0; padding: 0; list-style: none; text-align: left; }
+.dojo-writing-steps li { display: grid; grid-template-columns: 18px 1fr; column-gap: 10px; align-items: center; color: var(--study-muted); font-size: 13px; }
+.dojo-writing-steps li small { grid-column: 2; color: var(--study-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.dojo-writing-steps li small:empty { display: none; }
+.dojo-writing-steps i { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--border); border-radius: 50%; font-size: 10px; font-style: normal; }
+.dojo-writing-steps li.is-done i { border-color: var(--study-green); background: var(--study-green); color: #fff; }
+.dojo-writing-steps li.is-active { color: var(--text); font-weight: 600; }
+.dojo-writing-steps li.is-active i { border: 2px solid var(--dojo-hue-c); border-right-color: transparent; animation: dojo-lec-spin .9s linear infinite; }
+.dojo-writing-steps li.is-failed { color: var(--study-red); font-weight: 600; }
+.dojo-writing-steps li.is-failed i { border-color: var(--study-red); }
+.dojo-writing .dojo-record-btn { margin-top: 22px; }
+@keyframes dojo-lec-spin { to { transform: rotate(360deg); } }
+
+/* Study panel: four tools, the rest under More. */
+.dojo-collection .dojo-tools--main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dojo-tools-more { flex-shrink: 0; margin-top: 6px; }
+.dojo-tools-more summary { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 8px; color: var(--study-muted); font-size: 12px; font-weight: 600; list-style: none; cursor: pointer; }
+.dojo-tools-more summary::-webkit-details-marker { display: none; }
+.dojo-tools-more summary::after { content: ""; width: 6px; height: 6px; margin: -3px 0 0 3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform 160ms ease; }
+.dojo-tools-more[open] summary::after { margin-top: 3px; transform: rotate(-135deg); }
+.dojo-tools-more summary:hover { color: var(--text); }
+.dojo-tools-more-list { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 4px; }
+.dojo-tools-more-list button { display: flex; align-items: center; gap: 9px; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--study-muted); font: 12.5px var(--study-font); text-align: left; cursor: pointer; }
+.dojo-tools-more-list button:hover { background: var(--dojo-soft); color: var(--text); }
+.dojo-tools-more-list svg { width: 15px; height: 15px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dojo-klui svg, .dojo-writing-steps li.is-active i, .dojo-lec-notes { animation: none; }
+  .dojo-lec-strip, .dojo-live-levels i { transition: none; }
+}

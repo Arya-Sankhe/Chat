@@ -5,6 +5,7 @@ import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { salvageJsonObjects } from "./jsonSalvage.js";
 import { enrichSourceWithSelectiveVision, pageKey } from "./vision.js";
+import { LECTURE_NOTE_MARK, LECTURE_NOTES_SYSTEM_PROMPT, buildLectureInput } from "./lectureNotes.js";
 
 const GENERATE_MAX_MS = 10 * 60 * 1000;
 const INACTIVITY_MS = 30_000;
@@ -389,7 +390,7 @@ export const DETAILED_NOTE_MARK = "<!--klui:detailed-->";
 
 export function normalizeNoteMode(value) {
   const mode = String(value || "").trim().toLowerCase();
-  return mode === "summary" || mode === "detailed" || mode === "mindmap" ? mode : "";
+  return mode === "summary" || mode === "detailed" || mode === "mindmap" || mode === "lecture" ? mode : "";
 }
 
 export function isDetailedNote(note) {
@@ -400,7 +401,7 @@ export function isDetailedNote(note) {
 
 export function noteBody(note) {
   const text = String(note?.content || "");
-  return text.replace(/^<!--klui:(?:detailed|mindmap)-->\n?/, "");
+  return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?/, "");
 }
 
 export function noteModesFromNotes(notes, documentFileId) {
@@ -410,6 +411,7 @@ export function noteModesFromNotes(notes, documentFileId) {
     if (note.document_file_id !== documentFileId) continue;
     if (note.kind === "image_transcript") continue;
     if (String(note.content || "").startsWith("<!--klui:mindmap-->")) modes.mindmap = true;
+    else if (String(note.content || "").startsWith(LECTURE_NOTE_MARK)) modes.lecture = true;
     else if (isDetailedNote(note)) modes.detailed = true;
     else if (note.kind === "summary") modes.summary = true;
   }
@@ -679,6 +681,7 @@ export async function generateSummary({
   pageNumber = null,
   documents = null
 }) {
+  if (normalizeNoteMode(mode) === "lecture") return generateLectureNotes({ context, config, course, source, options, signal, onStage });
   onStage?.("preparing");
   const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
   throwIfAborted(signal);
@@ -717,6 +720,36 @@ export async function generateSummary({
     content: mindmap ? `<!--klui:mindmap-->\n${parsed.content}` : detailed ? `${DETAILED_NOTE_MARK}\n${parsed.content}` : parsed.content
   }, { signal });
   return { note, partial };
+}
+
+async function generateLectureNotes({ context, config, course, source, options = {}, signal, onStage }) {
+  onStage?.("preparing");
+  const documentFile = source.documentFile;
+  const user = buildLectureInput({ documentFile, jots: options.jots });
+  onStage?.("generating");
+  const streamed = await streamComplete({
+    context,
+    config,
+    signal,
+    maxTokens: 12000,
+    system: LECTURE_NOTES_SYSTEM_PROMPT,
+    user,
+    expect: "markdown",
+    temperature: 0.2
+  });
+  throwIfAborted(signal);
+  const parsed = parseMarkdownNote(streamed.content, { fallbackTitle: sourceFallbackTitle(source) || "Lecture notes" });
+  if (!parsed?.content) throw new HttpError(502, GENERATION_FAILED);
+  onStage?.("saving");
+  throwIfAborted(signal);
+  const note = await context.db.createStudyNote(context.user.id, {
+    project_id: course.id,
+    document_file_id: documentFile.id,
+    kind: "summary",
+    title: parsed.title || "Lecture notes",
+    content: `${LECTURE_NOTE_MARK}\n${parsed.content}`
+  }, { signal });
+  return { note, partial: Boolean(streamed.partial || streamed.finishReason === "length") };
 }
 
 export async function transcribeCourseImage({ context, config, course, attachment, signal }) {

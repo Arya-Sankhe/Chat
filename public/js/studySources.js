@@ -34,7 +34,10 @@ function escape(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 }
 
-export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyRecordingIds = () => [], onCreated, showToast }) {
+// A lecture recorded from the Dojo page itself ("inline") skips the review step: Finish uploads it
+// straight away and the page shows the notes being written. onInline tells the page to repaint;
+// inlineVisible says whether that page is on screen, so the floating pill can stay out of the way.
+export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyRecordingIds = () => [], onCreated, showToast, onInline, inlineVisible = () => false }) {
   const dialog = document.createElement("dialog");
   dialog.className = "dojo-source-dialog";
   dialog.setAttribute("aria-label", "Add sources");
@@ -86,6 +89,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
   let frame = 0;
   let previewUrl = "";
   let recoverable = [];
+  let inline = false;
   const feedback = dialog.querySelector(".dojo-source-feedback");
   const forms = [...dialog.querySelectorAll("[data-source-form]")];
   const switches = [...dialog.querySelectorAll("[data-source-kind]")];
@@ -97,6 +101,13 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
       if (recorder.error) message(recorder.error, true);
       renderAudioPanel();
       syncLive();
+      if (inline) {
+        if (next === "stopped") void finishInline();
+        else if (next === "idle") inline = false;
+        if (recorder.error && next === "idle") showToast(recorder.error);
+        onInline?.(next);
+        return;
+      }
       if (next === "stopped" && !dialog.open && courseId) openAudio();
     }
   });
@@ -273,7 +284,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
     const active = recorder.active || recorder.state === "requesting";
     const live = dialog.querySelector("[data-audio-live]");
     if (live) live.hidden = !recorder.active;
-    pill.hidden = !(recorder.active && !dialog.open);
+    pill.hidden = !(recorder.active && !dialog.open && !(inline && inlineVisible()));
     pill.classList.toggle("is-paused", recorder.state === "paused");
     pill.querySelector("[data-pill-state]").textContent = recorder.state === "paused" ? "Paused" : "Recording";
     const pauseBtn = pill.querySelector("[data-pill-pause]");
@@ -290,6 +301,18 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
     const hidden = new Set([...busyRecordingIds(), recorder.result?.id].filter(Boolean));
     const option = dialog.querySelector("[data-source-kind=audio]");
     option?.classList.toggle("has-recovery", recoverable.some(row => !hidden.has(row.id)));
+  }
+
+  async function finishInline() {
+    const result = recorder.result;
+    inline = false;
+    if (!result) return;
+    const title = result.title || "Lecture";
+    const file = new File([result.blob], `${title.replace(/[\\/:*?"<>|\x00-\x1f]/g, " ").trim() || "Lecture"}.${recordingExtension(result.mimeType)}`, { type: result.mimeType.split(";")[0] });
+    const target = result.courseId || courseId;
+    recorder.release(false);
+    onInline?.("uploading");
+    await uploadAudio(file, { title, durationSeconds: result.durationSeconds, source: "recording", recordingId: result.id, backedUp: result.persisted !== false, courseId: target, inline: true });
   }
 
   async function transcribeRecording() {
@@ -481,7 +504,23 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
       if (!busy) dialog.close();
       return true;
     },
-    get recording() { return recorder.active; }
+    get recording() { return recorder.active; },
+    get recorder() { return recorder; },
+    get inline() { return inline; },
+    // The course an inline recording belongs to, known even while the mic is still being asked for.
+    get inlineCourseId() { return inline ? courseId : ""; },
+    // Starts recording a lecture for the course straight from the Dojo page.
+    async startInline(targetCourseId) {
+      if (recorder.active || recorder.state === "requesting" || state.studyUploading) return false;
+      if (recorder.state === "stopped") return false;
+      inline = true;
+      courseId = targetCourseId;
+      message("");
+      await recorder.start(targetCourseId);
+      if (!recorder.active) { inline = false; return false; }
+      return true;
+    },
+    syncLive
   };
   return api;
 }

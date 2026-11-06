@@ -313,12 +313,13 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
     if (source.note) throw new HttpError(400, "Choose source files for notes or mind maps.");
     mode = type === "mindmap" ? "mindmap" : normalizeNoteMode(body.mode) || "summary";
     if (type === "notes" && mode === "mindmap") throw new HttpError(400, "Use type mindmap to create a mind map.");
+    if (mode === "lecture" && source.documentFile?.kind !== "audio") throw new HttpError(400, "Lecture notes need a recorded lecture.");
     const listed = await context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal });
     const existing = noteModesFromNotes(listed, source.documentFile?.id);
     if (!noteModeAllowed(existing, mode)) {
       throw new HttpError(409, mode === "detailed"
         ? "Detailed review already created."
-        : mode === "mindmap" ? "Mind map already created." : "Summary already created.");
+        : mode === "mindmap" ? "Mind map already created." : mode === "lecture" ? "Lecture notes already created." : "Summary already created.");
     }
   }
 
