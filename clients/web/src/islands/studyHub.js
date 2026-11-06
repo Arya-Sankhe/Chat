@@ -1,3 +1,6 @@
+// Island change: with a `host` (the React Dojo in src/dojo), the page is React's: render()
+// hands it a fresh view() and only fills the island slots React leaves empty (the open tool,
+// the composer, messages, the audio player). Clicks still reach handleViewClick by data-*.
 // Island change: the sidebar closes through an injected closeSidebar() (the new client's
 // store owns body.sidebar-open); the default is the old direct class removal.
 // Island change: state.conversations is the store's, so course-chat edits replace
@@ -91,9 +94,11 @@ export function createStudyHubController({
   loadProjects,
   canUseSideChat,
   openSideChat,
-  closeSideChat
+  closeSideChat,
+  host = null
 }) {
-  const TABS = ["materials", "chat", "practice"];
+  const TABS = host ? ["notes", "practice", "materials", "chat"] : ["materials", "chat", "practice"];
+  const DEFAULT_TAB = host ? "notes" : "chat";
   // Leaving mid-upload would lose the lecture; the browser asks first.
   window.addEventListener("beforeunload", (event) => {
     if (!hasAudioWork()) return;
@@ -1253,7 +1258,7 @@ export function createStudyHubController({
     if (!studyVisible() || !state.activeCourseId || !els.studyView) return;
     const entries = audioCardEntries();
     const nodes = [...els.studyView.querySelectorAll("[data-audio-card]")];
-    const board = !sourcePreviewId && els.studyView.querySelector(".dojo-workspace");
+    const board = host ? true : !sourcePreviewId && els.studyView.querySelector(".dojo-workspace");
     const structural = Boolean(board) && (nodes.length !== entries.length
       || entries.some((entry, index) => nodes[index]?.dataset.audioCard !== entry.key || nodes[index]?.dataset.phase !== entry.phase));
     if (structural) { render(); return; }
@@ -1309,6 +1314,12 @@ export function createStudyHubController({
     workspace.querySelector(`.dojo-${panel === "sources" ? (collapsed ? "source-rail" : "sources-expanded") : (collapsed ? "studio-rail" : "studio-expanded")} [data-collapse-${panel}]`)?.focus({ preventScroll: true });
   }
 
+  // The React Dojo has no three-panel grid, so there is nothing to measure or animate.
+  function workspaceColumns() {
+    const workspace = els.studyView.querySelector(".dojo-workspace");
+    return workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
+  }
+
   function animatePreviewResize(start, event) {
     const workspace = els.studyView.querySelector(".dojo-workspace");
     if (!workspace || !event?.detail || reducedMotion()) return;
@@ -1345,7 +1356,7 @@ export function createStudyHubController({
     const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
     const attachmentId = doc?.attachment_id || attachment?.id;
     if (!attachmentId) { showToast("This source has no file preview."); return; }
-    const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+    const start = workspaceColumns();
     sourcePreviewId = id;
     sourcesCollapsed = false;
     quizMenuKey = "";
@@ -1364,7 +1375,7 @@ export function createStudyHubController({
       container: els.studyView.querySelector(".dojo-source-preview-slot"),
       onClose: (closeEvent) => {
         if (sourcePreviewId !== id) return;
-        const before = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+        const before = workspaceColumns();
         sourcePreviewId = "";
         render();
         animatePreviewResize(before, closeEvent);
@@ -1401,7 +1412,7 @@ export function createStudyHubController({
     const { kind, id } = studioView;
     if (kind === "podcast") podcastAudio?.pause();
     if (kind === "tutor") tutorCall?.pause();
-    const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+    const start = workspaceColumns();
     studioView = null;
     for (const key of shownEntrances) if (key.startsWith("studio:")) shownEntrances.delete(key);
     render();
@@ -1611,6 +1622,13 @@ export function createStudyHubController({
 
   // Repaint only the Create panel so the chat and source preview keep their state.
   function patchStudio({ keepScroll = true } = {}) {
+    if (host) {
+      if (studioView && !studioItem()) { render(); return; }
+      paintedStudio = "";
+      paintStudio({ keepScroll });
+      settleEntrances();
+      return;
+    }
     const current = els.studyView?.querySelector(".dojo-studio-expanded > .dojo-studio-content");
     if (!current) return;
     if (studioView && !studioItem()) { render(); return; }
@@ -1642,6 +1660,7 @@ export function createStudyHubController({
   }
 
   function patchDeckBody() {
+    if (host) paintedStudio = "";
     const root = els.studyView.querySelector(".dojo-studio-view[data-studio-kind=deck]");
     if (!root || !studioView?.cards) return;
     const body = root.querySelector("[data-deck-body]");
@@ -2121,6 +2140,7 @@ export function createStudyHubController({
     }
     sourceDialog.syncLive();
     if (!lectureFrame) tickLecture();
+    if (host) { renderHost(); return; }
     if (!state.activeCourseId) {
       parkComposer();
       parkMessages();
@@ -2132,7 +2152,7 @@ export function createStudyHubController({
     const currentCollectionScroll = els.studyView.querySelector(".dojo-collection")?.scrollTop;
     const studioScroll = els.studyView.querySelector(".dojo-studio-view .dojo-view-body")?.scrollTop;
     const lectureBox = els.studyView.querySelector("[data-lec-scroll]");
-    if (lectureBox && lectureBox.dataset.lecture) lectureScroll.set(lectureBox.dataset.lecture, lectureBox.scrollTop);
+    if (lectureBox && lectureBox.dataset.lecFor) lectureScroll.set(lectureBox.dataset.lecFor, lectureBox.scrollTop);
     const jotsBox = els.studyView.querySelector("[data-jots]");
     const jotsFocus = jotsBox && document.activeElement === jotsBox ? [jotsBox.selectionStart, jotsBox.selectionEnd, jotsBox.scrollTop] : null;
     const openLecture = lectureDocs().find((item) => item.id === activeLectureId);
@@ -2161,7 +2181,7 @@ export function createStudyHubController({
     if (studioBody && studioScroll) studioBody.scrollTop = studioScroll;
     const nextLectureBox = els.studyView.querySelector("[data-lec-scroll]");
     if (nextLectureBox) {
-      nextLectureBox.dataset.lecture = activeLectureId;
+      nextLectureBox.dataset.lecFor = activeLectureId;
       nextLectureBox.scrollTop = lectureScroll.get(activeLectureId) || 0;
     }
     const nextJots = els.studyView.querySelector("[data-jots]");
@@ -2171,6 +2191,257 @@ export function createStudyHubController({
       nextJots.scrollTop = jotsFocus[2];
     }
     floatOpenMenu();
+  }
+
+  // The React Dojo draws the page from view(); the engine keeps its islands mounted.
+  function renderHost() {
+    parkComposer();
+    parkMessages();
+    const lectureBox = els.studyView.querySelector("[data-lec-scroll]");
+    if (lectureBox && lectureBox.dataset.lecFor) lectureScroll.set(lectureBox.dataset.lecFor, lectureBox.scrollTop);
+    const jotsBox = els.studyView.querySelector("[data-jots]");
+    const jotsFocus = jotsBox && document.activeElement === jotsBox ? [jotsBox.selectionStart, jotsBox.selectionEnd, jotsBox.scrollTop] : null;
+    if (state.activeCourseId) {
+      normalizeLecture();
+      const openLecture = lectureDocs().find((item) => item.id === activeLectureId);
+      if (openLecture) ensureLectureNotes(openLecture);
+      if (studioView && !studioItem()) studioView = null;
+    }
+    host.update();
+    if (state.activeCourseId) {
+      paintStudio();
+      finishCoursePaint();
+      settleEntrances();
+      if (!transcriptionTimer && !transcriptionPolling && activeAudioDocs().length) scheduleTranscriptionPoll(1500);
+    }
+    const nextLectureBox = els.studyView.querySelector("[data-lec-scroll]");
+    if (nextLectureBox && nextLectureBox.dataset.lecFor !== activeLectureId) {
+      nextLectureBox.dataset.lecFor = activeLectureId;
+      nextLectureBox.scrollTop = lectureScroll.get(activeLectureId) || 0;
+    }
+    const nextJots = els.studyView.querySelector("[data-jots]");
+    if (nextJots && jotsFocus && document.activeElement !== nextJots) {
+      nextJots.focus({ preventScroll: true });
+      nextJots.setSelectionRange(jotsFocus[0], jotsFocus[1]);
+      nextJots.scrollTop = jotsFocus[2];
+    }
+    renderNoteOverlay();
+  }
+
+  // Everything the React Dojo draws, as plain data. Recomputed on each render.
+  function view() {
+    const courses = coursesFromProjects();
+    const rec = sourceDialog.recorder;
+    const liveCourse = recordingElsewhere();
+    const base = {
+      signedIn: Boolean(state.session),
+      courses: courses.map((course) => ({ id: course.id, name: course.name })),
+      courseId: state.activeCourseId || "",
+      tab: state.activeCourseTab || DEFAULT_TAB,
+      recordTo: recordTarget(courses)?.id || "",
+      live: {
+        courseId: liveCourse || "",
+        here: liveHere(),
+        state: rec.state || "idle",
+        elapsed: Number(rec.elapsed) || 0,
+        quiet: Boolean(rec.quiet)
+      },
+      recent: recentLectures
+    };
+    if (!state.activeCourseId) return base;
+    const docs = state.studyMaterials?.documents || [];
+    const notes = state.studyMaterials?.notes || [];
+    const entries = audioCardEntries();
+    const busyIds = new Set(entries.map((entry) => entry.docId).filter(Boolean));
+    const lectures = lectureDocs().map((doc) => {
+      const note = lectureNoteOf(doc.id);
+      const job = lectureNoteJob(doc.id);
+      return {
+        id: doc.id,
+        title: lectureTitle(doc),
+        fileName: documentDisplayName(doc),
+        createdAt: doc.created_at || "",
+        duration: Number(doc.duration_seconds) || 0,
+        ready: materialStatus(doc) === "ready" && !busyIds.has(doc.id),
+        writing: Boolean(job),
+        noteError: lectureNoteErrors.get(doc.id) || "",
+        noteId: note?.id || "",
+        gist: note ? noteGist(noteBody(note)) : ""
+      };
+    });
+    let lecture = null;
+    if (activeLectureId === "live") {
+      lecture = {
+        kind: "live",
+        recordingId: rec.recordingId || "",
+        jots: rec.recordingId ? loadJots(rec.recordingId) : jotsFromText(pendingJots, [], 0)
+      };
+    } else if (activeLectureId.startsWith("up:")) {
+      const entry = entries.find((item) => item.key === activeLectureId);
+      if (entry) lecture = { kind: "writing", id: activeLectureId, title: entry.title, entry: plainEntry(entry), jots: entry.uploadId ? jotsForUpload(entry.uploadId) : [] };
+    } else if (activeLectureId) {
+      const doc = lectureDocs().find((item) => item.id === activeLectureId);
+      const row = lectures.find((item) => item.id === activeLectureId);
+      if (doc && row) {
+        const entry = entries.find((item) => item.docId === doc.id);
+        const note = lectureNoteOf(doc.id);
+        let html = "";
+        if (note) {
+          try { html = lectureNoteHtml(renderContent(noteBody(note)), escapeHtml); } catch { html = `<pre>${escapeHtml(noteBody(note))}</pre>`; }
+        }
+        const status = audioViewer.status();
+        lecture = {
+          kind: entry ? "writing" : note ? "note" : "writing",
+          ...row,
+          tab: lectureTab,
+          entry: entry ? plainEntry(entry) : null,
+          jots: loadJots(doc.id),
+          html,
+          player: stripLectureId === doc.id || (status.id === doc.id && (status.playing || status.time > 0))
+        };
+      }
+    }
+    const lectureIds = new Set(lectures.map((item) => item.id));
+    const practice = state.studyPractice || {};
+    const collection = [
+      ...(practice.decks || []).map((d) => ({ kind: "deck", type: "flashcards", id: d.id, title: d.title || "Flashcards", meta: `${d.cardCount || 0} cards`, createdAt: d.createdAt, progress: deckProgressSummary(readDeckProgress(deckProgressKey(d.id)), null) })),
+      ...(practice.quizzes || []).map((q) => ({ kind: "quiz", type: "quiz", id: q.id, title: q.title || "Practice test", meta: `${q.questionCount || 0} questions`, createdAt: q.createdAt })),
+      ...(practice.podcasts || []).map((p) => ({ kind: "podcast", type: "podcast", id: p.id, title: p.title || "Podcast", meta: podcastMeta(p), createdAt: p.createdAt })),
+      ...(practice.tutors || []).map((t) => ({ kind: "tutor", type: "tutor", id: t.id, title: t.title || "AI tutor", meta: tutorMeta(t), createdAt: t.createdAt, preparing: t.status === "preparing" })),
+      ...(practice.whiteboards || []).map((b) => ({ kind: "whiteboard", type: "whiteboard", id: b.id, title: b.title || "Whiteboard", meta: whiteboardMeta(b), createdAt: b.updatedAt || b.createdAt })),
+      ...notes.filter((note) => !isLectureNote(note) || !lectureIds.has(note.document_file_id)).map((n) => ({ kind: "note", type: isMindMap(n) ? "mindmap" : "notes", id: n.id, title: n.title || noteKindLabel(n), meta: isMindMap(n) ? "Mind map" : noteKindLabel(n), createdAt: n.created_at, outline: isMindMap(n) ? noteOutline(noteBody(n)) : [] }))
+    ].map((item) => ({ ...item, pinned: pinnedCollection.has(collectionPinId(item.kind, item.id)) }));
+    const made = (item) => Date.parse(item.createdAt || "") || Infinity;
+    collection.sort((a, b) => Number(b.pinned) - Number(a.pinned) || made(b) - made(a));
+    const materials = sortedSources().filter((doc) => !isAudioDoc(doc)).map((doc) => ({
+      id: doc.id,
+      name: documentDisplayName(doc),
+      kind: doc.kind || "",
+      status: materialStatus(doc),
+      createdAt: doc.created_at || "",
+      pages: Number(doc.page_count) || 0
+    }));
+    const studioItemNow = studioItem();
+    return {
+      ...base,
+      loaded: Boolean(state.studyMaterials),
+      course: courses.find((course) => course.id === state.activeCourseId) ? { id: state.activeCourseId, name: courseName() } : { id: state.activeCourseId, name: courseName() },
+      lectures,
+      busy: entries.map(plainEntry),
+      lecture,
+      collection,
+      generations: courseGenerationCards().map((job) => ({ id: job.id, type: job.type, label: jobTypeLabel(job.type), source: jobSourceName(job), status: job.status, stage: job.stage || "", error: job.error || "", elapsed: formatElapsed(job), meta: jobMetaLine(job) })),
+      materials,
+      pendingUploads: pendingUploads.map((item) => ({ name: item.name, status: item.status })),
+      previewId: sourcePreviewId,
+      studio: studioView && studioItemNow ? { kind: studioView.kind, id: studioView.id, title: studioItemNow.title || "" } : null,
+      chats: courseConversations().map((c) => ({ id: c.id, title: c.title || "New chat" })),
+      chatId: state.activeConversationId || "",
+      hasMessages: Boolean(state.activeConversationId || state.messages?.length),
+      uploading: Boolean(state.studyUploading)
+    };
+  }
+
+  function plainEntry(entry) {
+    return { key: entry.key, title: entry.title, phase: entry.phase, label: entry.label, detail: entry.detail || "", error: entry.error || "", progress: entry.progress, failed: Boolean(entry.failed), uploadId: entry.uploadId || "", docId: entry.docId || "" };
+  }
+
+  function jotsForUpload(uploadId) {
+    const item = audioUploads.find((upload) => upload.id === uploadId);
+    const key = item?.meta?.recordingId;
+    return key ? loadJots(key) : [];
+  }
+
+  // The first plain sentence after the title: the "in short" line of a lecture note.
+  function noteGist(markdown) {
+    for (const raw of String(markdown || "").split("\n")) {
+      const line = raw.replace(/⟦|⟧/g, "").replace(/\[(\d{1,2}:)?\d{1,2}:\d{2}\]/g, "").replace(/^[-*>\s]+/, "").replace(/[*_`#]/g, "").trim();
+      if (!line || /^#/.test(raw.trim())) continue;
+      const text = line.replace(/^in short:?\s*/i, "");
+      if (text.length > 12) return text.length > 140 ? `${text.slice(0, 137).trimEnd()}…` : text;
+    }
+    return "";
+  }
+
+  function noteOutline(markdown) {
+    return String(markdown || "").split("\n").map((line) => line.match(/^##\s+(.+)/)?.[1]?.trim()).filter(Boolean).slice(0, 3);
+  }
+
+  // Home's recent notes come from every course, newest lecture first.
+  let recentLectures = null;
+  let recentAt = 0;
+  let recentLoading = null;
+  let recentKey = "";
+  function loadRecentLectures({ force = false } = {}) {
+    if (!state.session) return Promise.resolve();
+    if (!force && recentLoading) return recentLoading;
+    const courses = coursesFromProjects().slice(0, 12);
+    const key = courses.map((course) => course.id).join(",");
+    if (!force && recentLectures && recentKey === key && Date.now() - recentAt < 30000) return Promise.resolve();
+    recentKey = key;
+    recentLoading = Promise.all(courses.map(async (course) => {
+      try {
+        const payload = await fetchStudyMaterials(state.session, course.id);
+        const docs = payload?.documents || [];
+        const notes = payload?.notes || [];
+        const audio = docs.filter(isAudioDoc);
+        return {
+          course,
+          counts: { lectures: audio.length, materials: docs.length - audio.length },
+          rows: audio.map((doc) => {
+            const note = lectureNoteFor(notes, doc.id);
+            const status = materialStatus(doc);
+            return {
+              id: doc.id,
+              courseId: course.id,
+              courseName: course.name,
+              title: note?.title || documentDisplayName(doc),
+              gist: note ? noteGist(noteBody(note)) : "",
+              createdAt: doc.created_at || "",
+              duration: Number(doc.duration_seconds) || 0,
+              status: status === "failed" ? "failed" : status !== "ready" ? "transcribing" : note ? "ready" : "writing",
+              made: notes.filter((item) => item.document_file_id === doc.id && !isLectureNote(item)).length
+            };
+          })
+        };
+      } catch {
+        return { course, counts: null, rows: [] };
+      }
+    })).then((results) => {
+      recentLectures = {
+        rows: results.flatMap((item) => item.rows).sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)).slice(0, 8),
+        counts: Object.fromEntries(results.filter((item) => item.counts).map((item) => [item.course.id, item.counts]))
+      };
+      recentAt = Date.now();
+    }).finally(() => {
+      recentLoading = null;
+      if (studyVisible() && !state.activeCourseId) render();
+    });
+    return recentLoading;
+  }
+
+  // The open tool (deck, test, podcast, tutor, note) is still the engine's markup, painted into
+  // the slot React leaves empty for it.
+  let paintedStudio = "";
+  function paintStudio({ keepScroll = true } = {}) {
+    const slot = els.studyView?.querySelector("[data-dojo-studio-slot]");
+    if (!slot) { paintedStudio = ""; return; }
+    const item = studioItem();
+    const html = item ? studioViewMarkup(item) : "";
+    if (slot.dataset.painted === "1" && html === paintedStudio) return;
+    const scroll = slot.querySelector(".dojo-view-body")?.scrollTop || 0;
+    slot.innerHTML = html;
+    slot.dataset.painted = "1";
+    paintedStudio = html;
+    mountTutorCall();
+    const body = slot.querySelector(".dojo-view-body");
+    if (body && keepScroll) body.scrollTop = scroll;
+  }
+
+  function normalizeLecture() {
+    if (activeLectureId === "live" && !liveHere()) activeLectureId = "";
+    if (activeLectureId.startsWith("up:") && !audioCardEntries().some((item) => item.key === activeLectureId)) activeLectureId = "";
+    if (activeLectureId && activeLectureId !== "live" && !activeLectureId.startsWith("up:") && state.studyMaterials && !lectureDocs().some((item) => item.id === activeLectureId)) activeLectureId = "";
   }
 
   // A ⋯ menu in the Dojo panels floats over the page, so a folding group or the panel's
@@ -2528,7 +2799,7 @@ export function createStudyHubController({
     state.activeProjectId = "";
     state.activeProject = null;
     state.activeCourseId = "";
-    state.activeCourseTab = "materials";
+    state.activeCourseTab = host ? "notes" : "materials";
     state.activeConversationId = "";
     state.messages = [];
     state.images = [];
@@ -2565,7 +2836,7 @@ export function createStudyHubController({
     state.activeCourseId = courseId;
     try { localStorage.setItem(recordToKey, courseId); } catch { /* Storage is optional. */ }
     if (liveHere()) activeLectureId = "live";
-    state.activeCourseTab = TABS.includes(tab) ? tab : "chat";
+    state.activeCourseTab = TABS.includes(tab) ? tab : DEFAULT_TAB;
     state.activeConversationId = "";
     state.messages = [];
     state.images = [];
@@ -5688,7 +5959,59 @@ export function createStudyHubController({
       openSource(documentFileId, event, page);
       return true;
     },
-    isSessionOpen: () => Boolean(reviewSession || quizSession)
+    isSessionOpen: () => Boolean(reviewSession || quizSession),
+    view,
+    loadRecentLectures,
+    actions: {
+      openCourse,
+      openCourses,
+      setTab,
+      selectLecture,
+      closeLecture,
+      startLiveRecording,
+      // With no course yet, recording still takes one click: it lands in "Unsorted".
+      async recordUnsorted() {
+        if (!requireAuth()) return;
+        try {
+          const payload = await createProject(state.session, "Unsorted", { kind: "course", meta: {} });
+          state.projects = [payload.project, ...state.projects];
+          try { localStorage.setItem(recordToKey, payload.project.id); } catch { /* Storage is optional. */ }
+          await openCourse(payload.project.id);
+          if (state.activeCourseId === payload.project.id) await startLiveRecording(payload.project.id);
+        } catch (error) {
+          showToast(error.message || "Could not start recording.");
+        }
+      },
+      recordInto(courseId) {
+        if (!courseId) return;
+        try { localStorage.setItem(recordToKey, courseId); } catch { /* Storage is optional. */ }
+        void openCourse(courseId).then(() => { if (state.activeCourseId === courseId) void startLiveRecording(courseId); });
+      },
+      setRecordTo(courseId) {
+        try { localStorage.setItem(recordToKey, courseId); } catch { /* Storage is optional. */ }
+        render();
+      },
+      openLive(courseId) { void openCourse(courseId).then(() => selectLecture("live")); },
+      openLecture(courseId, docId) {
+        if (state.activeCourseId === courseId) { selectLecture(docId); return; }
+        void openCourse(courseId).then(() => { if (state.activeCourseId === courseId) selectLecture(docId); });
+      },
+      addMaterial(panel = "") { sourceDialog.open(null, { panel }); },
+      uploadRecording() { sourceDialog.openAudio(); },
+      createCourse: openCreateDialog,
+      renameCourse: openRenameDialog,
+      deleteCourse: confirmDeleteCourse,
+      closeStudio: closeStudioView,
+      closePreview() {
+        if (!sourcePreviewId) return;
+        sourcePreviewId = "";
+        if (audioViewer.id) audioViewer.close(null, { silent: true });
+        void closeDocumentViewer?.();
+        render();
+      },
+      newChat() { void openCourse(state.activeCourseId, { tab: "chat" }); },
+      openChat: openConversation
+    }
   };
 }
 

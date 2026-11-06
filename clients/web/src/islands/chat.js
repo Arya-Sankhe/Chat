@@ -7134,8 +7134,11 @@ function renderProjectChatCrumb() {
 
 async function loadStudyHub() {
   if (!studyHubPromise) {
-    studyHubPromise = import("./studyHub.js").then(({ createStudyHubController }) => {
+    // The Dojo's page is the React one in src/dojo; studyHub.js stays its engine.
+    studyHubPromise = Promise.all([import("./studyHub.js"), import("../dojo/host")]).then(([{ createStudyHubController }, { createDojoHost }]) => {
+      const host = createDojoHost(els.studyView);
       studyHub = createStudyHubController({
+        host,
         state,
         els,
         // The sidebar is the store's (state/body.ts).
@@ -7203,6 +7206,7 @@ async function loadStudyHub() {
         openSideChat,
         closeSideChat
       });
+      host.attach(studyHub);
       studyHub.bindEvents();
       return studyHub;
     });
