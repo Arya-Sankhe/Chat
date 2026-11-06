@@ -242,8 +242,9 @@ export function createLectureRecorder({ onChange }) {
     set("requesting");
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        // Far-away lecturers need gain; echo cancellation only helps calls and can eat speech.
-        audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+        // Far-away lecturers need gain. Echo cancellation and noise suppression are built for
+        // someone close to the mic on a call; here they cut a distant teacher's speech as noise.
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 }
       });
     } catch (err) {
       releaseDevices();
@@ -424,6 +425,7 @@ export function createLectureRecorder({ onChange }) {
     get elapsed() { return elapsed(); },
     get result() { return result; },
     get courseId() { return meta?.courseId || ""; },
+    get recordingId() { return meta?.id || result?.id || ""; },
     get persisted() { return persisted; },
     get quiet() { return quiet; },
     setTitle(title) {

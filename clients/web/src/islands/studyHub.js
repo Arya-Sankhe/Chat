@@ -17,6 +17,7 @@ import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup
 import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
+import { formatClock as lectureClock, isLectureNote, lectureNoteStaticHtml, jotsFromText, kluiMarkup, lectureNoteFor, lectureNoteHtml, loadJots, moveJots, forgetJots, saveJots } from "./studyLectures.js";
 
 // The tutor's icon is a tiny version of its call orb: grass green into sky blue with a soft highlight.
 let tutorOrbIconId = 0;
@@ -150,6 +151,22 @@ export function createStudyHubController({
   let sourcePreviewId = "";
   // A deck, note, or test opened inside the Create panel (widens it like a source preview).
   let studioView = null;
+  // Lectures: the one open in the middle panel ("live" while recording here, "up:<id>" while
+  // its upload is on the way), which tab of it is showing, and where each was scrolled.
+  let activeLectureId = "";
+  let lectureTab = "notes";
+  const lectureScroll = new Map();
+  // Lectures whose notes were already asked for in this tab, and why the last try failed.
+  const lectureNotesAsked = new Set();
+  const lectureNoteErrors = new Map();
+  let lectureFrame = 0;
+  // The lecture whose audio the reader has started from the notes; its player stays in view.
+  let stripLectureId = "";
+  // Lines typed while the browser is still asking for the mic, before the recording has an id.
+  let pendingJots = "";
+  let jotsBackupWarned = false;
+  let citeTime = null;
+  const recordToKey = "klui.dojo.recordTo";
   // Entrance animations play once per item; later repaints of the same item stay still.
   const shownEntrances = new Set();
   // v2: Flip became the default, so earlier saved choices (usually the old Column default) reset once.
@@ -175,6 +192,7 @@ export function createStudyHubController({
     showToast,
     reducedMotion,
     fetchAudio: (id) => fetchStudyAudio(state.session, id),
+    onPlayerUpdate: () => patchLectureStrip(),
     onClose(id, event) {
       if (sourcePreviewId !== id) return;
       const workspace = els.studyView.querySelector(".dojo-workspace");
@@ -187,6 +205,16 @@ export function createStudyHubController({
   });
   const sourceDialog = createStudySourceDialog({
     state, uploadFiles: uploadCourseFiles, uploadAudio: uploadCourseAudio, showToast,
+    onInline() {
+      const id = sourceDialog.recorder.recordingId;
+      if (pendingJots && id) {
+        warnIfJotsUnsaved(saveJots(id, jotsFromText(pendingJots, [], 0)));
+        pendingJots = "";
+      }
+      if (studyVisible()) render();
+      tickLecture();
+    },
+    inlineVisible: () => studyVisible() && state.activeCourseId === sourceDialog.inlineCourseId && activeLectureId === "live",
     busyRecordingIds: () => audioUploads.map((item) => item.meta.recordingId).filter(Boolean),
     onCreated(courseId, doc) {
       if (state.activeCourseId !== courseId) return;
@@ -311,12 +339,13 @@ export function createStudyHubController({
 
   function noteBody(note) {
     const text = String(note?.content || "");
-    return text.replace(/^<!--klui:(?:detailed|mindmap)-->\n?/, "");
+    return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?/, "");
   }
 
   function noteKindLabel(note) {
     if (isMindMap(note)) return "Mind map";
     if (note?.kind === "image_transcript") return "Image transcript";
+    if (isLectureNote(note)) return "Lecture notes";
     if (isDetailedNote(note)) return "Detailed";
     return "Summary";
   }
@@ -531,11 +560,407 @@ export function createStudyHubController({
     }).join("");
     return `<div class="study-page study-page--library">
       <header class="dojo-library-head">${dojoWordmark()}<div class="dojo-library-title"><h1>Your courses</h1>${courses.length ? `<span>${courses.length} ${courses.length === 1 ? "course" : "courses"}</span>` : ""}</div></header>
+      ${recordHeroMarkup(courses)}
       <div class="study-course-grid"><button class="study-course-card study-course-new dojo-tone--new" type="button" data-create-course>
         ${folderSvg("new", "new")}<span class="dojo-course-label"><strong>New course</strong></span>
       </button>${cards}</div>
       ${!courses.length ? '<p class="dojo-first-hint">One folder for every subject. Add your sources, ask questions, and turn what you learn into practice.</p>' : ""}
     </div>`;
+  }
+
+  /* ---------- Lectures ---------- */
+
+  function recordTarget(courses = coursesFromProjects()) {
+    let saved = "";
+    try { saved = localStorage.getItem(recordToKey) || ""; } catch { /* Storage is optional. */ }
+    return courses.find((course) => course.id === saved) || courses[0] || null;
+  }
+
+  function recordingElsewhere() {
+    const rec = sourceDialog.recorder;
+    return rec.active || rec.state === "requesting" ? (sourceDialog.inlineCourseId || rec.courseId) : "";
+  }
+
+  // The home page's one big action: start recording a class into a course.
+  function recordHeroMarkup(courses) {
+    if (!courses.length) return "";
+    const live = recordingElsewhere();
+    if (live) {
+      const course = courses.find((item) => item.id === live);
+      return `<section class="dojo-rec-hero is-live">${kluiMarkup("listening", 34)}<div class="dojo-rec-hero-copy"><strong>Recording${course ? ` in ${escapeHtml(course.name)}` : ""}</strong><span data-live-time>${lectureClock(sourceDialog.recorder.elapsed)}</span></div><button class="dojo-record-btn" type="button" data-open-live="${escapeHtml(live)}">Open</button></section>`;
+    }
+    const target = recordTarget(courses);
+    return `<section class="dojo-rec-hero">
+      ${kluiMarkup("", 34)}
+      <div class="dojo-rec-hero-copy"><strong>In class?</strong><span>Klui listens and writes the notes for you.</span></div>
+      <label class="dojo-rec-dest"><span>Save to</span><select data-record-to aria-label="Course to save the lecture to">${courses.map((course) => `<option value="${escapeHtml(course.id)}"${course.id === target?.id ? " selected" : ""}>${escapeHtml(course.name)}</option>`).join("")}</select></label>
+      <button class="dojo-record-btn" type="button" data-library-record><span class="dojo-rec-dot" aria-hidden="true"></span>Record a lecture</button>
+    </section>`;
+  }
+
+  function lectureDocs() {
+    return (state.studyMaterials?.documents || []).filter(isAudioDoc)
+      .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+  }
+
+  function liveHere() {
+    const rec = sourceDialog.recorder;
+    return Boolean(state.activeCourseId) && sourceDialog.inlineCourseId === state.activeCourseId && (rec.active || rec.state === "requesting");
+  }
+
+  function lectureNoteJob(docId) {
+    return [...generations.values()].find((job) => job.type === "notes" && job.mode === "lecture" && job.documentFileId === docId && job.status === "running") || null;
+  }
+
+  function lectureNoteOf(docId) {
+    return lectureNoteFor(state.studyMaterials?.notes, docId);
+  }
+
+  function lectureTitle(doc) {
+    return lectureNoteOf(doc.id)?.title || documentDisplayName(doc);
+  }
+
+  function lectureDate(doc) {
+    const at = Date.parse(doc?.created_at || "");
+    return Number.isFinite(at) ? new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  }
+
+  // Writes the notes for a transcribed lecture once, using anything typed during class.
+  function ensureLectureNotes(doc, { retry = false } = {}) {
+    if (!doc || !state.session || !state.studyMaterials || materialStatus(doc) !== "ready") return;
+    if (lectureNoteOf(doc.id) || lectureNoteJob(doc.id)) return;
+    if (!retry && (lectureNotesAsked.has(doc.id) || lectureNoteErrors.has(doc.id))) return;
+    lectureNotesAsked.add(doc.id);
+    lectureNoteErrors.delete(doc.id);
+    const jots = loadJots(doc.id).filter((line) => line.text.trim());
+    const body = { type: "notes", mode: "lecture", documentFileId: doc.id, ...(jots.length ? { jots } : {}) };
+    startGeneration({ kind: "doc", id: doc.id, type: "notes", mode: "lecture", body, requestKey: requestKeyFor("doc", doc.id, "notes", { mode: "lecture" }), courseId: state.activeCourseId });
+  }
+
+  function lectureRowsMarkup() {
+    const rows = [];
+    if (liveHere()) {
+      rows.push(`<button class="dojo-lec-row is-live${activeLectureId === "live" ? " is-active" : ""}" type="button" data-lecture="live"><span class="dojo-rec-dot" aria-hidden="true"></span><span class="dojo-lec-copy"><strong>${sourceDialog.recorder.state === "paused" ? "Paused" : "Recording"}</strong><small data-live-time>${lectureClock(sourceDialog.recorder.elapsed)}</small></span></button>`);
+    }
+    // Lectures still uploading or transcribing, in the order the progress patcher expects.
+    const busy = new Set();
+    for (const entry of audioCardEntries()) {
+      const id = entry.uploadId ? `up:${entry.uploadId}` : entry.docId;
+      if (entry.docId) busy.add(entry.docId);
+      const target = entry.uploadId ? `data-audio-upload="${escapeHtml(entry.uploadId)}"` : `data-audio-doc="${escapeHtml(entry.docId)}"`;
+      const action = entry.failed
+        ? `<button class="dojo-lec-act" type="button" data-audio-remove ${target} aria-label="Remove" title="Remove">${closeIcon()}</button>`
+        : entry.phase === "queuing" ? "" : `<button class="dojo-lec-act" type="button" data-audio-remove ${target} aria-label="Cancel" title="Cancel">${closeIcon()}</button>`;
+      rows.push(`<div class="dojo-lec-row-wrap" data-audio-card="${escapeHtml(entry.key)}" data-phase="${escapeHtml(entry.phase)}"><button class="dojo-lec-row is-busy${entry.failed ? " is-failed" : ""}${activeLectureId === id ? " is-active" : ""}" type="button" data-lecture="${escapeHtml(id)}" title="${escapeHtml(entry.title)}"><span class="dojo-lec-state" aria-hidden="true">${entry.failed ? "!" : spinner()}</span><span class="dojo-lec-copy"><strong>${escapeHtml(entry.title)}</strong><small><span data-audio-label>${escapeHtml(entry.label)}</span></small></span></button>${action}</div>`);
+    }
+    for (const doc of lectureDocs()) {
+      if (busy.has(doc.id) || materialStatus(doc) !== "ready") continue;
+      const writing = Boolean(lectureNoteJob(doc.id));
+      const meta = writing ? "Writing notes…" : [lectureDate(doc), audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ");
+      rows.push(`<div class="dojo-lec-row-wrap"><button class="dojo-lec-row${activeLectureId === doc.id ? " is-active" : ""}" type="button" data-lecture="${escapeHtml(doc.id)}" title="${escapeHtml(lectureTitle(doc))}"><span class="dojo-lec-copy"><strong>${escapeHtml(lectureTitle(doc))}</strong><small>${escapeHtml(meta)}</small></span></button>${materialMenu("doc", doc.id)}</div>`);
+    }
+    return rows.join("");
+  }
+
+  function lecturesPanelMarkup() {
+    const live = liveHere();
+    const elsewhere = !live && recordingElsewhere();
+    const rows = lectureRowsMarkup();
+    return `<section class="dojo-lectures" aria-label="Lectures">
+      <header class="dojo-panel-header"><h2>Lectures</h2><button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse">${icon("sidebar")}</button></header>
+      ${live ? "" : `<button class="dojo-record-btn dojo-record-btn--block" type="button" data-lecture-record${elsewhere ? ` disabled title="You're already recording in another course"` : ""}><span class="dojo-rec-dot" aria-hidden="true"></span>Record a lecture</button>`}
+      <div class="dojo-lec-list">${rows || '<p class="dojo-lec-empty">Your recorded classes will show up here, each with its own notes.</p>'}</div>
+    </section>`;
+  }
+
+  function closeIcon() {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>`;
+  }
+
+  /* Middle panel: the live notepad, "writing your notes", or the finished lecture. */
+
+  function recordingMarkup() {
+    const rec = sourceDialog.recorder;
+    const waiting = rec.state === "requesting";
+    const paused = rec.state === "paused";
+    const text = rec.recordingId ? loadJots(rec.recordingId).map((line) => line.text).join("\n") : pendingJots;
+    return `<div class="dojo-live" data-live>
+      <div class="dojo-live-bar${paused ? " is-paused" : ""}${waiting ? " is-waiting" : ""}">
+        ${kluiMarkup(paused ? "" : "listening", 30)}
+        <span class="dojo-live-status"><strong>${waiting ? "Waiting for the microphone…" : paused ? "Paused" : "Listening"}</strong><span data-live-time>${lectureClock(rec.elapsed)}</span></span>
+        <span class="dojo-live-levels" data-live-levels aria-hidden="true">${"<i></i>".repeat(18)}</span>
+        <button class="dojo-live-btn" type="button" data-rec-inline-pause${waiting ? " disabled" : ""}>${paused ? "Resume" : "Pause"}</button>
+        <button class="dojo-live-btn dojo-live-btn--finish" type="button" data-rec-inline-finish${waiting ? " disabled" : ""}><span aria-hidden="true"></span>Finish</button>
+      </div>
+      <textarea class="dojo-live-pad" data-jots spellcheck="true" aria-label="Your notes" placeholder="Type anything you want to remember, or nothing at all.&#10;Klui writes the full notes when you finish, and keeps your lines in them.">${escapeHtml(text)}</textarea>
+      <p class="dojo-live-foot" data-rec-quiet>${rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "Your recording is saved on this device as you go."}</p>
+    </div>`;
+  }
+
+  function writingMarkup({ entry = null, doc = null }) {
+    const job = doc ? lectureNoteJob(doc.id) : null;
+    const notesError = doc ? lectureNoteErrors.get(doc.id) : "";
+    const uploading = Boolean(entry?.uploadId);
+    const transcribing = Boolean(entry?.docId);
+    const step = uploading ? 0 : transcribing ? 1 : 2;
+    const failed = entry?.failed || (!entry && notesError && !job);
+    const error = entry?.failed ? entry.error : notesError;
+    const steps = ["Saving the recording", "Transcribing", "Writing your notes"].map((label, index) => {
+      const cls = index < step ? "is-done" : index === step ? (failed ? "is-failed" : "is-active") : "";
+      const detail = index === step && entry && !entry.failed ? `<small data-audio-center="${escapeHtml(entry.key)}">${escapeHtml(entry.detail || "")}</small>` : "";
+      return `<li class="${cls}"><i aria-hidden="true">${index < step ? "✓" : ""}</i><span>${label}</span>${detail}</li>`;
+    }).join("");
+    const target = entry?.uploadId ? `data-audio-upload="${escapeHtml(entry.uploadId)}"` : entry?.docId ? `data-audio-doc="${escapeHtml(entry.docId)}"` : "";
+    const action = failed
+      ? (entry ? `<button class="dojo-record-btn" type="button" data-audio-retry ${target}>Try again</button>` : `<button class="dojo-record-btn" type="button" data-lecture-retry="${escapeHtml(doc.id)}">Try again</button>`)
+      : "";
+    const lead = failed ? "Something went wrong" : step === 0 ? "Saving your lecture" : step === 1 ? "Listening back to your lecture" : "Writing your notes";
+    const sub = failed ? error || "Please try again." : step === 0 ? "Keep this tab open until it's saved." : "You can leave this page. Your notes will be here when you're back.";
+    return `<div class="dojo-writing" role="status">
+      ${kluiMarkup(failed ? "" : "writing", 64)}
+      <h2>${escapeHtml(lead)}</h2><p>${escapeHtml(sub)}</p>
+      <ol class="dojo-writing-steps">${steps}</ol>
+      ${action}
+    </div>`;
+  }
+
+  function lectureTabsMarkup() {
+    return `<div class="dojo-lec-tabs" role="tablist" aria-label="Lecture">${[["notes", "Notes"], ["transcript", "Transcript"], ["ask", "Ask"]].map(([tab, label]) => `<button type="button" role="tab" aria-selected="${lectureTab === tab}" class="${lectureTab === tab ? "is-on" : ""}" data-lecture-tab="${tab}">${label}</button>`).join("")}</div>`;
+  }
+
+  function lectureNotesMarkup(doc, note) {
+    let html;
+    try {
+      html = lectureNoteHtml(renderContent(noteBody(note)), escapeHtml);
+    } catch {
+      html = `<pre>${escapeHtml(noteBody(note))}</pre>`;
+    }
+    const meta = [lectureDate(doc), audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ");
+    const duration = Number(doc.duration_seconds) || 0;
+    return `<div class="dojo-lec-scroll" data-lec-scroll><article class="dojo-lec-notes">
+        <p class="dojo-lec-meta">${escapeHtml(meta)}</p>
+        <h1>${escapeHtml(note.title || documentDisplayName(doc))}</h1>
+        <div class="dojo-lec-body">${html}</div>
+      </article></div>
+      <div class="dojo-lec-dock">
+        <div class="dojo-lec-strip" data-lec-strip>
+          <button class="dojo-lec-play" type="button" data-strip-toggle aria-label="Play lecture" title="Play lecture">${PLAYER_ICONS.play}</button>
+          <span class="dojo-lec-now" data-strip-time>0:00</span>
+          <span class="dojo-lec-track" data-strip-track><i data-strip-bar></i></span>
+          <span class="dojo-lec-dur">${lectureClock(duration)}</span>
+        </div>
+        <button class="dojo-lec-ask" type="button" data-lecture-tab="ask">${kluiMarkup("", 22)}<span>Ask about this lecture…</span></button>
+      </div>`;
+  }
+
+  function lectureMarkup(doc) {
+    const note = lectureNoteOf(doc.id);
+    const entry = audioCardEntries().find((item) => item.docId === doc.id);
+    if (entry) {
+      return `<header class="dojo-panel-header dojo-lec-head"><h2 title="${escapeHtml(documentDisplayName(doc))}">${escapeHtml(documentDisplayName(doc))}</h2>${lectureCloseMarkup()}</header>${writingMarkup({ entry })}`;
+    }
+    // Once transcribed, the recording and Ask work even while (or if) the notes aren't ready.
+    const pane = lectureTab === "transcript"
+      ? '<div class="dojo-lec-audio-slot"></div>'
+      : lectureTab === "ask" ? chatMarkup({ lecture: true }) : note ? lectureNotesMarkup(doc, note) : writingMarkup({ doc });
+    return `<header class="dojo-panel-header dojo-lec-head">${lectureTabsMarkup()}<div class="dojo-chat-actions">${lectureTab === "ask" ? `<button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}` : ""}${lectureCloseMarkup()}</div></header>
+      <div class="dojo-lec-pane" data-lec-pane="${lectureTab}">${pane}</div>`;
+  }
+
+  function lectureCloseMarkup() {
+    return `<button class="study-icon-btn" type="button" data-lecture-close aria-label="Close lecture" title="Close lecture">${closeIcon()}</button>`;
+  }
+
+  function centerMarkup() {
+    if (activeLectureId === "live" && !liveHere()) activeLectureId = "";
+    if (activeLectureId === "live") return `<header class="dojo-panel-header dojo-lec-head"><h2>New lecture</h2></header>${recordingMarkup()}`;
+    if (activeLectureId.startsWith("up:")) {
+      const entry = audioCardEntries().find((item) => item.key === activeLectureId);
+      if (entry) return `<header class="dojo-panel-header dojo-lec-head"><h2>${escapeHtml(entry.title)}</h2>${lectureCloseMarkup()}</header>${writingMarkup({ entry })}`;
+      activeLectureId = "";
+    }
+    const doc = activeLectureId ? lectureDocs().find((item) => item.id === activeLectureId) : null;
+    if (activeLectureId && !doc && state.studyMaterials) activeLectureId = "";
+    if (doc) return lectureMarkup(doc);
+    return `<header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}`;
+  }
+
+  async function startLiveRecording(courseId = state.activeCourseId) {
+    const rec = sourceDialog.recorder;
+    if (!courseId) return;
+    if (rec.active || rec.state === "requesting") {
+      if (recordingElsewhere() !== courseId) { showToast("You're already recording a lecture in another course."); return; }
+      selectLecture("live");
+      return;
+    }
+    // A recording that stopped but wasn't saved yet is waiting in the Add sources dialog.
+    if (rec.state === "stopped") { sourceDialog.open(); return; }
+    // startInline marks the recorder busy before its first repaint, so the notepad shows at once.
+    activeLectureId = "live";
+    const started = await sourceDialog.startInline(courseId);
+    if (!started) pendingJots = "";
+    if (!started && activeLectureId === "live") activeLectureId = "";
+    render();
+    tickLecture();
+    if (started) els.studyView?.querySelector("[data-jots]")?.focus();
+  }
+
+  function selectLecture(id, tab = "notes") {
+    if (!id) return;
+    if (activeLectureId === id && tab === lectureTab) return;
+    activeLectureId = id;
+    lectureTab = tab;
+    quizMenuKey = "";
+    const doc = lectureDocs().find((item) => item.id === id);
+    if (doc) ensureLectureNotes(doc);
+    if (doc && tab === "ask") contextPicker.only([doc.id]);
+    render();
+    tickLecture();
+    if (tab === "ask") els.promptInput?.focus();
+  }
+
+  function closeLecture() {
+    const id = activeLectureId;
+    activeLectureId = "";
+    lectureTab = "notes";
+    const scoped = contextPicker.sources();
+    if (scoped.length === 1 && scoped[0] === id) contextPicker.only([]);
+    render();
+  }
+
+  // Timer and mic levels on the live notepad, the lecture list, and the home page.
+  function tickLecture() {
+    cancelAnimationFrame(lectureFrame);
+    lectureFrame = 0;
+    const rec = sourceDialog.recorder;
+    if (!studyVisible() || !(rec.active || rec.state === "requesting") || !sourceDialog.inline) return;
+    const time = lectureClock(rec.elapsed);
+    els.studyView?.querySelectorAll("[data-live-time]").forEach((node) => { if (node.textContent !== time) node.textContent = time; });
+    const levels = els.studyView?.querySelector("[data-live-levels]");
+    if (levels) {
+      const bars = levels.querySelectorAll("i");
+      const values = rec.levels(bars.length);
+      const loud = rec.level();
+      bars.forEach((bar, index) => { bar.style.transform = `scaleY(${Math.max(0.08, Math.min(1, values[index] * 0.8 + loud * 0.35)).toFixed(3)})`; });
+    }
+    const quiet = els.studyView?.querySelector("[data-rec-quiet]");
+    if (quiet) {
+      const line = rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "Your recording is saved on this device as you go.";
+      if (quiet.textContent !== line) { quiet.textContent = line; quiet.classList.toggle("is-warning", Boolean(rec.quiet)); }
+    }
+    lectureFrame = requestAnimationFrame(tickLecture);
+  }
+
+  function saveTypedJots(area) {
+    const rec = sourceDialog.recorder;
+    const key = rec.recordingId;
+    if (!key) { pendingJots = area.value; return; }
+    warnIfJotsUnsaved(saveJots(key, jotsFromText(area.value, loadJots(key), Math.round(rec.elapsed))));
+  }
+
+  function warnIfJotsUnsaved(saved) {
+    if (saved || jotsBackupWarned) return;
+    jotsBackupWarned = true;
+    showToast("Your typing can't be backed up on this device. Keep this tab open until the notes are written.");
+  }
+
+  // The little player under the notes follows whatever the lecture audio is doing.
+  function patchLectureStrip() {
+    const strip = els.studyView?.querySelector("[data-lec-strip]");
+    if (!strip) return;
+    const doc = lectureDocs().find((item) => item.id === activeLectureId);
+    const status = audioViewer.status();
+    const mine = status.id === activeLectureId;
+    const duration = (mine && status.duration) || Number(doc?.duration_seconds) || 0;
+    const time = mine ? status.time : 0;
+    const playing = mine && status.playing;
+    const text = lectureClock(time);
+    const now = strip.querySelector("[data-strip-time]");
+    if (now && now.textContent !== text) now.textContent = text;
+    const bar = strip.querySelector("[data-strip-bar]");
+    if (bar) bar.style.transform = `scaleX(${duration ? Math.min(1, time / duration).toFixed(4) : 0})`;
+    const button = strip.querySelector("[data-strip-toggle]");
+    if (button && button.dataset.playing !== String(playing)) {
+      button.dataset.playing = String(playing);
+      button.innerHTML = playing ? PLAYER_ICONS.pause : PLAYER_ICONS.play;
+      button.setAttribute("aria-label", playing ? "Pause lecture" : "Play lecture");
+    }
+    strip.classList.toggle("is-on", stripLectureId === activeLectureId || (mine && (playing || time > 0)));
+    // The timestamp last tapped stays lit while its part of the lecture plays.
+    els.studyView.querySelectorAll(".dojo-cite").forEach((node) => node.classList.toggle("is-playing", playing && citeTime != null && Number(node.dataset.citeTime) === citeTime));
+  }
+
+  function handleLectureClick(event) {
+    const t = event.target;
+    if (t.closest("[data-library-record]")) {
+      const id = els.studyView.querySelector("[data-record-to]")?.value || recordTarget()?.id;
+      if (!id) return true;
+      void openCourse(id).then(() => { if (state.activeCourseId === id) void startLiveRecording(id); });
+      return true;
+    }
+    const openLive = t.closest("[data-open-live]");
+    if (openLive) {
+      void openCourse(openLive.dataset.openLive).then(() => selectLecture("live"));
+      return true;
+    }
+    if (t.closest("[data-lecture-record]")) { void startLiveRecording(); return true; }
+    if (t.closest("[data-rec-inline-pause]")) {
+      const rec = sourceDialog.recorder;
+      if (rec.state === "paused") rec.resume(); else rec.pause();
+      return true;
+    }
+    if (t.closest("[data-rec-inline-finish]")) { void sourceDialog.recorder.stop(); return true; }
+    if (t.closest("[data-lecture-close]")) { closeLecture(); return true; }
+    const retry = t.closest("[data-lecture-retry]");
+    if (retry) {
+      const id = retry.dataset.lectureRetry;
+      retry.disabled = true;
+      // The notes may already exist (only loading them failed), so look before writing again.
+      void loadMaterials(true).catch(() => {}).then(() => {
+        const doc = lectureDocs().find((item) => item.id === id);
+        if (lectureNoteOf(id)) lectureNoteErrors.delete(id);
+        else ensureLectureNotes(doc, { retry: true });
+        render();
+      });
+      return true;
+    }
+    const tab = t.closest("[data-lecture-tab]");
+    if (tab) { selectLecture(activeLectureId, tab.dataset.lectureTab); return true; }
+    const row = t.closest("[data-lecture]");
+    if (row) { selectLecture(row.dataset.lecture); return true; }
+    const cite = t.closest("[data-cite-time]");
+    if (cite) {
+      const doc = lectureDocs().find((item) => item.id === activeLectureId);
+      if (!doc) return true;
+      stripLectureId = doc.id;
+      citeTime = Number(cite.dataset.citeTime) || 0;
+      audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, citeTime);
+      patchLectureStrip();
+      return true;
+    }
+    if (t.closest("[data-strip-toggle]")) {
+      const doc = lectureDocs().find((item) => item.id === activeLectureId);
+      if (!doc) return true;
+      stripLectureId = doc.id;
+      if (audioViewer.status().id === doc.id && !audioViewer.status().loading) audioViewer.toggle();
+      else audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, 0);
+      patchLectureStrip();
+      return true;
+    }
+    const track = t.closest("[data-strip-track]");
+    if (track) {
+      const doc = lectureDocs().find((item) => item.id === activeLectureId);
+      if (!doc) return true;
+      const box = track.getBoundingClientRect();
+      const duration = audioViewer.status().duration || Number(doc.duration_seconds) || 0;
+      const at = Math.max(0, Math.min(1, (event.clientX - box.left) / (box.width || 1))) * duration;
+      stripLectureId = doc.id;
+      citeTime = null;
+      audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, at);
+      patchLectureStrip();
+      return true;
+    }
+    return false;
   }
 
   function jobTypeLabel(type) {
@@ -610,6 +1035,7 @@ export function createStudyHubController({
       .filter((job) => (
         job.courseId === state.activeCourseId
         && job.status !== "succeeded"
+        && job.mode !== "lecture"
       ))
       .sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
   }
@@ -704,9 +1130,10 @@ export function createStudyHubController({
   }
 
   function sourcesHeaderMarkup() {
-    return `<header class="dojo-panel-header"><h2>Sources</h2><div class="dojo-source-actions">
+    return `<header class="dojo-panel-header dojo-materials-head"><h2>Materials</h2><div class="dojo-source-actions">
+      <button class="study-icon-btn" type="button" data-study-add-files aria-label="Add materials" title="Add slides, PDFs, links or notes">${icon("plus")}</button>
       <details class="dojo-source-sort"><summary class="study-icon-btn" aria-label="Sort sources" title="Sort sources">${icon("sort")}</summary><div class="dojo-sort-menu" role="group" aria-label="Source order">${SOURCE_SORTS.map(([value, label]) => `<button type="button" data-source-sort="${value}" aria-pressed="${sourceSort === value}">${label}<span aria-hidden="true">${sourceSort === value ? "✓" : ""}</span></button>`).join("")}</div></details>
-      <button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse sources">${icon("sidebar")}</button>
+      ${sourcePreviewId ? `<button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse sources">${icon("sidebar")}</button>` : ""}
     </div></header>`;
   }
 
@@ -783,7 +1210,7 @@ export function createStudyHubController({
       if (length) bits.push(length);
       entries.push({
         key: `doc:${doc.id}`, docId: doc.id, title, phase: `running-${stage}`,
-        label: stage === "preparing" ? "Preparing audio" : stage === "saving" ? "Saving transcript" : "Transcribing",
+        label: stage === "preparing" ? "Preparing audio" : stage === "saving" ? "Saving transcript" : stage === "polishing" ? "Polishing transcript" : "Transcribing",
         detail: bits.join(" · "), progress: overall, active: true
       });
     }
@@ -826,7 +1253,7 @@ export function createStudyHubController({
     if (!studyVisible() || !state.activeCourseId || !els.studyView) return;
     const entries = audioCardEntries();
     const nodes = [...els.studyView.querySelectorAll("[data-audio-card]")];
-    const board = els.studyView.querySelector(".study-material-board");
+    const board = !sourcePreviewId && els.studyView.querySelector(".dojo-workspace");
     const structural = Boolean(board) && (nodes.length !== entries.length
       || entries.some((entry, index) => nodes[index]?.dataset.audioCard !== entry.key || nodes[index]?.dataset.phase !== entry.phase));
     if (structural) { render(); return; }
@@ -840,21 +1267,22 @@ export function createStudyHubController({
       const bar = node.querySelector("[data-audio-bar]");
       if (bar && entry.progress != null) bar.style.transform = `scaleX(${entry.progress.toFixed(4)})`;
     });
+    for (const entry of entries) {
+      const center = els.studyView.querySelector(`[data-audio-center="${CSS.escape(entry.key)}"]`);
+      if (center && center.textContent !== entry.detail) center.textContent = entry.detail || "";
+    }
   }
 
   function materialsMarkup() {
     if (sourcePreviewId) return '<div class="dojo-source-preview-slot"></div>';
     // Audio still in the transcription queue shows as a progress card instead of a file.
-    const docs = sortedSources().filter((doc) => !isAudioDoc(doc) || materialStatus(doc) === "ready");
-    const audioCards = audioCardsMarkup();
+    // Recorded lectures live in the Lectures list above.
+    const docs = sortedSources().filter((doc) => !isAudioDoc(doc));
     return `<div class="study-materials" data-study-drop>
-      <div class="dojo-add-source-row"><svg class="dojo-source-nudge" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg><button class="study-dropzone" type="button" data-study-add-files>${icon("plus")}<span>Add sources</span></button><svg class="dojo-source-nudge dojo-source-nudge--right" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg></div>
-      <div class="dojo-source-caption">Course material <span>${docs.length}</span></div>
       <div class="study-material-board">
-        ${audioCards}
         ${pendingUploads.map(item => `<article class="study-material-card">${sourceFileIcon({ file_name: item.name })}<div class="study-material-copy"><strong>${escapeHtml(item.name)}</strong>${statusLine(item.status)}</div></article>`).join("")}
         ${docs.map((doc, index) => `${sourceSort === "type" && (!index || sourceType(doc)[1] !== sourceType(docs[index - 1])[1]) ? `<p class="dojo-source-type-head">${SOURCE_TYPE_NAMES[sourceType(doc)[1]]}</p>` : ""}<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text", "audio"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : doc.kind === "audio" ? ["Audio", audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ") : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
-        ${!docs.length && !pendingUploads.length && !audioCards ? emptyState("Bring your knowledge", "Add files, a website, pasted text, or a recorded lecture. This is where your course begins.") : ""}
+        ${!docs.length && !pendingUploads.length ? `<button class="study-dropzone dojo-materials-empty" type="button" data-study-add-files>${icon("plus")}<span>Add slides, PDFs or links</span></button>` : ""}
       </div>
     </div>`;
   }
@@ -895,6 +1323,10 @@ export function createStudyHubController({
 
   function openSource(id, event, page = 1) {
     const doc = (state.studyMaterials?.documents || []).find(item => item.id === id);
+    if (isAudioDoc(doc) && !sourcePreviewId) {
+      selectLecture(id, "transcript");
+      return;
+    }
     if (isAudioDoc(doc)) {
       if (materialStatus(doc) !== "ready") return;
       const workspace = els.studyView.querySelector(".dojo-workspace");
@@ -1398,12 +1830,15 @@ export function createStudyHubController({
     return [...byId.values()].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
   }
 
-  function chatMarkup() {
+  function chatMarkup({ lecture = false } = {}) {
+    const prompts = lecture
+      ? [["Key points", "What are the key points of this lecture?"], ["Hardest part", "Explain the hardest part of this lecture simply"], ["Quiz me", "Ask me 3 questions about this lecture"]]
+      : [["Course overview", "Give me an overview of this course"], ["Key concepts", "Explain the key concepts"], ["Study plan", "Help me make a study plan"]];
     return `<div class="dojo-chat-content">
       <div class="dojo-messages-slot"></div>
       <div class="dojo-chat-welcome${state.activeConversationId || state.messages?.length ? " hidden" : ""}">
-        <h2>What would you like to learn?</h2>
-        <div class="dojo-prompts">${[["Course overview", "Give me an overview of this course"], ["Key concepts", "Explain the key concepts"], ["Study plan", "Help me make a study plan"]].map(([label, prompt]) => `<button type="button" data-dojo-prompt="${escapeHtml(prompt)}">${label}</button>`).join("")}</div>
+        <h2>${lecture ? "Ask about this lecture" : "What would you like to learn?"}</h2>
+        <div class="dojo-prompts">${prompts.map(([label, prompt]) => `<button type="button" data-dojo-prompt="${escapeHtml(prompt)}">${label}</button>`).join("")}</div>
       </div>
       <div class="study-composer-slot"></div>
     </div>`;
@@ -1445,6 +1880,7 @@ export function createStudyHubController({
     let body;
     try {
       body = isMindMap(item) ? mindMapMarkup(item) : renderContent(noteBody(item)) || `<pre>${escapeHtml(noteBody(item))}</pre>`;
+      if (isLectureNote(item)) body = lectureNoteStaticHtml(body);
     } catch {
       body = `<pre>${escapeHtml(noteBody(item))}</pre>`;
     }
@@ -1456,7 +1892,9 @@ export function createStudyHubController({
     if (openItem) return studioViewMarkup(openItem);
     const decks = state.studyPractice?.decks || [];
     const quizzes = state.studyPractice?.quizzes || [];
-    const notes = state.studyMaterials?.notes || [];
+    // Lecture notes live with their lecture; once the recording is removed they join the collection.
+    const lectureIds = new Set(lectureDocs().map((doc) => doc.id));
+    const notes = (state.studyMaterials?.notes || []).filter((note) => !isLectureNote(note) || !lectureIds.has(note.document_file_id));
     const podcasts = state.studyPractice?.podcasts || [];
     const tutors = state.studyPractice?.tutors || [];
     const whiteboards = state.studyPractice?.whiteboards || [];
@@ -1491,11 +1929,20 @@ export function createStudyHubController({
       </section>`;
     };
     return `<div class="dojo-studio-content dojo-collection">
-      <div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>${type === "whiteboard" ? '<span class="dojo-tool-status">Coming soon</span>' : ""}`).join("")}</div>
+      ${studyToolsMarkup(tools)}
       ${generationCardsMarkup()}
       <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
       <div class="dojo-artifacts">${ordered.map(groupMarkup).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, tutor sessions, and whiteboards will find a home here.")}</div>
     </div>`;
+  }
+
+  // Four everyday tools up front; the rest wait under "More".
+  function studyToolsMarkup(tools) {
+    const main = ["flashcards", "quiz", "podcast", "tutor"];
+    const button = ([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${type === "quiz" ? "Practice test" : label === "Tutor" ? "AI tutor" : label}</strong></button>`;
+    const more = tools.filter(([type]) => !main.includes(type));
+    return `<div class="dojo-tools dojo-tools--main">${main.map((type) => button(tools.find(([t]) => t === type))).join("")}</div>
+      <details class="dojo-tools-more"><summary>More</summary><div class="dojo-tools-more-list">${more.map(([type, label, name]) => `<button type="button" data-practice-create="${type}" title="${name}">${icon(type)}<span>${type === "notes" ? "Summary notes" : name}</span></button>`).join("")}</div></details>`;
   }
 
   function tabMarkup() {
@@ -1506,11 +1953,11 @@ export function createStudyHubController({
   function courseBodyMarkup() {
     if (studioView && !studioItem()) studioView = null;
     return `<div class="dojo-workspace" data-mobile-panel="${state.activeCourseTab}" data-sources-collapsed="${sourcesCollapsed}" data-studio-collapsed="${studioCollapsed}" data-source-preview="${Boolean(sourcePreviewId)}" data-studio-view="${Boolean(studioView)}">
-      <section class="dojo-panel dojo-sources" aria-label="Sources">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
-      <section class="dojo-panel dojo-chat" aria-label="Ask"><header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}</section>
-      <section class="dojo-panel dojo-studio" aria-label="Create">
-        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor", "whiteboard"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
-        <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse create" title="Collapse create">${icon("expand")}</button></header>${practiceMarkup()}</div>
+      <section class="dojo-panel dojo-sources" aria-label="Lectures and materials">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcePreviewId ? "" : lecturesPanelMarkup()}${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
+      <section class="dojo-panel dojo-chat${activeLectureId ? " is-lecture" : ""}" aria-label="${activeLectureId ? "Lecture" : "Ask"}">${centerMarkup()}</section>
+      <section class="dojo-panel dojo-studio" aria-label="Study">
+        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand study" title="Expand study">${icon("sidebar")}</button><span class="dojo-rail-label">Study</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor", "whiteboard"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
+        <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Study</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse study" title="Collapse study">${icon("expand")}</button></header>${practiceMarkup()}</div>
       </section>
       ${panelResizeHandles()}
     </div>`;
@@ -1560,7 +2007,8 @@ export function createStudyHubController({
     if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
     if (els.studyNoteBody) {
       try {
-        els.studyNoteBody.innerHTML = isMindMap(studyNote) ? mindMapMarkup(studyNote) : renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
+        const html = isMindMap(studyNote) ? mindMapMarkup(studyNote) : renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
+        els.studyNoteBody.innerHTML = isLectureNote(studyNote) ? lectureNoteStaticHtml(html) : html;
       } catch {
         els.studyNoteBody.innerHTML = `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       }
@@ -1614,8 +2062,16 @@ export function createStudyHubController({
     const preview = els.studyView.querySelector(".dojo-source-preview-slot");
     if (preview && sourcePreviewId && audioViewer.id === sourcePreviewId) audioViewer.mount(preview);
     else if (preview && sourcePreviewId && els.documentViewer && !document.body.classList.contains("document-viewer-fullscreen")) preview.append(els.documentViewer);
+    const lectureAudio = els.studyView.querySelector(".dojo-lec-audio-slot");
+    const lectureDoc = lectureAudio && lectureDocs().find((item) => item.id === activeLectureId);
+    if (lectureDoc) {
+      audioViewer.open({ id: lectureDoc.id, title: documentDisplayName(lectureDoc) });
+      audioViewer.mount(lectureAudio);
+    }
+    patchLectureStrip();
     const slot = els.studyView.querySelector(".study-composer-slot");
     if (slot && els.composerArea) { slot.append(els.composerArea); els.composerArea.classList.remove("hidden"); }
+    else els.composerArea?.classList.add("hidden");
     const messagesSlot = els.studyView.querySelector(".dojo-messages-slot");
     if (messagesSlot && els.messages) {
       messagesSlot.append(els.messages);
@@ -1663,6 +2119,8 @@ export function createStudyHubController({
       renderNoteOverlay();
       return;
     }
+    sourceDialog.syncLive();
+    if (!lectureFrame) tickLecture();
     if (!state.activeCourseId) {
       parkComposer();
       parkMessages();
@@ -1673,6 +2131,12 @@ export function createStudyHubController({
     const currentSourceScroll = els.studyView.querySelector(".study-material-board")?.scrollTop;
     const currentCollectionScroll = els.studyView.querySelector(".dojo-collection")?.scrollTop;
     const studioScroll = els.studyView.querySelector(".dojo-studio-view .dojo-view-body")?.scrollTop;
+    const lectureBox = els.studyView.querySelector("[data-lec-scroll]");
+    if (lectureBox && lectureBox.dataset.lecture) lectureScroll.set(lectureBox.dataset.lecture, lectureBox.scrollTop);
+    const jotsBox = els.studyView.querySelector("[data-jots]");
+    const jotsFocus = jotsBox && document.activeElement === jotsBox ? [jotsBox.selectionStart, jotsBox.selectionEnd, jotsBox.scrollTop] : null;
+    const openLecture = lectureDocs().find((item) => item.id === activeLectureId);
+    if (openLecture) ensureLectureNotes(openLecture);
     if (currentSourceScroll != null) sourceListScrollTop = currentSourceScroll;
     if (currentCollectionScroll != null) collectionScrollTop = currentCollectionScroll;
     parkComposer();
@@ -1695,6 +2159,17 @@ export function createStudyHubController({
     if (collectionList) collectionList.scrollTop = collectionScrollTop;
     const studioBody = els.studyView.querySelector(".dojo-studio-view .dojo-view-body");
     if (studioBody && studioScroll) studioBody.scrollTop = studioScroll;
+    const nextLectureBox = els.studyView.querySelector("[data-lec-scroll]");
+    if (nextLectureBox) {
+      nextLectureBox.dataset.lecture = activeLectureId;
+      nextLectureBox.scrollTop = lectureScroll.get(activeLectureId) || 0;
+    }
+    const nextJots = els.studyView.querySelector("[data-jots]");
+    if (nextJots && jotsFocus) {
+      nextJots.focus({ preventScroll: true });
+      nextJots.setSelectionRange(jotsFocus[0], jotsFocus[1]);
+      nextJots.scrollTop = jotsFocus[2];
+    }
     floatOpenMenu();
   }
 
@@ -1827,6 +2302,8 @@ export function createStudyHubController({
       showToast("Mind map ready");
     } else if (job.type === "podcast") {
       showToast("Podcast ready");
+    } else if (job.type === "notes" && job.mode === "lecture") {
+      if (activeLectureId !== job.documentFileId || state.activeCourseId !== job.courseId) showToast(`Notes ready for “${jobSourceName(job)}”`);
     } else if (job.type === "notes") {
       showToast(job.mode === "detailed" ? "Detailed review ready" : "Summary ready");
     }
@@ -1871,6 +2348,12 @@ export function createStudyHubController({
       job.stage = "";
       job.result = result;
       job.finishedAt = new Date().toISOString();
+      if (job.mode === "lecture") {
+        forgetJots(job.documentFileId);
+        // Show the notes as soon as they're saved, before the materials reload.
+        await loadMaterials(true).catch(() => {});
+        if (!lectureNoteOf(job.documentFileId)) lectureNoteErrors.set(job.documentFileId, "Your notes are saved but didn't load.");
+      }
       if (state.activeCourseId === courseId) revealNewCollectionItem(job.type);
       toastForGeneration(job);
       generations.delete(job.id);
@@ -1887,6 +2370,17 @@ export function createStudyHubController({
         return;
       }
       if (!generations.has(job.id)) return;
+      if (job.mode === "lecture") {
+        generations.delete(job.id);
+        if (/already created/i.test(error?.message || "")) {
+          await loadMaterials(true).catch(() => {});
+          if (!lectureNoteOf(job.documentFileId)) lectureNoteErrors.set(job.documentFileId, "Your notes are saved but didn't load.");
+        } else {
+          lectureNoteErrors.set(job.documentFileId, error?.message || "Could not write the notes.");
+          if (activeLectureId !== job.documentFileId) showToast(error?.message || "Could not write the lecture notes.");
+        }
+        return;
+      }
       if (/already created/i.test(error?.message || "") && await openExistingGeneration(job, error.message)) return;
       job.status = "failed";
       job.stage = "";
@@ -2003,6 +2497,9 @@ export function createStudyHubController({
     transcriptionJobs.clear();
     sourcePreviewId = "";
     studioView = null;
+    activeLectureId = "";
+    lectureTab = "notes";
+    lectureScroll.clear();
     sourceListScrollTop = 0;
     collectionScrollTop = 0;
     sourcesCollapsed = false;
@@ -2066,6 +2563,8 @@ export function createStudyHubController({
     state.activeProject = null;
     if (cacheCourseId !== courseId) resetCourseCaches();
     state.activeCourseId = courseId;
+    try { localStorage.setItem(recordToKey, courseId); } catch { /* Storage is optional. */ }
+    if (liveHere()) activeLectureId = "live";
     state.activeCourseTab = TABS.includes(tab) ? tab : "chat";
     state.activeConversationId = "";
     state.messages = [];
@@ -2918,6 +3417,7 @@ export function createStudyHubController({
       controller: null
     };
     audioUploads = [...audioUploads, item];
+    if (meta.inline && state.activeCourseId === courseId && (activeLectureId === "live" || !activeLectureId)) activeLectureId = `up:${item.id}`;
     if (state.activeCourseId === courseId) render();
     await runAudioUpload(item);
   }
@@ -2992,6 +3492,8 @@ export function createStudyHubController({
       }
       // The server has it now; the copy kept on this device can go.
       if (item.meta.recordingId) await deleteSavedRecording(item.meta.recordingId);
+      if (item.meta.recordingId && result?.document?.id) moveJots(item.meta.recordingId, result.document.id);
+      if (result?.document?.id && activeLectureId === `up:${item.id}`) activeLectureId = result.document.id;
       audioUploads = audioUploads.filter((row) => row !== item);
       if (result?.job) transcriptionJobs.set(result.job.documentFileId, result.job);
       if (result?.document && state.activeCourseId === item.courseId && state.studyMaterials) {
@@ -3061,8 +3563,9 @@ export function createStudyHubController({
       if (finished.length) {
         await loadMaterials(true);
         if (state.activeCourseId !== courseId) return;
+        for (const done of finished) ensureLectureNotes((state.studyMaterials?.documents || []).find((doc) => doc.id === done.id));
         render();
-        showToast(finished.length === 1 ? `“${documentDisplayName(finished[0])}” is transcribed and ready.` : `${finished.length} recordings are transcribed and ready.`);
+        if (!finished.some((doc) => doc.id === activeLectureId)) showToast(finished.length === 1 ? `“${documentDisplayName(finished[0])}” is transcribed. Writing the notes…` : `${finished.length} lectures are transcribed. Writing the notes…`);
       } else if (changed) render();
       else patchAudioCards();
     } catch {
@@ -3388,6 +3891,7 @@ export function createStudyHubController({
       showToast(error.message || "Could not load materials.");
       return;
     }
+    if (activeLectureId && readyCreateDocs().some((doc) => doc.id === activeLectureId)) createSelected.add(activeLectureId);
     renderCreateList();
     // On phones the keyboard would cover the picker; search only when tapped.
     const mobile = document.body.classList.contains("mobile-ui");
@@ -4794,6 +5298,7 @@ export function createStudyHubController({
     if (event.target.closest("[data-collapse-sources]")) return togglePanel("sources", event);
     if (event.target.closest("[data-collapse-studio]")) return togglePanel("studio", event);
     if (handleAudioCardClick(event)) return;
+    if (!event.target.closest(".study-card-menu-wrap") && handleLectureClick(event)) return;
     const source = event.target.closest("[data-view-source]");
     if (source) return openSource(source.dataset.viewSource, event);
     const menuBtn = event.target.closest("[data-toggle-course-menu]");
@@ -5006,6 +5511,10 @@ export function createStudyHubController({
     contextPicker.bind();
     els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
     els.studyView?.addEventListener("input", (event) => {
+      if (event.target.matches?.("[data-jots]")) {
+        saveTypedJots(event.target);
+        return;
+      }
       if (quizSession && event.target.matches?.("[data-test-written]")) {
         writeAnswer(event.target);
         return;
@@ -5044,6 +5553,10 @@ export function createStudyHubController({
       list.querySelector(".dojo-chat-no-match").hidden = !query || matches > 0;
     });
     els.studyView?.addEventListener("change", (event) => {
+      if (event.target.matches?.("[data-record-to]")) {
+        try { localStorage.setItem(recordToKey, event.target.value); } catch { /* Storage is optional. */ }
+        return;
+      }
       if (studioView?.kind === "podcast" && event.target.matches?.("[data-pod-seek]")) {
         const target = Number(event.target.value);
         studioView.scrubbing = null;
