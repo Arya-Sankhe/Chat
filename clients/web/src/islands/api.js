@@ -1315,3 +1315,11 @@ export async function redeemInvite(session, coupon) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
+
+export async function manageStudyLecture(session, documentFileId, patch) {
+  const response = await apiFetch(`/api/study/audio/${encodeURIComponent(documentFileId)}`, {
+    session, method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}

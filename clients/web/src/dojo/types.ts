@@ -99,6 +99,8 @@ export type DojoActions = {
   uploadRecording(): void;
   createCourse(): void;
   renameCourse(id: string): void;
+  manageLecture(id: string, patch: { title?: string; targetCourseId?: string }): Promise<void>;
+  downloadLecture(id: string): Promise<void>;
   deleteCourse(id: string): void;
   closeStudio(): void;
   closePreview(): void;

@@ -1,7 +1,7 @@
+import { LectureMenu } from "./LectureMenu";
 // Course › Notes: the lecture notes, newest first, as one flat notebook list.
 import { Icon, Klui } from "./brand";
 import { clock, day, joinMeta, minutes, thisWeek } from "./fmt";
-import { Menu } from "./Menu";
 import type { DojoHub, DojoView, LectureRow } from "./types";
 
 export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
@@ -48,8 +48,8 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
           </div>
         </>
       )}
-      {week.length > 0 && <LectureGroup title="this week" rows={week} hub={hub} />}
-      {earlier.length > 0 && <LectureGroup title={week.length ? "earlier" : "all lectures"} rows={earlier} hub={hub} />}
+      {week.length > 0 && <LectureGroup title="this week" rows={week} hub={hub} view={view} />}
+      {earlier.length > 0 && <LectureGroup title={week.length ? "earlier" : "all lectures"} rows={earlier} hub={hub} view={view} />}
       {empty && view.loaded && (
         <div className="d3-empty">
           <Klui size={56} />
@@ -69,7 +69,7 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
   );
 }
 
-function LectureGroup({ title, rows, hub }: { title: string; rows: LectureRow[]; hub: DojoHub }) {
+function LectureGroup({ title, rows, hub, view }: { title: string; rows: LectureRow[]; hub: DojoHub; view: DojoView }) {
   return (
     <>
       <p className="d3-group">{title}</p>
@@ -86,10 +86,7 @@ function LectureGroup({ title, rows, hub }: { title: string; rows: LectureRow[];
               </span>
             </button>
             <button type="button" className="d3-playbtn" aria-label={`Play ${row.title}`} title="Play" onClick={() => playLecture(hub, row.id)}><Icon name="play" size={12} /></button>
-            <Menu label={`Options for ${row.title}`}>
-              <button type="button" className="d3-mi" role="menuitem" data-lecture={row.id}><Icon name="notes" size={16} />open notes</button>
-              <button type="button" className="d3-mi is-danger" role="menuitem" data-delete-doc={row.id}><Icon name="trash" size={16} />delete</button>
-            </Menu>
+            <LectureMenu hub={hub} view={view} id={row.id} title={row.title} />
           </div>
         ))}
       </div>

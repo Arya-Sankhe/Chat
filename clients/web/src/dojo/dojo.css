@@ -366,3 +366,11 @@ body[data-mode="dark"] .d3 {
   .d3-coursehead { flex-wrap: wrap; }
   .d3-tabs { max-width: 100%; flex-wrap: wrap; }
 }
+
+.d3-lecture-dialog { margin: auto; width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--d3-bd2); border-radius: 20px; color: var(--d3-tx); background: var(--d3-paper); }
+.d3-lecture-dialog::backdrop { background: #0008; }
+.d3-lecture-dialog form, .d3-lecture-dialog label { display: flex; flex-direction: column; gap: 12px; }
+.d3-lecture-dialog h2 { font-size: 20px; }
+.d3-lecture-dialog input, .d3-lecture-dialog select { width: 100%; padding: 10px; color: var(--d3-tx); background: var(--d3-paper2); border: 1px solid var(--d3-bd2); border-radius: 8px; font: inherit; }
+.d3-lecture-dialog p { font-size: 13px; color: var(--d3-tx2); }
+.d3-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }

@@ -5,7 +5,7 @@
 // store owns body.sidebar-open); the default is the old direct class removal.
 // Island change: state.conversations is the store's, so course-chat edits replace
 // the list rather than write into it.
-import { copyText } from "./platform/index.js";
+import { copyText, download as platformDownload } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
 import { createCourseContextPicker } from "./studyContext.js";
 import { createStudySourceDialog } from "./studySources.js";
@@ -14,7 +14,7 @@ import { createPanelResizer, panelResizeHandles } from "./dojoPanelResize.js";
 import { clearDeckProgress, deckBuckets, deckProgressSummary, readDeckProgress, writeDeckProgress } from "./deckProgress.js";
 import { deleteSavedRecording } from "./studyRecorder.js";
 import { extractAudioTrack, isVideoFile } from "./videoAudio.js";
-import { completeCourseAudio, createWhiteboard, deleteWhiteboard, fetchCourseTranscriptions, fetchStudyAudio, fetchWhiteboard, fetchWhiteboardFile, fetchWhiteboardTurn, fetchWhiteboardTurns, presignCourseAudio, putCourseAudio, retryCourseTranscription, saveWhiteboard, streamWhiteboardAsk, synthesizeVoice, transcribeVoiceTurn, uploadWhiteboardFile } from "./api.js";
+import { manageStudyLecture, completeCourseAudio, createWhiteboard, deleteWhiteboard, fetchCourseTranscriptions, fetchStudyAudio, fetchWhiteboard, fetchWhiteboardFile, fetchWhiteboardTurn, fetchWhiteboardTurns, presignCourseAudio, putCourseAudio, retryCourseTranscription, saveWhiteboard, streamWhiteboardAsk, synthesizeVoice, transcribeVoiceTurn, uploadWhiteboardFile } from "./api.js";
 import { createWhiteboardController } from "./studyWhiteboard.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
@@ -622,7 +622,7 @@ export function createStudyHubController({
   }
 
   function lectureTitle(doc) {
-    return lectureNoteOf(doc.id)?.title || documentDisplayName(doc);
+    return doc.metadata?.lecture_title_override || lectureNoteOf(doc.id)?.title || documentDisplayName(doc);
   }
 
   function lectureDate(doc) {
@@ -6009,6 +6009,26 @@ export function createStudyHubController({
       uploadRecording() { sourceDialog.openAudio(); },
       createCourse: openCreateDialog,
       renameCourse: openRenameDialog,
+      async manageLecture(id, patch) {
+        const courseId = state.activeCourseId;
+        if ([...generations.values()].some(job => job.documentFileId === id && job.status === "running")) throw new Error("Wait for the lecture notes to finish first.");
+        await manageStudyLecture(state.session, id, patch);
+        if (audioViewer.id === id) audioViewer.close(null, { silent: true });
+        if (state.activeCourseId === courseId) {
+          if (patch.targetCourseId && patch.targetCourseId !== courseId) {
+            activeLectureId = "";
+            contextPicker.forget?.(id);
+          }
+          await loadMaterials(true);
+          render();
+        }
+        void loadRecentLectures({ force: true });
+      },
+      async downloadLecture(id) {
+        const { audio } = await fetchStudyAudio(state.session, id);
+        if (!audio?.downloadUrl) throw new Error("This recording is not ready to download yet.");
+        await platformDownload(audio.downloadUrl, `${audio.title || "Lecture"}.m4a`);
+      },
       deleteCourse: confirmDeleteCourse,
       closeStudio: closeStudioView,
       closePreview() {

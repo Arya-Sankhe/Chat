@@ -1,3 +1,4 @@
+import { LectureMenu } from "./LectureMenu";
 import { navigateTabs } from "./tabs";
 // One lecture on a sheet of paper: the live notepad while recording, "klui is writing" after
 // Finish, then the notes (with Transcript and Ask on the same page).
@@ -159,7 +160,7 @@ function WritingBody({ lecture }: { lecture: Exclude<OpenLecture, { kind: "live"
 
 type NoteLecture = Extract<OpenLecture, { html: string }>;
 
-function NotePaper({ view, lecture }: { hub: DojoHub; view: DojoView; lecture: NoteLecture }) {
+function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lecture: NoteLecture }) {
   const tab = lecture.tab;
   const body = useRef<HTMLDivElement>(null);
   const [contents, setContents] = useState<{ id: string; text: string }[]>([]);
@@ -180,10 +181,7 @@ function NotePaper({ view, lecture }: { hub: DojoHub; view: DojoView; lecture: N
             ))}
           </div>
           <span className="d3-paper-meta">{meta}</span>
-          <Menu label="Lecture options">
-            <button type="button" className="d3-mi" role="menuitem" data-lecture-tab="transcript"><Icon name="file" size={16} />transcript</button>
-            <button type="button" className="d3-mi is-danger" role="menuitem" data-delete-doc={lecture.id}><Icon name="trash" size={16} />delete lecture</button>
-          </Menu>
+          <LectureMenu hub={hub} view={view} id={lecture.id} title={lecture.title} paper />
         </div>
         <div id="d3-lecture-panel" role="tabpanel" aria-labelledby={`d3-lecture-tab-${tab}`} style={{ display: "contents" }}>
         {tab !== "transcript" && lecture.html && (
