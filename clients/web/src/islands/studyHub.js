@@ -672,8 +672,7 @@ export function createStudyHubController({
     const elsewhere = !live && recordingElsewhere();
     const rows = lectureRowsMarkup();
     return `<section class="dojo-lectures" aria-label="Lectures">
-      <header class="dojo-panel-header"><h2>Lectures</h2><button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse">${icon("sidebar")}</button></header>
-      ${live ? "" : `<button class="dojo-record-btn dojo-record-btn--block" type="button" data-lecture-record${elsewhere ? ` disabled title="You're already recording in another course"` : ""}><span class="dojo-rec-dot" aria-hidden="true"></span>Record a lecture</button>`}
+      <header class="dojo-panel-header"><h2>Lectures</h2>${live ? "" : `<button class="dojo-rec-mini" type="button" data-lecture-record${elsewhere ? ` disabled title="You're already recording in another course"` : ` title="Record a lecture"`}><span class="dojo-rec-dot" aria-hidden="true"></span>Record</button>`}<button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse">${icon("sidebar")}</button></header>
       <div class="dojo-lec-list">${rows || '<p class="dojo-lec-empty">Your recorded classes will show up here, each with its own notes.</p>'}</div>
     </section>`;
   }
@@ -1852,13 +1851,21 @@ export function createStudyHubController({
   }
 
   function chatMarkup({ lecture = false } = {}) {
+    const hasLectures = lectureDocs().some((doc) => materialStatus(doc) === "ready");
     const prompts = lecture
       ? [["Key points", "What are the key points of this lecture?"], ["Hardest part", "Explain the hardest part of this lecture simply"], ["Quiz me", "Ask me 3 questions about this lecture"]]
-      : [["Course overview", "Give me an overview of this course"], ["Key concepts", "Explain the key concepts"], ["Study plan", "Help me make a study plan"]];
+      : hasLectures
+        ? [["Recap my last lecture", "Recap my most recent lecture"], ["What should I revise?", "Based on my lectures, what should I revise first?"], ["Quiz me", "Ask me 3 questions about my lectures"]]
+        : [["Course overview", "Give me an overview of this course"], ["Key concepts", "Explain the key concepts"], ["Study plan", "Help me make a study plan"]];
+    // Outside a lecture the empty space is the classroom: record first, ask second.
+    const elsewhere = !lecture && recordingElsewhere();
+    const welcome = lecture
+      ? `<h2>Ask about this lecture</h2>`
+      : `<div class="dojo-class-hero">${kluiMarkup("", 64)}<h2>${hasLectures ? "Ready for class?" : "Record your first lecture"}</h2><button class="dojo-record-btn dojo-record-btn--hero" type="button" data-lecture-record${elsewhere ? ` disabled title="You're already recording in another course"` : ""}><span class="dojo-rec-dot" aria-hidden="true"></span>Record a lecture</button><p class="dojo-class-or">or ask about ${hasLectures ? "your lectures" : "this course"}</p></div>`;
     return `<div class="dojo-chat-content">
       <div class="dojo-messages-slot"></div>
       <div class="dojo-chat-welcome${state.activeConversationId || state.messages?.length ? " hidden" : ""}">
-        <h2>${lecture ? "Ask about this lecture" : "What would you like to learn?"}</h2>
+        ${welcome}
         <div class="dojo-prompts">${prompts.map(([label, prompt]) => `<button type="button" data-dojo-prompt="${escapeHtml(prompt)}">${label}</button>`).join("")}</div>
       </div>
       <div class="study-composer-slot"></div>
@@ -1957,13 +1964,9 @@ export function createStudyHubController({
     </div>`;
   }
 
-  // Four everyday tools up front; the rest wait under "More".
+  // Every tool in one grid, as on the original Dojo page.
   function studyToolsMarkup(tools) {
-    const main = ["flashcards", "quiz", "podcast", "tutor"];
-    const button = ([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${type === "quiz" ? "Practice test" : label === "Tutor" ? "AI tutor" : label}</strong></button>`;
-    const more = tools.filter(([type]) => !main.includes(type));
-    return `<div class="dojo-tools dojo-tools--main">${main.map((type) => button(tools.find(([t]) => t === type))).join("")}</div>
-      <details class="dojo-tools-more"><summary>More</summary><div class="dojo-tools-more-list">${more.map(([type, label, name]) => `<button type="button" data-practice-create="${type}" title="${name}">${icon(type)}<span>${type === "notes" ? "Summary notes" : name}</span></button>`).join("")}</div></details>`;
+    return `<div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>${type === "whiteboard" ? '<span class="dojo-tool-status">Coming soon</span>' : ""}`).join("")}</div>`;
   }
 
   function tabMarkup() {
@@ -1977,8 +1980,8 @@ export function createStudyHubController({
       <section class="dojo-panel dojo-sources" aria-label="Lectures and materials">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcePreviewId ? "" : lecturesPanelMarkup()}${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
       <section class="dojo-panel dojo-chat${activeLectureId ? " is-lecture" : ""}" aria-label="${activeLectureId ? "Lecture" : "Ask"}">${centerMarkup()}</section>
       <section class="dojo-panel dojo-studio" aria-label="Study">
-        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand study" title="Expand study">${icon("sidebar")}</button><span class="dojo-rail-label">Study</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor", "whiteboard"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
-        <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Study</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse study" title="Collapse study">${icon("expand")}</button></header>${practiceMarkup()}</div>
+        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand study" title="Expand study">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor", "whiteboard"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
+        <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse study" title="Collapse study">${icon("expand")}</button></header>${practiceMarkup()}</div>
       </section>
       ${panelResizeHandles()}
     </div>`;

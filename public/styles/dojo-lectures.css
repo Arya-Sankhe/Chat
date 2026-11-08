@@ -156,3 +156,14 @@ mark.dojo-mine { padding: 0 2px; border-radius: 3px; background: linear-gradient
   .dojo-klui svg, .dojo-writing-steps li.is-active i, .dojo-lec-notes { animation: none; }
   .dojo-lec-strip, .dojo-live-levels i { transition: none; }
 }
+
+/* Course page, nothing open: the classroom welcome in the centre panel. */
+.dojo-class-hero { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.dojo-class-hero h2 { margin: 2px 0 4px; }
+.dojo-record-btn--hero { height: 46px; padding: 0 24px 0 20px; font-size: 14px; }
+.dojo-record-btn--hero .dojo-rec-dot { width: 9px; height: 9px; }
+.dojo-class-or { margin: 10px 0 -8px; color: var(--study-muted); font-size: 12px; }
+.dojo-rec-mini { display: inline-flex; align-items: center; gap: 7px; height: 28px; margin-left: auto; margin-right: 4px; padding: 0 11px 0 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text); font: 600 12px var(--study-font); cursor: pointer; }
+.dojo-rec-mini:hover { background: var(--dojo-soft); }
+.dojo-rec-mini:disabled { opacity: .45; cursor: default; }
+.dojo-rec-mini .dojo-rec-dot { width: 7px; height: 7px; animation: none; box-shadow: none; }
