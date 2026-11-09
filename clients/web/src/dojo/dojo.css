@@ -469,3 +469,14 @@ button.d3-li:hover:not(:disabled):not(.is-on) { background: var(--d3-paper2) !im
 /* In the Dojo the page itself shows the live recording (the top bar, the notepad), so the
    floating recorder pill is only for the rest of the app. */
 body.study-open .dojo-rec-pill { display: none !important; }
+
+/* Narrow screens: the right panel goes under the main panel, the overview becomes one column. */
+@media (max-width: 860px) {
+  .d3-ws-body { flex-direction: column; overflow: auto; padding: 0 12px 16px; }
+  .d3-ws-body.is-home { overflow: visible; }
+  .d3-main { flex: none; min-height: calc(100dvh - 90px); }
+  .d3-side { width: auto; overflow: visible; animation: none; }
+  .d3-ov-cols { grid-template-columns: minmax(0, 1fr); padding: 18px 16px 110px; }
+  .d3-ready { display: none; }
+  .d3-ws .d3-top { padding: 0 12px; }
+}

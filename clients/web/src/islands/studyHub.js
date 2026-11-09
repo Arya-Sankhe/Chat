@@ -800,6 +800,8 @@ export function createStudyHubController({
     // A recording that stopped but wasn't saved yet is waiting in the Add sources dialog.
     if (rec.state === "stopped") { sourceDialog.open(); return; }
     // startInline marks the recorder busy before its first repaint, so the notepad shows at once.
+    // In the React Dojo the notepad takes the main panel, whatever was open before.
+    if (host) { state.activeCourseTab = "notes"; lectureTab = "notes"; }
     activeLectureId = "live";
     const started = await sourceDialog.startInline(courseId);
     if (!started) pendingJots = "";
@@ -823,6 +825,11 @@ export function createStudyHubController({
     render();
     tickLecture();
     if (tab === "ask") els.promptInput?.focus();
+  }
+
+  // A lecture's own chat is showing (in the React Dojo, only while the lecture is the open item).
+  function lectureAskOpen() {
+    return lectureTab === "ask" && Boolean(activeLectureId) && (!host || state.activeCourseTab === "notes");
   }
 
   function closeLecture() {
@@ -2108,7 +2115,7 @@ export function createStudyHubController({
     }
     contextPicker.render();
     const contextWrap = document.getElementById("composerContextWrap");
-    if (contextWrap) contextWrap.hidden = Boolean(activeLectureId && lectureTab === "ask");
+    if (contextWrap) contextWrap.hidden = lectureAskOpen();
     mountTutorCall();
     bindMaterialsDnD();
     renderNoteOverlay();
@@ -2132,7 +2139,7 @@ export function createStudyHubController({
     }
     const visible = studyVisible();
     const contextWrap = document.getElementById("composerContextWrap");
-    if (contextWrap) contextWrap.hidden = Boolean(visible && activeLectureId && lectureTab === "ask");
+    if (contextWrap) contextWrap.hidden = Boolean(visible && lectureAskOpen());
     if (podcastAudio && (!visible || !state.activeCourseId || studioView?.kind !== "podcast" || !studioItem())) podcastAudio.pause();
     if (tutorCall?.active && (!visible || !state.activeCourseId)) tutorCall.pause();
     if (!visible || !state.activeCourseId) audioViewer.pause();
@@ -5966,8 +5973,8 @@ export function createStudyHubController({
     closeWhiteboard: () => whiteboards.close(),
     loadCourse,
     resetCourseCaches,
-    chatSources: () => lectureTab === "ask" && activeLectureId && lectureDocs().some(doc => doc.id === activeLectureId) ? [activeLectureId] : contextPicker.sources(),
-    chatSourcePages: () => lectureTab === "ask" && activeLectureId ? {} : contextPicker.sourcePages(),
+    chatSources: () => lectureAskOpen() && lectureDocs().some(doc => doc.id === activeLectureId) ? [activeLectureId] : contextPicker.sources(),
+    chatSourcePages: () => lectureAskOpen() ? {} : contextPicker.sourcePages(),
     openSourcePage(documentFileId, page, event) {
       if (!state.activeCourseId || !(state.studyMaterials?.documents || []).some((doc) => doc.id === documentFileId)) return false;
       openSource(documentFileId, event, page);
@@ -6063,6 +6070,8 @@ export function createStudyHubController({
       },
       // The course chat, scoped to one material (or the whole course).
       async ask(scopeId = "") {
+        // The course chat replaces a lecture's own chat, so its lecture scope goes too.
+        if (lectureTab === "ask") lectureTab = "notes";
         contextPicker.only(scopeId ? [scopeId] : []);
         if (state.activeCourseTab === "chat") { render(); els.promptInput?.focus(); return; }
         await setTab("chat");
