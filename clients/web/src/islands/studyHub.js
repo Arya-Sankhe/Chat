@@ -2726,6 +2726,26 @@ export function createStudyHubController({
     prefetchCourse(id);
   }
 
+  // The course overview: nothing open in the main panel. A course opened from its address
+  // (a reload, back/forward) starts here too.
+  function showCourseHome() {
+    if (!host) return;
+    if (studioView) {
+      if (studioView.kind === "podcast") podcastAudio?.pause();
+      if (studioView.kind === "tutor") tutorCall?.pause();
+      studioView = null;
+    }
+    if (sourcePreviewId) {
+      sourcePreviewId = "";
+      if (audioViewer.id) audioViewer.close(null, { silent: true });
+      void closeDocumentViewer?.();
+    }
+    activeLectureId = "";
+    lectureTab = "notes";
+    contextPicker.only([]);
+    state.activeCourseTab = "notes";
+  }
+
   function resetCourseCaches() {
     void whiteboards.close();
     sourceDialog.close();
@@ -5918,6 +5938,7 @@ export function createStudyHubController({
     closeSession,
     closeWhiteboard: () => whiteboards.close(),
     loadCourse,
+    showCourseHome,
     resetCourseCaches,
     chatSources: () => lectureAskOpen() && lectureDocs().some(doc => doc.id === activeLectureId) ? [activeLectureId] : contextPicker.sources(),
     chatSourcePages: () => lectureAskOpen() ? {} : contextPicker.sourcePages(),
@@ -5996,20 +6017,7 @@ export function createStudyHubController({
       },
       // Back to the course overview: nothing open in the main panel.
       goHome() {
-        if (studioView) {
-          if (studioView.kind === "podcast") podcastAudio?.pause();
-          if (studioView.kind === "tutor") tutorCall?.pause();
-          studioView = null;
-        }
-        if (sourcePreviewId) {
-          sourcePreviewId = "";
-          if (audioViewer.id) audioViewer.close(null, { silent: true });
-          void closeDocumentViewer?.();
-        }
-        activeLectureId = "";
-        lectureTab = "notes";
-        contextPicker.only([]);
-        state.activeCourseTab = "notes";
+        showCourseHome();
         render();
       },
       // The course chat, scoped to one material (or the whole course).

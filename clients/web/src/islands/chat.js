@@ -504,6 +504,7 @@ async function loadChatApp() {
     state.activeCourseId = courseIdFromLocation();
     state.activeConversationId = "";
     state.messages = [];
+    studyHub.showCourseHome?.();
     renderShell();
     if (state.activeCourseId) {
       try {
@@ -8737,6 +8738,7 @@ function bindHistoryEvents() {
         state.activeCourseId = courseIdFromLocation();
         state.activeConversationId = "";
         state.messages = [];
+        studyHub.showCourseHome?.();
         renderShell();
         if (state.activeCourseId) {
           try {

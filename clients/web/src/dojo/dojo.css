@@ -81,7 +81,7 @@ body[data-mode="dark"] .d3 {
 .d3-top { flex: none; height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 24px; border-bottom: 1px solid var(--d3-bd); }
 .d3-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13.5px; color: var(--d3-tx2); white-space: nowrap; }
 .d3-crumb b { color: var(--d3-tx); font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
-.d3-crumb-back { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px 5px 4px; border-radius: 9px; color: var(--d3-tx2); }
+.d3-crumb-back { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 9px; color: var(--d3-tx2); }
 .d3-crumb-back:hover { background: var(--d3-paper2); color: var(--d3-tx); }
 
 /* buttons */
@@ -327,8 +327,6 @@ body[data-mode="dark"] .d3 {
 .d3-ws { background: var(--d3-wash), var(--d3-bg); }
 .d3-ws .d3-top { border-bottom: 0; height: 60px; padding: 0 24px; }
 .d3-crumb-back.is-course { color: var(--d3-tx); font-weight: 650; padding-left: 8px; }
-.d3-ready { font-size: 13px; font-weight: 650; color: var(--d3-tx); margin-right: 4px; white-space: nowrap; }
-.d3-ready span { font-weight: 500; color: var(--d3-tx2); }
 
 .d3-ws-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 0 24px 20px; }
 .d3-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd); border-radius: 22px; box-shadow: var(--d3-shadow); overflow: hidden; }
@@ -428,8 +426,7 @@ body.study-open .dojo-rec-pill { display: none !important; }
   .d3-tile, .d3-tile.is-fill { flex: none; max-height: none; min-height: 0; overflow: visible; }
   .d3-tile > .d3-h4 { position: static; }
   .d3-overview > .d3-main-dock { position: sticky; bottom: 0; padding: 18px 0 2px; background: linear-gradient(180deg, transparent, var(--d3-bg) 45%); }
-  .d3-ready { display: none; }
-  .d3-ws .d3-top { padding: 0 12px; }
+    .d3-ws .d3-top { padding: 0 12px; }
 }
 
 /* ---------- Same ground as the rest of Klui ----------

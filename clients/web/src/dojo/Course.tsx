@@ -132,19 +132,16 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
 function CourseTop({ hub, view, home }: { hub: DojoHub; view: DojoView; home: boolean }) {
   const { actions } = hub;
   const name = view.course?.name || "Course";
-  const live = view.live.courseId;
   return (
     <header className="d3-top">
       <nav className="d3-crumb" aria-label="Breadcrumb">
-        <button type="button" className="d3-crumb-back" onClick={() => void actions.openCourses()}><Icon name="chevL" size={16} />dojo</button>
+        <button type="button" className="d3-crumb-back" onClick={() => void actions.openCourses()}>dojo</button>
         <Icon name="chevR" size={14} />
         {home ? <b>{name}</b> : <button type="button" className="d3-crumb-back is-course" onClick={() => actions.goHome()}>{name}</button>}
       </nav>
       <span className="d3-top-space" />
-      {!live && home && <span className="d3-ready">ready for class? <span>klui takes the notes while you listen.</span></span>}
       <RecordControl hub={hub} view={view} inCourse />
       <Menu label="Course options">
-        <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="plus" size={16} />add sources</button>
         <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.renameCourse(view.courseId)}><Icon name="edit" size={16} />rename course</button>
         <button type="button" className="d3-mi is-danger" role="menuitem" onClick={() => actions.deleteCourse(view.courseId)}><Icon name="trash" size={16} />delete course</button>
       </Menu>
