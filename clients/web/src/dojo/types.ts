@@ -104,6 +104,8 @@ export type DojoActions = {
   deleteCourse(id: string): void;
   closeStudio(): void;
   closePreview(): void;
+  goHome(): void;
+  ask(scopeId?: string): Promise<void>;
   newChat(): void;
   openChat(id: string): void;
 };

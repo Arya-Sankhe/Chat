@@ -303,7 +303,7 @@ export function createStudyHubController({
   }
 
   function parkComposer() {
-    if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
+    if (els.composerHomeAnchor && els.composerArea && els.composerArea.parentElement !== els.composerHomeAnchor.parentElement) {
       els.composerHomeAnchor.after(els.composerArea);
     }
   }
@@ -811,7 +811,9 @@ export function createStudyHubController({
 
   function selectLecture(id, tab = "notes") {
     if (!id) return;
-    if (activeLectureId === id && tab === lectureTab) return;
+    if (activeLectureId === id && tab === lectureTab && (!host || state.activeCourseTab === "notes")) return;
+    // In the React Dojo a lecture is one of the things the main panel can show.
+    if (host) state.activeCourseTab = "notes";
     activeLectureId = id;
     lectureTab = tab;
     quizMenuKey = "";
@@ -6040,6 +6042,30 @@ export function createStudyHubController({
         if (audioViewer.id) audioViewer.close(null, { silent: true });
         void closeDocumentViewer?.();
         render();
+      },
+      // Back to the course overview: nothing open in the main panel.
+      goHome() {
+        if (studioView) {
+          if (studioView.kind === "podcast") podcastAudio?.pause();
+          if (studioView.kind === "tutor") tutorCall?.pause();
+          studioView = null;
+        }
+        if (sourcePreviewId) {
+          sourcePreviewId = "";
+          if (audioViewer.id) audioViewer.close(null, { silent: true });
+          void closeDocumentViewer?.();
+        }
+        activeLectureId = "";
+        lectureTab = "notes";
+        contextPicker.only([]);
+        state.activeCourseTab = "notes";
+        render();
+      },
+      // The course chat, scoped to one material (or the whole course).
+      async ask(scopeId = "") {
+        contextPicker.only(scopeId ? [scopeId] : []);
+        if (state.activeCourseTab === "chat") { render(); els.promptInput?.focus(); return; }
+        await setTab("chat");
       },
       newChat() { void openCourse(state.activeCourseId, { tab: "chat" }); },
       openChat: openConversation

@@ -1,5 +1,6 @@
 // Course › Ask: the course chat. The messages and the composer are the chat core's own
 // nodes; the engine moves them into the slots drawn here.
+import { Slot } from "./Slot";
 import { useState } from "react";
 import { Icon } from "./brand";
 import { Menu } from "./Menu";
@@ -27,7 +28,7 @@ export function AskTab({ view }: { hub: DojoHub; view: DojoView }) {
         {view.hasMessages && <button type="button" className="d3-btn" data-dojo-new-chat=""><Icon name="plus" size={15} />new chat</button>}
       </div>
       <div className="dojo-chat-content d3-chat">
-        <div className="dojo-messages-slot" />
+        <Slot className="dojo-messages-slot" />
         {!view.hasMessages && (
           <div className="d3-chat-welcome">
             <h2>ask {view.course?.name || "this course"} anything</h2>
@@ -39,7 +40,7 @@ export function AskTab({ view }: { hub: DojoHub; view: DojoView }) {
           </div>
         )}
       </div>
-      <div className="d3-composer study-composer-slot" />
+      <Slot className="d3-composer study-composer-slot" />
     </div>
   );
 }

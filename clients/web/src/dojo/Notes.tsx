@@ -58,13 +58,6 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
           <button type="button" className="d3-quietlink" onClick={() => hub.actions.uploadRecording()}>have an audio file? upload a recording</button>
         </div>
       )}
-      {!empty && (
-        <button type="button" className="d3-askbar" onClick={() => void hub.actions.setTab("chat")}>
-          <Klui size={24} />
-          <span>ask {view.course?.name || "this course"} anything…</span>
-          <span className="d3-sendbtn"><Icon name="send" size={16} /></span>
-        </button>
-      )}
     </div>
   );
 }

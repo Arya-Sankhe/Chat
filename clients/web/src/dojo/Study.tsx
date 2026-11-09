@@ -1,5 +1,6 @@
 // Course › Study: your collection first (resume rows), making something new behind "+ make".
 // An open tool (deck, test, podcast, tutor, note) takes over the tab; its body and header are the engine's.
+import { Slot } from "./Slot";
 import { Icon, TOOL_ICON } from "./brand";
 import { Menu } from "./Menu";
 import type { CollectionItem, DojoHub, DojoView } from "./types";
@@ -14,7 +15,7 @@ const MAKE: [string, string][] = [
   ["whiteboard", "whiteboard"]
 ];
 
-const OPEN_ATTR: Record<CollectionItem["kind"], string> = {
+export const OPEN_ATTR: Record<CollectionItem["kind"], string> = {
   deck: "data-open-deck",
   quiz: "data-open-quiz",
   podcast: "data-open-podcast",
@@ -30,7 +31,7 @@ export function StudyTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
     return (
       // The tool's own header carries the back arrow and the title.
       <div className="d3-tabbody d3-tool is-studio">
-        <div className="d3-tool-slot" data-dojo-studio-slot="" />
+        <Slot className="d3-tool-slot" data-dojo-studio-slot="" />
       </div>
     );
   }

@@ -1,3 +1,4 @@
+import { Slot } from "./Slot";
 import { LectureMenu } from "./LectureMenu";
 import { navigateTabs } from "./tabs";
 // One lecture on a sheet of paper: the live notepad while recording, "klui is writing" after
@@ -176,7 +177,7 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
       <div className={`d3-paper is-note is-${tab}`}>
         <div className="d3-paper-top">
           <div className="d3-seg" role="tablist" onKeyDown={navigateTabs} aria-label="Lecture">
-            {([["notes", "Notes"], ["transcript", "Transcript"], ["ask", "Ask"]] as const).map(([key, label]) => (
+            {([["notes", "Notes"], ["transcript", "Transcript"]] as const).map(([key, label]) => (
               <button key={key} type="button" role="tab" id={`d3-lecture-tab-${key}`} aria-controls="d3-lecture-panel" tabIndex={tab === key ? 0 : -1} aria-selected={tab === key} className={tab === key ? "is-on" : ""} data-lecture-tab={key}>{label}</button>
             ))}
           </div>
@@ -217,38 +218,34 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
             <div className="d3-note dojo-lec-body" ref={body} dangerouslySetInnerHTML={{ __html: lecture.html }} />
           </div>
         )}
-        {tab === "transcript" && <div className="d3-paper-body is-transcript"><div className="dojo-lec-audio-slot" /></div>}
-        {tab === "ask" && (
-          <div className="d3-paper-body is-ask">
-            <div className="d3-scope"><Icon name="lock" size={14} />this lecture · {lecture.title}</div>
-            <div className="dojo-chat-content d3-chat">
-              <div className="dojo-messages-slot" />
-              {!view.hasMessages && (
-                <div className="d3-chat-welcome">
-                  <h2>ask about this lecture</h2>
-                  <div className="d3-prompts">
-                    {[["key points", "What are the key points of this lecture?"], ["hardest part", "Explain the hardest part of this lecture simply"], ["quiz me", "Ask me 3 questions about this lecture"]].map(([label, prompt]) => (
-                      <button key={label} type="button" data-dojo-prompt={prompt}>{label}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
+        {tab === "transcript" && <div className="d3-paper-body is-transcript"><Slot className="dojo-lec-audio-slot" /></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Ask about one lecture ---------- */
+
+// The lecture's own chat (scoped to it by the engine); the composer and messages are the chat core's.
+export function LectureAsk({ view, title }: { view: DojoView; title: string }) {
+  return (
+    <div className="d3-tabbody d3-ask">
+      <div className="d3-scope"><Icon name="lock" size={14} />this lecture · {title}</div>
+      <div className="dojo-chat-content d3-chat">
+        <Slot className="dojo-messages-slot" />
+        {!view.hasMessages && (
+          <div className="d3-chat-welcome">
+            <h2>ask about this lecture</h2>
+            <div className="d3-prompts">
+              {[["key points", "What are the key points of this lecture?"], ["hardest part", "Explain the hardest part of this lecture simply"], ["quiz me", "Ask me 3 questions about this lecture"]].map(([label, prompt]) => (
+                <button key={label} type="button" data-dojo-prompt={prompt}>{label}</button>
+              ))}
             </div>
           </div>
         )}
-        </div>
-        <div className="d3-paperfoot is-ask">
-          {tab === "ask"
-            ? <div className="study-composer-slot" />
-            : (
-              <button type="button" className="d3-askbar" data-lecture-tab="ask">
-                <Klui mood="happy" size={24} />
-                <span>ask about this lecture…</span>
-                <span className="d3-sendbtn"><Icon name="send" size={16} /></span>
-              </button>
-            )}
-        </div>
       </div>
+      <Slot className="d3-composer study-composer-slot" />
     </div>
   );
 }

@@ -7134,9 +7134,11 @@ function renderProjectChatCrumb() {
 
 async function loadStudyHub() {
   if (!studyHubPromise) {
-    // studyHub.js draws the Dojo's one-page layout itself (lectures, ask, create).
-    studyHubPromise = import("./studyHub.js").then(({ createStudyHubController }) => {
+    // The Dojo's page is the React one in src/dojo; studyHub.js stays its engine.
+    studyHubPromise = Promise.all([import("./studyHub.js"), import("../dojo/host")]).then(([{ createStudyHubController }, { createDojoHost }]) => {
+      const host = createDojoHost(els.studyView);
       studyHub = createStudyHubController({
+        host,
         state,
         els,
         // The sidebar is the store's (state/body.ts).
@@ -7204,6 +7206,7 @@ async function loadStudyHub() {
         openSideChat,
         closeSideChat
       });
+      host.attach(studyHub);
       studyHub.bindEvents();
       return studyHub;
     });
@@ -7348,7 +7351,7 @@ function renderProjects() {
   // next to #composerHomeAnchor when leaving a project, then move it into
   // .project-composer-slot for project detail. Fragile if surrounding render
   // order or markup around the anchor/slot changes — keep those stable.
-  if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
+  if (els.composerHomeAnchor && els.composerArea && els.composerArea.parentElement !== els.composerHomeAnchor.parentElement) {
     els.composerHomeAnchor.after(els.composerArea);
   }
   const visible = state.projectsOpen && !state.activeConversationId;

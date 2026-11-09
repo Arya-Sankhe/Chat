@@ -1,4 +1,5 @@
 // Course › Materials: slides, PDFs, links and pasted text that feed Ask and the study tools.
+import { Slot } from "./Slot";
 import { Icon } from "./brand";
 import { day, joinMeta } from "./fmt";
 import { Menu } from "./Menu";
@@ -13,7 +14,7 @@ export function MaterialsTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
     return (
       // The viewer's own header has the close button.
       <div className="d3-tabbody d3-tool is-studio">
-        <div className="d3-preview dojo-source-preview-slot" />
+        <Slot className="d3-preview dojo-source-preview-slot" />
       </div>
     );
   }

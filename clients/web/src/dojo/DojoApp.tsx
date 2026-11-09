@@ -1,15 +1,10 @@
-import { navigateTabs } from "./tabs";
 // The Dojo: an AI note app for lectures. Home (record + recent notes + courses) and a course
-// (Notes · Study · Materials · Ask). Navigation state lives in the engine; this only draws it.
+// (overview, or whatever is open with Ask beside it; see Course.tsx). Navigation state lives in the engine; this only draws it.
 import { useEffect } from "react";
 import { Folder, Icon, Klui, Wordmark, toneFor } from "./brand";
 import { clock, day, joinMeta, minutes } from "./fmt";
 import { Menu } from "./Menu";
-import { NotesTab } from "./Notes";
-import { LecturePage } from "./Lecture";
-import { StudyTab } from "./Study";
-import { MaterialsTab } from "./Materials";
-import { AskTab } from "./Ask";
+import { Course } from "./Course";
 import type { DojoHub, DojoView, RecentRow } from "./types";
 
 export function DojoApp({ hub, view }: { hub: DojoHub; view: DojoView }) {
@@ -144,83 +139,5 @@ function RecentNotes({ rows, loading, hub, toneOf }: { rows?: RecentRow[]; loadi
         ))}
       </div>
     </section>
-  );
-}
-
-/* ---------- Course ---------- */
-
-const TABS: [DojoView["tab"], string][] = [["notes", "Notes"], ["practice", "Study"], ["materials", "Materials"], ["chat", "Ask"]];
-
-function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
-  const { actions } = hub;
-  const index = view.courses.findIndex((course) => course.id === view.courseId);
-  const name = view.course?.name || "Course";
-  const lecture = view.lecture;
-  const lectureCount = view.lectures?.length || 0;
-  const materialCount = view.materials?.length || 0;
-  const recordFilled = view.tab === "notes" && !lecture;
-  const recording = Boolean(view.live.courseId);
-  const record = !recording && (
-    <button type="button" className={`d3-btn ${recordFilled ? "is-filled" : "is-ghost"}`} data-lecture-record="">
-      <span className="d3-rdot" aria-hidden="true" />{recordFilled ? "record a lecture" : "record"}
-    </button>
-  );
-  if (lecture) {
-    return (
-      <div className="d3-page d3-course is-lecture">
-        <header className="d3-top">
-          <nav className="d3-crumb" aria-label="Breadcrumb">
-            <button type="button" className="d3-crumb-back" onClick={() => actions.closeLecture()} aria-label={`Back to ${name}`}><Icon name="chevL" size={16} />{name}</button>
-            <Icon name="chevR" size={14} />
-            <b>{lecture.kind === "live" ? "new lecture" : "title" in lecture ? lecture.title : "lecture"}</b>
-          </nav>
-          <span className="d3-top-space" />
-          {record}
-        </header>
-        <LecturePage hub={hub} view={view} lecture={lecture} />
-      </div>
-    );
-  }
-  return (
-    <div className="d3-page d3-course">
-      <header className="d3-top">
-        <nav className="d3-crumb" aria-label="Breadcrumb">
-          <button type="button" className="d3-crumb-back" onClick={() => void actions.openCourses()}><Icon name="chevL" size={16} />dojo</button>
-          <Icon name="chevR" size={14} />
-          <b>{name}</b>
-        </nav>
-        <span className="d3-top-space" />
-        {recording && view.live.courseId === view.courseId && (
-          <button type="button" className="d3-btn is-live" onClick={() => actions.selectLecture("live")}><span className="d3-rdot is-pulse" aria-hidden="true" /><span data-live-time>{clock(view.live.elapsed)}</span></button>
-        )}
-        {record}
-      </header>
-      <div className="d3-scroll">
-        <div className="d3-wrap is-wide">
-          <div className="d3-coursehead">
-            <Folder tone={toneFor(Math.max(0, index))} size={56} />
-            <div className="d3-coursehead-copy">
-              <h1>{name}</h1>
-              <p>{view.loaded ? joinMeta(`${lectureCount} lecture ${lectureCount === 1 ? "note" : "notes"}`, `${materialCount} ${materialCount === 1 ? "material" : "materials"}`) : " "}</p>
-            </div>
-            <Menu label="Course options" className="d3-coursehead-menu">
-              <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.renameCourse(view.courseId)}><Icon name="edit" size={16} />rename course</button>
-              <button type="button" className="d3-mi is-danger" role="menuitem" onClick={() => actions.deleteCourse(view.courseId)}><Icon name="trash" size={16} />delete course</button>
-            </Menu>
-            <div className="d3-tabs" role="tablist" onKeyDown={navigateTabs} aria-label="Course sections">
-              {TABS.map(([tab, label]) => (
-                <button key={tab} type="button" role="tab" id={`d3-course-tab-${tab}`} aria-controls="d3-course-panel" tabIndex={view.tab === tab ? 0 : -1} aria-selected={view.tab === tab} className={view.tab === tab ? "is-on" : ""} onClick={() => void actions.setTab(tab)}>{label}</button>
-              ))}
-            </div>
-          </div>
-          <div id="d3-course-panel" role="tabpanel" aria-labelledby={`d3-course-tab-${view.tab}`}>
-          {view.tab === "notes" && <NotesTab hub={hub} view={view} />}
-          {view.tab === "practice" && <StudyTab hub={hub} view={view} />}
-          {view.tab === "materials" && <MaterialsTab hub={hub} view={view} />}
-          {view.tab === "chat" && <AskTab hub={hub} view={view} />}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
