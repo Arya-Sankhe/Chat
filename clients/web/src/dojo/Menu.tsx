@@ -11,7 +11,7 @@ export function Menu({ label, children, icon = "kebab", className = "", align = 
     const close = (event: Event) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
 
     document.addEventListener("pointerdown", close);
-    ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    ref.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
     return () => { document.removeEventListener("pointerdown", close); };
   }, [open]);
   return (
@@ -23,7 +23,7 @@ export function Menu({ label, children, icon = "kebab", className = "", align = 
         return;
       }
       if ((event.target as HTMLElement).tagName === "INPUT") return;
-      const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') || [])];
+      const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') || [])];
       const index = items.indexOf(document.activeElement as HTMLElement);
       const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (index + 1) % items.length : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : -1;
       if (next >= 0) { event.preventDefault(); event.stopPropagation(); items[next]?.focus(); }
@@ -32,7 +32,7 @@ export function Menu({ label, children, icon = "kebab", className = "", align = 
         {trigger || <Icon name={icon} />}
       </button>
       {open && (
-        <div className={`d3-menu d3-menu--${align}`} role="menu" onClick={event => { if ((event.target as HTMLElement).closest('[role="menuitem"]')) setTimeout(() => { setOpen(false); if (!document.activeElement || document.activeElement === document.body) ref.current?.querySelector<HTMLButtonElement>("button")?.focus(); }, 0); }}>
+        <div className={`d3-menu d3-menu--${align}`} role="menu" onClick={event => { if ((event.target as HTMLElement).closest('[role^="menuitem"]')) setTimeout(() => { setOpen(false); if (!document.activeElement || document.activeElement === document.body) ref.current?.querySelector<HTMLButtonElement>("button")?.focus(); }, 0); }}>
           {children}
         </div>
       )}

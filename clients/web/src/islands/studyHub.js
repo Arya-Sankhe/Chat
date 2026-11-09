@@ -2266,8 +2266,7 @@ export function createStudyHubController({
         state: rec.state || "idle",
         elapsed: Number(rec.elapsed) || 0,
         quiet: Boolean(rec.quiet)
-      },
-      recent: recentLectures
+      }
     };
     if (!state.activeCourseId) return base;
     const docs = state.studyMaterials?.documents || [];
@@ -2386,59 +2385,6 @@ export function createStudyHubController({
 
   function noteOutline(markdown) {
     return String(markdown || "").split("\n").map((line) => line.match(/^##\s+(.+)/)?.[1]?.trim()).filter(Boolean).slice(0, 3);
-  }
-
-  // Home's recent notes come from every course, newest lecture first.
-  let recentLectures = null;
-  let recentAt = 0;
-  let recentLoading = null;
-  let recentKey = "";
-  function loadRecentLectures({ force = false } = {}) {
-    if (!state.session) return Promise.resolve();
-    if (!force && recentLoading) return recentLoading;
-    const courses = coursesFromProjects().slice(0, 12);
-    const key = courses.map((course) => course.id).join(",");
-    if (!force && recentLectures && recentKey === key && Date.now() - recentAt < 30000) return Promise.resolve();
-    recentKey = key;
-    recentLoading = Promise.all(courses.map(async (course) => {
-      try {
-        const payload = await fetchStudyMaterials(state.session, course.id);
-        const docs = payload?.documents || [];
-        const notes = payload?.notes || [];
-        const audio = docs.filter(isAudioDoc);
-        return {
-          course,
-          counts: { lectures: audio.length, materials: docs.length - audio.length },
-          rows: audio.map((doc) => {
-            const note = lectureNoteFor(notes, doc.id);
-            const status = materialStatus(doc);
-            return {
-              id: doc.id,
-              courseId: course.id,
-              courseName: course.name,
-              title: note?.title || documentDisplayName(doc),
-              gist: note ? noteGist(noteBody(note)) : "",
-              createdAt: doc.created_at || "",
-              duration: Number(doc.duration_seconds) || 0,
-              status: status === "failed" ? "failed" : status !== "ready" ? "transcribing" : note ? "ready" : "writing",
-              made: notes.filter((item) => item.document_file_id === doc.id && !isLectureNote(item)).length
-            };
-          })
-        };
-      } catch {
-        return { course, counts: null, rows: [] };
-      }
-    })).then((results) => {
-      recentLectures = {
-        rows: results.flatMap((item) => item.rows).sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)).slice(0, 8),
-        counts: Object.fromEntries(results.filter((item) => item.counts).map((item) => [item.course.id, item.counts]))
-      };
-      recentAt = Date.now();
-    }).finally(() => {
-      recentLoading = null;
-      if (studyVisible() && !state.activeCourseId) render();
-    });
-    return recentLoading;
   }
 
   // The open tool (deck, test, podcast, tutor, note) is still the engine's markup, painted into
@@ -5982,7 +5928,6 @@ export function createStudyHubController({
     },
     isSessionOpen: () => Boolean(reviewSession || quizSession),
     view,
-    loadRecentLectures,
     actions: {
       openCourse,
       openCourses,
@@ -6034,7 +5979,6 @@ export function createStudyHubController({
           await loadMaterials(true);
           render();
         }
-        void loadRecentLectures({ force: true });
       },
       async downloadLecture(id) {
         const { audio } = await fetchStudyAudio(state.session, id);

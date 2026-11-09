@@ -46,18 +46,6 @@ export type CollectionItem = {
   progress?: { state: "resume" | "done"; seen?: number; total: number; got: number; missed: number; revisit?: number } | null;
 };
 
-export type RecentRow = {
-  id: string;
-  courseId: string;
-  courseName: string;
-  title: string;
-  gist: string;
-  createdAt: string;
-  duration: number;
-  status: "ready" | "writing" | "transcribing" | "failed";
-  made: number;
-};
-
 export type DojoView = {
   signedIn: boolean;
   courses: { id: string; name: string }[];
@@ -65,7 +53,6 @@ export type DojoView = {
   tab: "notes" | "practice" | "materials" | "chat";
   recordTo: string;
   live: { courseId: string; here: boolean; state: string; elapsed: number; quiet: boolean };
-  recent: { rows: RecentRow[]; counts: Record<string, { lectures: number; materials: number }> } | null;
   loaded?: boolean;
   course?: { id: string; name: string };
   lectures?: LectureRow[];
@@ -112,7 +99,6 @@ export type DojoActions = {
 
 export type DojoHub = {
   view(): DojoView;
-  loadRecentLectures(opts?: { force?: boolean }): Promise<void>;
   actions: DojoActions;
   render(): void;
 };

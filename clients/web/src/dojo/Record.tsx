@@ -50,16 +50,16 @@ export function RecordControl({ hub, view, inCourse = false }: { hub: DojoHub; v
   return (
     <div className="d3-rec">
       <button type="button" className="d3-rec-go" onClick={() => actions.recordInto(target.id)}>
-        <span className="d3-rec-dot" aria-hidden="true" />Record lecture
+        <span className="d3-rec-dot" aria-hidden="true" /><span>Record<span className="d3-rec-word"> lecture</span></span>
       </button>
       <Menu
         label={`Saving to ${target.name}. Change course`}
         className="d3-rec-to"
         trigger={<><span className="d3-rec-into">into</span><span className="d3-course-dot" data-tone={toneOf(target.id)} /><b>{target.name}</b><Icon name="chevD" size={14} /></>}
       >
-        <div className="d3-menu-label">save lectures to</div>
+        <div className="d3-menu-label" aria-hidden="true">save lectures to</div>
         {view.courses.map((course) => (
-          <button key={course.id} type="button" className={`d3-mi${course.id === target.id ? " is-on" : ""}`} role="menuitem" onClick={() => actions.setRecordTo(course.id)}>
+          <button key={course.id} type="button" className={`d3-mi${course.id === target.id ? " is-on" : ""}`} role="menuitemradio" aria-checked={course.id === target.id} onClick={() => actions.setRecordTo(course.id)}>
             <span className="d3-course-dot" data-tone={toneOf(course.id)} />
             <span className="d3-mi-text">{course.name}</span>
             {course.id === target.id && <Icon name="check" size={15} />}
