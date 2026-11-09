@@ -350,7 +350,6 @@ body[data-mode="dark"] .d3 {
 .d3-main-body .d3-paper { width: min(860px, 100%); border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .d3-main-dock { flex: none; padding: 8px 22px 16px; }
 .d3-main-dock .d3-askbar { margin: 0 auto; max-width: 760px; }
-.d3-main-dock.is-float { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 22px 18px; background: linear-gradient(180deg, transparent, var(--d3-paper) 40%); }
 @keyframes d3-main-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .d3-h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 0 4px; font-size: 11.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; color: var(--d3-tx2); }
@@ -358,15 +357,25 @@ body[data-mode="dark"] .d3 {
 .d3-h4-link { margin-left: auto; }
 .d3-h4-link { display: inline-flex !important; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--d3-sky); background: transparent !important; border: 0 !important; padding: 2px 4px !important; border-radius: 6px; }
 
-/* Overview */
-.d3-overview { padding: 0; }
-.d3-ov-cols { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 26px; padding: 24px 26px 110px; align-content: start; }
-.d3-ov-col { min-width: 0; }
-.d3-ov-col > .d3-h4 { margin-bottom: 10px; }
-.d3-ov-col .d3-tabbody { padding: 0; }
-.d3-ov-col .d3-group:first-child { margin-top: 0; }
-.d3-ov-col .d3-row h3 { font-size: 14.5px; }
-.d3-ov-col .d3-empty { padding: 26px 10px; }
+/* Overview: a 2×2 grid of tiles. Lectures over materials on the left, Create over your work
+   on the right; the top tiles take what they need, the bottom ones fill down to Ask. */
+.d3-overview { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.d3-bento { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.d3-bento-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.d3-tile { flex: 0 1 auto; min-height: 0; max-height: 58%; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; border-radius: 22px; background: var(--d3-paper); border: 1px solid var(--d3-bd); box-shadow: var(--d3-shadow); }
+.d3-tile.is-fill { flex: 1 1 0; max-height: none; min-height: 150px; }
+.d3-tile > .d3-h4 { position: sticky; top: 0; z-index: 2; margin: 0; padding: 16px 6px 10px; background: var(--d3-paper); }
+.d3-tile .d3-tabbody { padding: 0; }
+.d3-tile .d3-group { margin: 6px 6px 4px; font-size: 11px; }
+.d3-tile .d3-list { background: transparent; border: 0; border-radius: 0; }
+.d3-tile .d3-row { padding: 2px 0; }
+.d3-tile .d3-row h3 { font-size: 14.5px; }
+.d3-tile .d3-row-main { padding: 9px 10px !important; }
+.d3-tile .d3-empty { padding: 18px 10px; }
+.d3-tile .d3-li { padding: 8px 10px !important; }
+.d3-tile .d3-make { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin: 0; }
+.d3-tile .d3-side-empty { padding: 2px 6px 8px; }
+.d3-overview > .d3-main-dock { padding: 0; }
 .d3-make { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 22px; }
 .d3-make-btn { display: flex !important; align-items: center; gap: 10px; height: 48px; padding: 0 14px !important; border-radius: 14px; border: 1px solid var(--d3-bd) !important; background: var(--d3-paper2) !important; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); text-align: left; transition: border-color 140ms ease, transform 140ms ease; }
 .d3-make-btn:hover { border-color: var(--d3-bd2) !important; }
@@ -400,7 +409,6 @@ button.d3-li:hover:not(:disabled):not(.is-on) { background: var(--d3-paper2) !im
 .d3-wave i { display: block; width: 2px; border-radius: 2px; background: var(--d3-bd2); }
 .d3-li.is-on .d3-wave i { background: var(--d3-sky); }
 .d3-side-empty { padding: 4px 8px 6px; font-size: 12.5px; line-height: 1.45; color: var(--d3-tx2); }
-.d3-ov-col .d3-li { padding: 8px 10px !important; }
 
 @media (prefers-reduced-motion: reduce) { .d3-main-body, .d3-side { animation: none; } }
 /* An inline document viewer waiting outside the Dojo (you switched to Ask) stays out of sight. */
@@ -412,11 +420,14 @@ body.study-open .dojo-rec-pill { display: none !important; }
 /* Narrow screens: the right panel goes under the main panel, the overview becomes one column. */
 @media (max-width: 860px) {
   .d3-ws-body { flex-direction: column; overflow: auto; padding: 0 12px 16px; }
-  .d3-ws-body.is-home { overflow: hidden; }
-  .d3-ws-body.is-home .d3-main { flex: 1; min-height: 0; }
   .d3-main { flex: none; min-height: calc(100dvh - 90px); }
   .d3-side { width: auto; overflow: visible; animation: none; }
-  .d3-ov-cols { grid-template-columns: minmax(0, 1fr); padding: 18px 16px 110px; }
+  .d3-ws-body.is-home { overflow: auto; }
+  .d3-overview { flex: none; }
+  .d3-bento, .d3-bento-col { display: flex; flex-direction: column; gap: 12px; flex: none; }
+  .d3-tile, .d3-tile.is-fill { flex: none; max-height: none; min-height: 0; overflow: visible; }
+  .d3-tile > .d3-h4 { position: static; }
+  .d3-overview > .d3-main-dock { position: sticky; bottom: 0; padding: 18px 0 2px; background: linear-gradient(180deg, transparent, var(--d3-bg) 45%); }
   .d3-ready { display: none; }
   .d3-ws .d3-top { padding: 0 12px; }
 }
@@ -493,6 +504,7 @@ body.study-open .dojo-rec-pill { display: none !important; }
   .d3-rec-to > .d3-menu-trigger { width: 100%; }
   .d3-rec-to > .d3-menu-trigger b { max-width: none; flex: 0 1 auto; }
   .d3-rec-to .d3-menu { max-width: calc(100vw - 48px); }
+  .d3-top .d3-rec-word { display: none; }
 }
 /* The course list opens under the whole capsule, so it never leaves a narrow screen. */
 .d3-rec { position: relative; }

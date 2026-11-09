@@ -49,7 +49,7 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
         </>
       )}
       {week.length > 0 && <LectureGroup title="this week" rows={week} hub={hub} view={view} />}
-      {earlier.length > 0 && <LectureGroup title={week.length ? "earlier" : "all lectures"} rows={earlier} hub={hub} view={view} />}
+      {earlier.length > 0 && <LectureGroup title={week.length ? "earlier" : ""} rows={earlier} hub={hub} view={view} />}
       {empty && view.loaded && (
         <div className="d3-empty">
           <Klui size={56} />
@@ -65,7 +65,7 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
 function LectureGroup({ title, rows, hub, view }: { title: string; rows: LectureRow[]; hub: DojoHub; view: DojoView }) {
   return (
     <>
-      <p className="d3-group">{title}</p>
+      {title && <p className="d3-group">{title}</p>}
       <div className="d3-list">
         {rows.map((row) => (
           <div className="d3-row" key={row.id}>

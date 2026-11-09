@@ -3,7 +3,7 @@ import { Icon } from "./brand";
 import { Menu } from "./Menu";
 import type { DojoHub, DojoView } from "./types";
 
-export function LectureMenu({ hub, view, id, title, paper = false }: { hub: DojoHub; view: DojoView; id: string; title: string; paper?: boolean }) {
+export function LectureMenu({ hub, view, id, title }: { hub: DojoHub; view: DojoView; id: string; title: string }) {
   const [mode, setMode] = useState<"rename" | "move" | null>(null);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,8 +23,7 @@ export function LectureMenu({ hub, view, id, title, paper = false }: { hub: Dojo
     finally { setBusy(false); }
   }
   return <>
-    <Menu label={`Options for ${title}`}>
-      {!paper && <button type="button" className="d3-mi" role="menuitem" data-lecture={id}><Icon name="notes" size={16} />open notes</button>}
+    <Menu label={`Options for ${title}`} fixed>
       <button type="button" className="d3-mi" role="menuitem" onClick={() => open("rename")}><Icon name="edit" size={16} />rename</button>
       <button type="button" className="d3-mi" role="menuitem" disabled={!destinations.length} onClick={() => open("move")}><Icon name="swap" size={16} />switch course</button>
       <button type="button" className="d3-mi" role="menuitem" disabled={busy} onClick={() => {

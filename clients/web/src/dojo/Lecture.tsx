@@ -182,7 +182,7 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
             ))}
           </div>
           <span className="d3-paper-meta">{meta}</span>
-          <LectureMenu hub={hub} view={view} id={lecture.id} title={lecture.title} paper />
+          <LectureMenu hub={hub} view={view} id={lecture.id} title={lecture.title} />
         </div>
         <div id="d3-lecture-panel" role="tabpanel" aria-labelledby={`d3-lecture-tab-${tab}`} style={{ display: "contents" }}>
         {tab !== "transcript" && lecture.html && (

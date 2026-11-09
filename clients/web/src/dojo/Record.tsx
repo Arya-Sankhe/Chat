@@ -27,7 +27,7 @@ export function RecordControl({ hub, view, inCourse = false }: { hub: DojoHub; v
     return (
       <div className="d3-rec">
         <button type="button" className="d3-rec-go" data-lecture-record="">
-          <span className="d3-rec-dot" aria-hidden="true" />Record lecture
+          <span className="d3-rec-dot" aria-hidden="true" /><span>Record<span className="d3-rec-word"> lecture</span></span>
         </button>
         <button type="button" className="d3-rec-up" onClick={() => actions.uploadRecording()} aria-label="Upload a recording" title="Upload a recording">
           <Icon name="upload" size={16} />

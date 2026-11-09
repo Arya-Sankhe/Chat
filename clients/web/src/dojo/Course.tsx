@@ -1,6 +1,6 @@
 // A course in the Dojo. With nothing open, the course overview fills the page: lectures,
-// Create + Made, materials, and Ask at the bottom. Open anything (a lecture, a PDF, a deck, the
-// chat) and it takes the main panel, while the lists move into a slim panel on the right.
+// materials, Create and your work in a 2×2 grid, and Ask at the bottom. Open anything (a
+// lecture, a PDF, a deck, the chat) and it takes the main panel, while the lists move into a slim panel on the right.
 // The main panel switches between Ask and whatever is open. Navigation state lives in the
 // engine (islands/studyHub.js); this only draws it.
 import { useLayoutEffect, useRef } from "react";
@@ -30,6 +30,8 @@ const MAKE: [string, string, string][] = [
 const SHORT: Record<string, string> = { flashcards: "Cards", quiz: "Test", mindmap: "Map", notes: "Summary", podcast: "Podcast", tutor: "Tutor", whiteboard: "Board" };
 const MATERIAL_ICON: Record<string, string> = { website: "link", text: "type" };
 const MATERIAL_WORD: Record<string, string> = { pdf: "PDF", pptx: "Slides", ppt: "Slides", docx: "Document", doc: "Document", website: "Link", text: "Text", image: "Image" };
+// Everything you made with Create in this course.
+const WORK = "Your work";
 const TOOL_WORD: Record<string, string> = { deck: "Flashcards", quiz: "Practice test", podcast: "Podcast", tutor: "Tutor call", whiteboard: "Whiteboard" };
 
 // What the main panel shows for a tab other than Ask (null: the course overview).
@@ -45,7 +47,7 @@ function itemFor(view: DojoView, tab: Tab): Item | null {
   }
   if (tab === "practice") {
     const studio = view.studio;
-    if (!studio) return { tab, word: "Made", title: "Everything you made", icon: "layers", scope: "this course" };
+    if (!studio) return { tab, word: WORK, title: WORK, icon: "layers", scope: "this course" };
     const made = view.collection?.find((item) => item.kind === studio.kind && item.id === studio.id);
     const word = studio.kind === "note" ? (made?.type === "mindmap" ? "Mind map" : "Summary") : TOOL_WORD[studio.kind] || "Study";
     return { tab, word, title: studio.title || word, icon: TOOL_ICON[made?.type || ""] || "layers", scope: "this course" };
@@ -157,26 +159,32 @@ function Overview({ hub, view }: { hub: DojoHub; view: DojoView }) {
   const total = (view.lectures || []).reduce((sum, row) => sum + row.duration, 0);
   return (
     <div className="d3-ws-body is-home">
-      <section className="d3-main d3-overview" aria-label="Course overview">
-        <div className="d3-ov-cols">
-          <div className="d3-ov-col">
-            <div className="d3-h4">Lectures{lectures > 0 && <span>{joinMeta(`${lectures}`, total ? minutes(total) : "")}</span>}</div>
-            <NotesTab hub={hub} view={view} />
+      <section className="d3-overview" aria-label="Course overview">
+        <div className="d3-bento">
+          <div className="d3-bento-col">
+            <section className="d3-tile is-lectures" aria-label="Lectures">
+              <div className="d3-h4">Lectures{lectures > 0 && <span>{joinMeta(`${lectures}`, total ? minutes(total) : "")}</span>}</div>
+              <NotesTab hub={hub} view={view} />
+            </section>
+            <section className="d3-tile is-fill" aria-label="Materials">
+              <MaterialList hub={hub} view={view} />
+            </section>
           </div>
-          <div className="d3-ov-col">
-            <div className="d3-h4">Create</div>
-            <div className="d3-make">
-              {MAKE.map(([type, label, name]) => (
-                <button key={type} type="button" className={`d3-make-btn is-${type}`} data-practice-create={type} aria-label={`Create ${name}`}><Icon name={TOOL_ICON[type] || "notes"} size={18} />{label}</button>
-              ))}
-            </div>
-            <MadeList hub={hub} view={view} limit={8} />
-          </div>
-          <div className="d3-ov-col">
-            <MaterialList hub={hub} view={view} />
+          <div className="d3-bento-col">
+            <section className="d3-tile" aria-label="Create">
+              <div className="d3-h4">Create</div>
+              <div className="d3-make">
+                {MAKE.map(([type, label, name]) => (
+                  <button key={type} type="button" className={`d3-make-btn is-${type}`} data-practice-create={type} aria-label={`Create ${name}`}><Icon name={TOOL_ICON[type] || "notes"} size={18} />{label}</button>
+                ))}
+              </div>
+            </section>
+            <section className="d3-tile is-fill" aria-label={WORK}>
+              <MadeList hub={hub} view={view} limit={12} />
+            </section>
           </div>
         </div>
-        <div className="d3-main-dock is-float">
+        <div className="d3-main-dock">
           <button type="button" className="d3-askbar" onClick={() => void hub.actions.ask()}>
             <Klui size={24} />
             <span>ask {view.course?.name || "this course"} anything…</span>
@@ -242,7 +250,7 @@ function MadeList({ hub, view, limit, compact = false }: { hub: DojoHub; view: D
   const isOpen = (item: CollectionItem) => view.tab === "practice" && view.studio?.kind === item.kind && view.studio.id === item.id;
   return (
     <>
-      <div className="d3-h4">Made{items.length > 0 && <button type="button" className="d3-h4-link" onClick={seeAll}>{items.length > limit ? `see all ${items.length}` : "see all"}</button>}</div>
+      <div className="d3-h4">{WORK}{items.length > 0 && <button type="button" className="d3-h4-link" onClick={seeAll}>{items.length > limit ? `see all ${items.length}` : "see all"}</button>}</div>
       {jobs.map((job) => (
         <div key={job.id} className={`d3-li is-static${job.status === "failed" ? " is-failed" : ""}`} data-gen-id={job.id}>
           {job.status === "failed" ? <Icon name="alert" size={16} /> : <span className="d3-spin" />}
