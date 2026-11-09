@@ -473,7 +473,8 @@ body.study-open .dojo-rec-pill { display: none !important; }
 /* Narrow screens: the right panel goes under the main panel, the overview becomes one column. */
 @media (max-width: 860px) {
   .d3-ws-body { flex-direction: column; overflow: auto; padding: 0 12px 16px; }
-  .d3-ws-body.is-home { overflow: visible; }
+  .d3-ws-body.is-home { overflow: hidden; }
+  .d3-ws-body.is-home .d3-main { flex: 1; min-height: 0; }
   .d3-main { flex: none; min-height: calc(100dvh - 90px); }
   .d3-side { width: auto; overflow: visible; animation: none; }
   .d3-ov-cols { grid-template-columns: minmax(0, 1fr); padding: 18px 16px 110px; }
