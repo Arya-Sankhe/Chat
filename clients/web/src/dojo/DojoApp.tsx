@@ -25,10 +25,7 @@ function Home({ hub, view }: { hub: DojoHub; view: DojoView }) {
           <header className="dojo-library-head d3-lib-head">
             <div className="d3-lib-brand">
               <Wordmark />
-              <div className="dojo-library-title">
-                <h1>Your courses</h1>
-                {count > 0 && <span>{count} {count === 1 ? "course" : "courses"}</span>}
-              </div>
+              <div className="dojo-library-title"><h1>Your courses</h1></div>
             </div>
             <RecordControl hub={hub} view={view} />
           </header>

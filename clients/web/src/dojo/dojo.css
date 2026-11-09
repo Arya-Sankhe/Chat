@@ -172,7 +172,6 @@ body[data-mode="dark"] .d3 {
 .d3-askbar > span:not(.d3-sendbtn):not(.d3-klui) { flex: 1; text-align: left; }
 .d3-askbar:hover { border-color: var(--d3-skyline) !important; }
 .d3-sendbtn { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--d3-sky); border: 1px solid var(--d3-skyline); background: var(--d3-skybg); }
-.d3-upload-rec { display: block; margin: 16px auto 0; }
 
 /* the paper */
 .d3-course.is-lecture { background: transparent; }
@@ -339,8 +338,6 @@ body[data-mode="dark"] .d3 {
 .d3-switch button { display: inline-flex !important; align-items: center; gap: 7px; height: 30px; padding: 0 14px !important; border-radius: 999px; font-size: 13px; font-weight: 650; color: var(--d3-tx2); background: transparent !important; border: 0 !important; white-space: nowrap; transition: background 160ms ease, color 160ms ease; }
 .d3-switch button:hover:not(.is-on) { color: var(--d3-tx); }
 .d3-switch button.is-on { background: var(--d3-pill) !important; color: var(--d3-pilltx); cursor: default; }
-.d3-main-title { min-width: 0; font-size: 13px; color: var(--d3-tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.d3-main-title b { color: var(--d3-tx); font-weight: 650; }
 .d3-main-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; animation: d3-main-in 220ms ease both; }
 .d3-main-body > .d3-tabbody { padding: 0 24px 12px; flex: 1; display: flex; flex-direction: column; }
 .d3-main-body > .d3-tabbody.is-studio { padding: 12px; }
@@ -358,9 +355,8 @@ body[data-mode="dark"] .d3 {
 
 .d3-h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 0 4px; font-size: 11.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; color: var(--d3-tx2); }
 .d3-h4 > span { margin-left: auto; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-.d3-h4-link, .d3-h4-menu { margin-left: auto; }
+.d3-h4-link { margin-left: auto; }
 .d3-h4-link { display: inline-flex !important; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--d3-sky); background: transparent !important; border: 0 !important; padding: 2px 4px !important; border-radius: 6px; }
-.d3-h4-menu .d3-h4-link { margin: 0; }
 
 /* Overview */
 .d3-overview { padding: 0; }
@@ -468,7 +464,6 @@ body.study-open .dojo-rec-pill { display: none !important; }
 .d3-rec-to > .d3-menu-trigger { align-items: center; gap: 7px; padding: 0 12px 0 13px; font-size: 12.5px; color: var(--d3-tx2); white-space: nowrap; }
 .d3-rec-to > .d3-menu-trigger:hover { background: var(--d3-paper2) !important; color: var(--d3-tx); }
 .d3-rec-to > .d3-menu-trigger b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--d3-tx); }
-.d3-rec-into { color: var(--d3-tx2); }
 .d3-rec-to .d3-menu { min-width: 230px; }
 .d3-rec-to .d3-mi.is-on { color: var(--d3-sky); }
 .d3-mi-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -499,7 +494,6 @@ body.study-open .dojo-rec-pill { display: none !important; }
   .d3-rec-to > .d3-menu-trigger b { max-width: none; flex: 0 1 auto; }
   .d3-rec-to .d3-menu { max-width: calc(100vw - 48px); }
 }
-@media (max-width: 380px) { .d3-rec-into { display: none; } }
 /* The course list opens under the whole capsule, so it never leaves a narrow screen. */
 .d3-rec { position: relative; }
 .d3-rec > .d3-rec-to.d3-menu-wrap { position: static; }

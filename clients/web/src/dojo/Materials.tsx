@@ -25,11 +25,7 @@ export function MaterialsTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
       <div className="d3-toolbar">
         <p className="d3-group">{items.length ? `${items.length} ${items.length === 1 ? "material" : "materials"}` : "materials"}</p>
         <span className="d3-top-space" />
-        <Menu label="Add material" align="right" trigger={<span className="d3-btn is-filled"><Icon name="plus" size={15} />add slides, PDF, link or text</span>}>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="file" size={16} />slides or PDF</button>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("website")}><Icon name="link" size={16} />website link</button>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("text")}><Icon name="type" size={16} />paste text</button>
-        </Menu>
+        <button type="button" className="d3-btn is-filled" onClick={() => actions.addMaterial("")}><Icon name="plus" size={15} />add sources</button>
       </div>
       {(items.length > 0 || pending.length > 0) && (
         <div className="d3-list">
@@ -53,8 +49,7 @@ export function MaterialsTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
                 </span>
               </button>
               <Menu label={`Options for ${item.name}`}>
-                <button type="button" className="d3-mi" role="menuitem" data-view-source={item.id}><Icon name="file" size={16} />open</button>
-                <button type="button" className="d3-mi is-danger" role="menuitem" data-delete-doc={item.id}><Icon name="trash" size={16} />remove</button>
+                <button type="button" className="d3-mi is-danger" role="menuitem" data-delete-doc={item.id}><Icon name="trash" size={16} />delete</button>
               </Menu>
             </div>
           ))}
@@ -66,7 +61,6 @@ export function MaterialsTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
           <p>add your slides, readings or a link. klui uses them when you ask questions and when it makes study tools.</p>
         </div>
       )}
-      <button type="button" className="d3-quietlink d3-upload-rec" onClick={() => actions.uploadRecording()}>upload a recording (becomes a lecture note)</button>
     </div>
   );
 }

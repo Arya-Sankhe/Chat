@@ -100,7 +100,6 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
                   <button type="button" aria-pressed={asking} className={asking ? "is-on" : ""} onClick={asking ? undefined : toAsk}><Icon name="chat" size={15} />Ask</button>
                   {item && <button type="button" aria-pressed={!asking} className={asking ? "" : "is-on"} onClick={asking ? toItem : undefined}><Icon name={item.icon} size={15} />{item.word}</button>}
                 </div>
-                <span className="d3-main-title">{asking ? <><b>Chat</b> · {lectureAsk ? "this lecture" : view.tab === "chat" && view.previewId && item?.tab === "materials" ? item.title : "whole course"}</> : <b>{item?.title}</b>}</span>
               </div>
               <div className="d3-main-body">
                 {lectureAsk && view.lecture && "title" in view.lecture && <LectureAsk view={view} title={view.lecture.title} />}
@@ -143,7 +142,7 @@ function CourseTop({ hub, view, home }: { hub: DojoHub; view: DojoView; home: bo
       {!live && home && <span className="d3-ready">ready for class? <span>klui takes the notes while you listen.</span></span>}
       <RecordControl hub={hub} view={view} inCourse />
       <Menu label="Course options">
-        <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="file" size={16} />add slides or a PDF</button>
+        <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="plus" size={16} />add sources</button>
         <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.renameCourse(view.courseId)}><Icon name="edit" size={16} />rename course</button>
         <button type="button" className="d3-mi is-danger" role="menuitem" onClick={() => actions.deleteCourse(view.courseId)}><Icon name="trash" size={16} />delete course</button>
       </Menu>
@@ -278,11 +277,7 @@ function MaterialList({ hub, view, compact = false }: { hub: DojoHub; view: Dojo
   return (
     <>
       <div className="d3-h4">Materials
-        <Menu label="Add material" align="right" className="d3-h4-menu" trigger={<span className="d3-h4-link"><Icon name="plus" size={13} />add</span>}>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="file" size={16} />slides or PDF</button>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("website")}><Icon name="link" size={16} />website link</button>
-          <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("text")}><Icon name="type" size={16} />paste text</button>
-        </Menu>
+        <button type="button" className="d3-h4-link" onClick={() => actions.addMaterial("")}><Icon name="plus" size={13} />add</button>
       </div>
       {pending.map((item, index) => (
         <div key={`pending-${index}`} className="d3-li is-static"><span className="d3-spin" /><span className="d3-li-text">{item.name}</span><small>uploading…</small></div>

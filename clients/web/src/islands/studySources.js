@@ -198,7 +198,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
         <button type="button" class="dojo-audio-choice is-record" data-rec-start ${supported ? "" : "disabled"}><span class="dojo-audio-choice-icon">${mic}</span><strong>Record now</strong><small>${supported ? "Capture a lecture live" : "Not supported in this browser"}</small></button>
         <button type="button" class="dojo-audio-choice" data-audio-pick><span class="dojo-audio-choice-icon">${upload}</span><strong>Upload audio or video</strong><small>MP3, M4A, WAV, MP4, MOV · up to 4 h</small></button>
       </div>
-      <p class="dojo-source-hint">English lectures work best. Transcripts get timestamps you can tap to replay.</p>`;
+      <p class="dojo-source-hint">Recording in English only for now.</p>`;
   }
 
   // Recorded WebM has no duration header, so the native player can't show one; this small
