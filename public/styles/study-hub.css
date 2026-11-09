@@ -1578,7 +1578,7 @@ body.capacitor-native.study-open .study-view.study-view--detail {
 .study-composer-slot .composer:has(#researchModeChip:not(.hidden)[data-mode="research"]) .composer-context-wrap { display: none; }
 .study-composer-slot .composer-context-wrap { position: relative; display: block; min-width: 0; margin-left: 4px; }
 .study-composer-slot .composer-context-wrap::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: -6px; width: 1px; background: color-mix(in srgb, var(--text) 10%, transparent); }
-.composer-context-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 170px; height: 34px; padding: 0 9px 0 11px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-secondary); font: 600 13px var(--study-font); cursor: pointer; transition: background 140ms ease, color 140ms ease; }
+.composer-context-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; height: 34px; padding: 0 9px 0 11px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-secondary); font: 600 13px var(--study-font); cursor: pointer; transition: background 140ms ease, color 140ms ease; }
 .composer-context-btn > span:not(.composer-context-chevron) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-context-btn svg { flex: 0 0 auto; }
 .composer-context-btn:hover, .composer-context-wrap.is-open .composer-context-btn { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
@@ -1643,7 +1643,7 @@ body.capacitor-native.study-open .study-view.study-view--detail {
 .pdf-page-pick.is-on .pdf-page-pick-hint { color: var(--accent); }
 .composer-context-empty { margin: 6px 10px 10px; color: var(--text-secondary); font-size: 12.5px; }
 @media (max-width: 560px) {
-  .study-composer-slot .composer-context-btn > span:not(.composer-context-chevron) { max-width: 64px; }
+  .study-composer-slot .composer-context-btn > span:not(.composer-context-chevron) { max-width: 120px; }
 }
 @media (max-width: 900px) {
   body.study-open:not(.capacitor-native) .study-view { padding-top: 52px; }

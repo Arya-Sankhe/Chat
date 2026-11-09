@@ -80,10 +80,15 @@ export function createCourseContextPicker({ state, escapeHtml, readyDocs, docume
 
   function pillMarkup(set) {
     const count = set.size;
-    const only = count === 1 ? pages().get([...set][0]) : null;
-    const label = only ? pagesLabel(only) : count ? `${count} source${count === 1 ? "" : "s"}` : "Auto";
-    const title = count ? `Chatting about ${label}` : "Chatting about all course sources";
-    return `<button class="composer-context-btn${count ? " is-scoped" : ""}" type="button" data-context-toggle aria-haspopup="dialog" aria-expanded="${open}" aria-label="Context: ${label}" title="${title}">${svg("auto", 15)}<span>${label}</span><span class="composer-context-chevron">${svg("chevron", 13)}</span></button>`;
+    const onlyId = count === 1 ? [...set][0] : "";
+    const only = onlyId ? pages().get(onlyId) : null;
+    // One source: name it, so you can see which file Ask is reading without opening the picker.
+    const onlyDoc = onlyId ? readyDocs().find((doc) => doc.id === onlyId) : null;
+    const name = onlyDoc ? sourceShortName(onlyDoc) : "";
+    const label = name ? (only ? `${name} · ${pagesLabel(only)}` : name) : only ? pagesLabel(only) : count ? `${count} source${count === 1 ? "" : "s"}` : "Auto";
+    const full = onlyDoc ? documentDisplayName(onlyDoc) + (only ? ` · ${pagesLabel(only)}` : "") : label;
+    const title = count ? `Chatting about ${full}` : "Chatting about all course sources";
+    return `<button class="composer-context-btn${count ? " is-scoped" : ""}" type="button" data-context-toggle aria-haspopup="dialog" aria-expanded="${open}" aria-label="Context: ${escapeHtml(full)}" title="${escapeHtml(title)}">${svg("auto", 15)}<span>${escapeHtml(label)}</span><span class="composer-context-chevron">${svg("chevron", 13)}</span></button>`;
   }
 
   function listMarkup(docs, set) {
