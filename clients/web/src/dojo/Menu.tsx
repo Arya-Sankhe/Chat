@@ -26,13 +26,19 @@ export function Menu({ label, children, icon = "kebab", className = "", align = 
   useEffect(() => {
     if (!open) return;
     const close = (event: Event) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
-    const away = () => setOpen(false);
+    // Scrolling or resizing closes a fixed menu; keyboard focus goes back to its button.
+    const away = () => {
+      const focused = menu.current?.contains(document.activeElement);
+      setOpen(false);
+      if (focused) ref.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    };
+    const scrolled = (event: Event) => { if (!ref.current?.contains(event.target as Node)) away(); };
     document.addEventListener("pointerdown", close);
-    if (fixed) { document.addEventListener("scroll", close, true); window.addEventListener("resize", away); }
+    if (fixed) { document.addEventListener("scroll", scrolled, true); window.addEventListener("resize", away); }
     ref.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
     return () => {
       document.removeEventListener("pointerdown", close);
-      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", away);
     };
   }, [open, fixed]);
