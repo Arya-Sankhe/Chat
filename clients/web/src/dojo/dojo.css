@@ -481,3 +481,62 @@ body.study-open .dojo-rec-pill { display: none !important; }
   .d3-ready { display: none; }
   .d3-ws .d3-top { padding: 0 12px; }
 }
+
+/* ---------- Same ground as the rest of Klui ----------
+   The Dojo sits on the app's own background (black or white, like the sidebar), with
+   neutral cards; the sky blue stays only as an accent. */
+.d3, body[data-mode="dark"] .d3 {
+  --d3-bg: var(--bg);
+  --d3-paper: color-mix(in srgb, var(--bg) 55%, var(--bg-secondary));
+  --d3-paper2: var(--bg-secondary);
+  --d3-paper3: color-mix(in srgb, var(--bg-secondary) 86%, var(--text));
+  --d3-tx: var(--text);
+  --d3-tx2: var(--text-secondary);
+  --d3-bd: color-mix(in srgb, var(--text) 9%, transparent);
+  --d3-bd2: color-mix(in srgb, var(--text) 17%, transparent);
+  --d3-wash: none;
+}
+
+/* ---------- Home: the original library ---------- */
+.d3-lib-scroll { padding: 36px clamp(24px, 4.5vw, 72px) 48px; }
+.d3-home .study-page--library { margin: 0 auto; }
+.d3-lib-head { flex-direction: row !important; align-items: flex-end !important; justify-content: space-between; flex-wrap: wrap; gap: 20px 28px !important; }
+.d3-lib-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.d3-home .dojo-wordmark { width: clamp(200px, 22vw, 290px); }
+.d3 .d3-home .dojo-folder { max-width: 190px; margin-bottom: 14px; flex: initial; }
+.study-course-card > .d3-menu-wrap { position: absolute; top: 10px; right: 10px; }
+.study-course-card > .d3-menu-wrap .d3-iconbtn { color: var(--text-tertiary); }
+.study-course-card .d3-menu { min-width: 160px; }
+
+/* ---------- Record control ----------
+   One quiet capsule: Record leads (red dot, full-strength text), the course it saves to
+   is quieter, and upload is just an icon. */
+.d3-rec { display: inline-flex; align-items: stretch; height: 40px; flex: none; border-radius: 999px; border: 1px solid var(--d3-bd2); background: var(--d3-paper); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent); }
+.d3-rec > * + * { border-left: 1px solid var(--d3-bd); }
+.d3-rec button { transition: background-color 140ms ease, color 140ms ease; }
+.d3-rec-go { display: inline-flex !important; align-items: center; gap: 9px; padding: 0 16px 0 15px !important; border-radius: 999px 0 0 999px; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); white-space: nowrap; }
+.d3-rec > .d3-rec-go:only-child { border-radius: 999px; }
+.d3-rec-go:hover { background: color-mix(in srgb, var(--d3-red) 9%, transparent) !important; }
+.d3-rec-go:active { transform: scale(.98); }
+.d3-rec-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--d3-red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--d3-red) 18%, transparent); transition: box-shadow 160ms ease; }
+.d3-rec-go:hover .d3-rec-dot { box-shadow: 0 0 0 5px color-mix(in srgb, var(--d3-red) 18%, transparent); }
+.d3-rec-dot.is-pulse { animation: d3-pulse 1.6s ease-in-out infinite; }
+.d3-rec-to { display: flex; }
+.d3-rec-to > .d3-menu-trigger { align-items: center; gap: 7px; padding: 0 12px 0 13px; font-size: 12.5px; color: var(--d3-tx2); white-space: nowrap; }
+.d3-rec-to > .d3-menu-trigger:hover { background: var(--d3-paper2) !important; color: var(--d3-tx); }
+.d3-rec-to > .d3-menu-trigger b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--d3-tx); }
+.d3-rec-into { color: var(--d3-tx2); }
+.d3-rec-to .d3-menu { min-width: 230px; }
+.d3-rec-to .d3-mi.is-on { color: var(--d3-sky); }
+.d3-mi-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.d3-menu-label { padding: 6px 10px 4px; font-size: 11.5px; font-weight: 600; color: var(--d3-tx2); }
+.d3-rec-up { display: grid !important; place-items: center; width: 42px; border-radius: 0 999px 999px 0; color: var(--d3-tx2); }
+.d3-rec-up:hover { background: var(--d3-paper2) !important; color: var(--d3-tx); }
+.d3-rec.is-live { border-color: color-mix(in srgb, var(--d3-red) 40%, transparent); }
+.d3-rec-time { font-variant-numeric: tabular-nums; }
+.d3-rec-sub { font-weight: 500; color: var(--d3-tx2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .d3-lib-head { flex-direction: column !important; align-items: flex-start !important; }
+  .d3-rec-to > .d3-menu-trigger b { max-width: 110px; }
+}
+@media (prefers-reduced-motion: reduce) { .d3-rec-dot.is-pulse { animation: none; } }

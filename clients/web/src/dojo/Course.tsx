@@ -12,6 +12,7 @@ import { LectureAsk, LecturePage } from "./Lecture";
 import { OPEN_ATTR, StudyTab } from "./Study";
 import { MaterialsTab } from "./Materials";
 import { AskTab } from "./Ask";
+import { RecordControl } from "./Record";
 import type { CollectionItem, DojoHub, DojoView } from "./types";
 
 type Tab = DojoView["tab"];
@@ -131,7 +132,6 @@ function CourseTop({ hub, view, home }: { hub: DojoHub; view: DojoView; home: bo
   const { actions } = hub;
   const name = view.course?.name || "Course";
   const live = view.live.courseId;
-  const liveCourse = live && live !== view.courseId ? view.courses.find((course) => course.id === live) : null;
   return (
     <header className="d3-top">
       <nav className="d3-crumb" aria-label="Breadcrumb">
@@ -141,24 +141,9 @@ function CourseTop({ hub, view, home }: { hub: DojoHub; view: DojoView; home: bo
       </nav>
       <span className="d3-top-space" />
       {!live && home && <span className="d3-ready">ready for class? <span>klui takes the notes while you listen.</span></span>}
-      {!live && (
-        <button type="button" className="d3-recbtn" data-lecture-record="">
-          <span className="d3-rdot" aria-hidden="true" />Record lecture
-        </button>
-      )}
-      {live && !liveCourse && (
-        <button type="button" className="d3-recbtn is-live" onClick={() => actions.selectLecture("live")} aria-label="Open the lecture you're recording">
-          <span className="d3-rdot is-pulse" aria-hidden="true" /><span data-live-time>{clock(view.live.elapsed)}</span>{view.live.state === "paused" ? "paused" : "recording"}
-        </button>
-      )}
-      {liveCourse && (
-        <button type="button" className="d3-recbtn is-live" onClick={() => actions.openLive(liveCourse.id)}>
-          <span className="d3-rdot is-pulse" aria-hidden="true" />recording in {liveCourse.name}
-        </button>
-      )}
+      <RecordControl hub={hub} view={view} inCourse />
       <Menu label="Course options">
         <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.addMaterial("")}><Icon name="file" size={16} />add slides or a PDF</button>
-        <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.uploadRecording()}><Icon name="upload" size={16} />upload a recording</button>
         <button type="button" className="d3-mi" role="menuitem" onClick={() => actions.renameCourse(view.courseId)}><Icon name="edit" size={16} />rename course</button>
         <button type="button" className="d3-mi is-danger" role="menuitem" onClick={() => actions.deleteCourse(view.courseId)}><Icon name="trash" size={16} />delete course</button>
       </Menu>

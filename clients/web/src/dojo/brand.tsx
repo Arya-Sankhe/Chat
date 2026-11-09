@@ -49,10 +49,11 @@ export function toneStyle(tone: string) {
   return { "--folder-light": light, "--folder-deep": deep } as React.CSSProperties;
 }
 
-export function Folder({ tone = "sage", add = false, size = 78 }: { tone?: string; add?: boolean; size?: number }) {
+// `fluid` leaves the size to CSS (the home page folders); otherwise it is `size` wide.
+export function Folder({ tone = "sage", add = false, size = 78, fluid = false }: { tone?: string; add?: boolean; size?: number; fluid?: boolean }) {
   const id = useId().replace(/:/g, "");
   return (
-    <svg className={`dojo-folder d3-folder${add ? " dojo-folder--new" : ""}`} viewBox="0 0 200 180" width={size} height={size * 0.9} fill="none" aria-hidden="true" style={{ ...toneStyle(add ? "new" : tone), width: size, height: size * 0.9 }}>
+    <svg className={`dojo-folder d3-folder${add ? " dojo-folder--new" : ""}`} viewBox="0 0 200 180" {...(fluid ? {} : { width: size, height: size * 0.9 })} fill="none" aria-hidden="true" style={{ ...toneStyle(add ? "new" : tone), ...(fluid ? {} : { width: size, height: size * 0.9 }) }}>
       <defs>
         <linearGradient id={`${id}-back`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" style={{ stopColor: "var(--folder-deep)", stopOpacity: 0.62 }} /><stop offset="1" style={{ stopColor: "var(--folder-deep)", stopOpacity: 0.9 }} /></linearGradient>
         <linearGradient id={`${id}-front`} x1="0" y1="0" x2=".35" y2="1"><stop offset="0" style={{ stopColor: "var(--folder-light)", stopOpacity: 0.95 }} /><stop offset="1" style={{ stopColor: "var(--folder-deep)", stopOpacity: 0.98 }} /></linearGradient>
@@ -114,7 +115,8 @@ const PATHS: Record<string, string> = {
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/>',
   sparkle: '<path d="M12 3c.7 4.2 1.8 5.3 6 6-4.2.7-5.3 1.8-6 6-.7-4.2-1.8-5.3-6-6 4.2-.7 5.3-1.8 6-6Z"/>',
   chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1L3 20l1.2-5.3A8.5 8.5 0 1 1 21 11.5Z"/>',
-  back: '<path d="M19 12H5M12 19l-7-7 7-7"/>'
+  back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>'
 };
 
 export function Icon({ name, size = 18, width = 1.8, className = "" }: { name: string; size?: number; width?: number; className?: string }) {
