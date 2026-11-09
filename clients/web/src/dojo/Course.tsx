@@ -3,7 +3,7 @@
 // chat) and it takes the main panel, while the lists move into a slim panel on the right.
 // The main panel switches between Ask and whatever is open. Navigation state lives in the
 // engine (islands/studyHub.js); this only draws it.
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Icon, Klui, TOOL_ICON } from "./brand";
 import { clock, day, joinMeta, minutes } from "./fmt";
 import { Menu } from "./Menu";
@@ -67,6 +67,13 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
   const asking = view.tab === "chat" || Boolean(lectureAsk);
   const item = itemFor(view, view.tab === "chat" ? last.current : view.tab);
   const home = !asking && !item;
+  // On narrow screens the main panel and the course lists share one scroll box; opening
+  // something else from the lists scrolls back up so it isn't above the screen.
+  const body = useRef<HTMLDivElement>(null);
+  const shown = [view.tab, asking, view.lecture && "id" in view.lecture ? view.lecture.id : view.lecture ? "live" : "", view.previewId, view.studio ? `${view.studio.kind}:${view.studio.id}` : ""].join("|");
+  useLayoutEffect(() => {
+    if (body.current && body.current.scrollTop > 0) body.current.scrollTop = 0;
+  }, [shown]);
 
   const toAsk = () => {
     if (item?.lectureAsk && item.lectureId) { actions.selectLecture(item.lectureId, "ask"); return; }
@@ -84,7 +91,7 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
       {home
         ? <Overview hub={hub} view={view} />
         : (
-          <div className="d3-ws-body">
+          <div className="d3-ws-body" ref={body}>
             <section className="d3-main" aria-label={asking ? "Ask" : item?.word}>
               <div className="d3-main-bar">
                 <button type="button" className="d3-iconbtn d3-main-back" onClick={() => actions.goHome()} aria-label="Back to the course overview" title="Back to the course"><Icon name="chevL" size={18} /></button>
