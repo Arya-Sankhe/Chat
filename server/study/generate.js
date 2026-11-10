@@ -753,6 +753,8 @@ async function generateLectureNotes({ context, config, course, source, options =
   const partial = Boolean(streamed.partial || streamed.finishReason === "length");
   // A remake keeps the lecture's title, so the list doesn't shuffle names under the student.
   if (remake) {
+    // Half-written notes never replace whole ones.
+    if (partial) throw new HttpError(502, "Couldn't finish rewriting these notes. Your notes are unchanged.");
     const note = await context.db.updateStudyNote(context.user.id, remake.id, { content }, { signal });
     if (!note) throw new HttpError(404, "These notes were removed.");
     return { note, partial };

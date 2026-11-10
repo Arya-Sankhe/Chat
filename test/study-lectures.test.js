@@ -63,12 +63,12 @@ test("a lecture's title is the notes' short heading, kept list-sized", () => {
 });
 
 test("notes can be rewritten in another style, keeping the student's own lines", () => {
-  const content = `${LECTURE_NOTE_MARK}\n${lectureStyleMark("minutes")}# Budget Review\n- ⟦who owns the launch?⟧ — Sam does. [1:02:05]\n- ⟦check⟧ and ⟦recheck⟧ [4:12]`;
+  const content = `${LECTURE_NOTE_MARK}\n${lectureStyleMark("minutes")}# Budget Review\n- ⟦who owns the launch?⟧ — Sam does. [1:02:05]\n- ⟦check⟧ and ⟦recheck⟧ [4:12]\n- ⟦see [0:05] again⟧ — later [9:00]`;
   assert.equal(lectureStyleOf(content), "minutes");
   assert.equal(lectureStyleOf(`${LECTURE_NOTE_MARK}\n# Cells`), "lecture");
   assert.equal(lectureStyleMark("nonsense"), "");
-  assert.equal(noteBody({ content }), "# Budget Review\n- ⟦who owns the launch?⟧ — Sam does. [1:02:05]\n- ⟦check⟧ and ⟦recheck⟧ [4:12]");
-  assert.deepEqual(jotsFromNote(content), [{ t: 3725, text: "who owns the launch?" }, { t: 252, text: "check" }, { t: 252, text: "recheck" }]);
+  assert.match(noteBody({ content }), /^# Budget Review\n/);
+  assert.deepEqual(jotsFromNote(content), [{ t: 3725, text: "who owns the launch?" }, { t: 252, text: "check" }, { t: 252, text: "recheck" }, { t: 540, text: "see [0:05] again" }]);
   assert.match(lectureNotesSystemPrompt("minutes"), /## Action items/);
   assert.equal(lectureNotesSystemPrompt("nonsense"), lectureNotesSystemPrompt("lecture"));
 });

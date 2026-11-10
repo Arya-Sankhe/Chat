@@ -112,13 +112,15 @@ export function lectureStyleOf(content) {
 }
 
 // The student's own lines, read back out of written notes so a remake keeps them:
-// each ⟦line⟧ with the first [mm:ss] after it on the same line.
+// each ⟦line⟧ with the first [mm:ss] after its closing ⟧ on the same line.
 export function jotsFromNote(content) {
   const jots = [];
   for (const line of String(content || "").split("\n")) {
-    const time = /\[(\d+(?::\d{2}){1,2})\]/.exec(line);
-    const seconds = time ? time[1].split(":").reduce((total, n) => total * 60 + Number(n), 0) : 0;
-    for (const match of line.matchAll(/⟦([\s\S]*?)⟧/g)) jots.push({ t: seconds, text: match[1] });
+    for (const match of line.matchAll(/⟦([\s\S]*?)⟧/g)) {
+      const time = /\[(\d+(?::\d{2}){1,2})\]/.exec(line.slice(match.index + match[0].length));
+      const seconds = time ? time[1].split(":").reduce((total, n) => total * 60 + Number(n), 0) : 0;
+      jots.push({ t: seconds, text: match[1] });
+    }
   }
   return cleanJots(jots);
 }
