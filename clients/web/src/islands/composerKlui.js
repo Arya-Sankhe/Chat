@@ -211,6 +211,11 @@ export function createComposerKlui({ host, findTarget }) {
     }
   }
 
+  // A chat kept out of sight (the Dojo's lecture pop-up while it is still a thinking pill) gets no portal.
+  function shownOnScreen(node) {
+    return typeof node.checkVisibility === "function" ? node.checkVisibility({ visibilityProperty: true, opacityProperty: true }) : true;
+  }
+
   async function teleport() {
     const token = run;
     teleporting = true;
@@ -235,7 +240,7 @@ export function createComposerKlui({ host, findTarget }) {
       }
       if (token === run) hide();
       const target = await found;
-      if (target?.isConnected) await dropInto(target);
+      if (target?.isConnected && shownOnScreen(target)) await dropInto(target);
     } catch {
       // An interrupted teleport just leaves the thinking bar's own mascot showing.
     } finally {
@@ -366,7 +371,7 @@ export function createComposerKlui({ host, findTarget }) {
         return;
       }
       if (running) {
-        if (!wasRunning && shown && sameChat && !reducedMotion()) void teleport();
+        if (!wasRunning && shown && sameChat && !reducedMotion() && shownOnScreen(host)) void teleport();
         else if (shown && !teleporting) hide();
         return;
       }

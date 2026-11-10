@@ -12,6 +12,7 @@ import { LectureAsk, LecturePage } from "./Lecture";
 import { OPEN_ATTR, StudyTab } from "./Study";
 import { MaterialsTab } from "./Materials";
 import { AskTab } from "./Ask";
+import { AskBar, LecturePop, ThinkingPill } from "./AskBar";
 import { RecordControl } from "./Record";
 import type { CollectionItem, DojoHub, DojoView } from "./types";
 
@@ -82,6 +83,12 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
     if (item?.lectureAsk && item.lectureId) { actions.selectLecture(item.lectureId, "ask"); return; }
     void actions.ask(item?.tab === "materials" && view.previewId ? view.previewId : "");
   };
+  // A lecture keeps you on its notes and answers in a pop-up; everything else moves to Ask on send.
+  const pop = view.tab === "notes" && view.lecture && "pop" in view.lecture ? view.lecture.pop || "" : "";
+  const askFromBar = (text: string) => {
+    if (item?.lectureAsk && item.lectureId) { actions.askLecture(text); return; }
+    void actions.askWith(text, item?.tab === "materials" && view.previewId ? view.previewId : "");
+  };
   const toItem = () => {
     if (!item) return;
     if (lectureAsk && item.lectureId) { actions.selectLecture(item.lectureId, "notes"); return; }
@@ -111,13 +118,13 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
                 {view.tab === "materials" && <MaterialsTab hub={hub} view={view} />}
               </div>
               {!asking && item?.lectureId !== "live" && (
-                <div className="d3-main-dock">
-                  <button type="button" className="d3-askbar" onClick={toAsk}>
-                    <Klui size={24} />
-                    <span>ask about {item?.scope || "this course"}…</span>
-                    <span className="d3-sendbtn"><Icon name="send" size={16} /></span>
-                  </button>
+                <div className={`d3-main-dock${pop ? ` is-pop-${pop}` : ""}`}>
+                  {pop === "thinking" && <ThinkingPill />}
+                  {!pop && <AskBar placeholder={`ask about ${item?.scope || "this course"}…`} onSend={askFromBar} />}
                 </div>
+              )}
+              {!asking && pop && view.lecture && "title" in view.lecture && (
+                <LecturePop title={view.lecture.title} open={pop === "open"} onClose={() => actions.closeLecturePop()} onExpand={() => actions.expandLecturePop()} />
               )}
             </section>
             <Side hub={hub} view={view} />
@@ -180,11 +187,7 @@ function Overview({ hub, view }: { hub: DojoHub; view: DojoView }) {
           </div>
         </div>
         <div className="d3-main-dock">
-          <button type="button" className="d3-askbar" onClick={() => void hub.actions.ask()}>
-            <Klui size={24} />
-            <span>ask {view.course?.name || "this course"} anything…</span>
-            <span className="d3-sendbtn"><Icon name="send" size={16} /></span>
-          </button>
+          <AskBar placeholder={`ask ${view.course?.name || "this course"} anything…`} onSend={(text) => void hub.actions.askWith(text)} />
         </div>
       </section>
     </div>

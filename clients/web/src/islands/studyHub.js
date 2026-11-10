@@ -171,6 +171,10 @@ export function createStudyHubController({
   let pendingJots = "";
   let jotsBackupWarned = false;
   let citeTime = null;
+  // A question asked from a lecture's own ask bar: "" (none), "thinking" (the tiny pill while
+  // the answer is written) or "open" (the answer in a pop-up over the lecture).
+  let lecturePop = "";
+  let lecturePopTimer = 0;
   const recordToKey = "klui.dojo.recordTo";
   // Entrance animations play once per item; later repaints of the same item stay still.
   const shownEntrances = new Set();
@@ -815,6 +819,7 @@ export function createStudyHubController({
 
   function selectLecture(id, tab = "notes") {
     if (!id) return;
+    if (id !== activeLectureId || tab === "ask") setLecturePop("");
     if (activeLectureId === id && tab === lectureTab && (!host || state.activeCourseTab === "notes")) return;
     // In the React Dojo a lecture is one of the things the main panel can show.
     if (host) state.activeCourseTab = "notes";
@@ -839,11 +844,52 @@ export function createStudyHubController({
 
   // A lecture's own chat is showing (in the React Dojo, only while the lecture is the open item).
   function lectureAskOpen() {
-    return lectureTab === "ask" && Boolean(activeLectureId) && (!host || state.activeCourseTab === "notes");
+    return (lectureTab === "ask" || Boolean(lecturePop)) && Boolean(activeLectureId) && (!host || state.activeCourseTab === "notes");
+  }
+
+  function setLecturePop(next) {
+    lecturePop = next;
+    clearInterval(lecturePopTimer);
+    lecturePopTimer = 0;
+  }
+
+  // Puts text in the real chat composer and presses send, so it goes out exactly like a typed message.
+  function sendThroughComposer(text) {
+    const input = els.promptInput;
+    if (!input || !text) return;
+    if ("value" in input) input.value = text;
+    else input.textContent = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    els.sendButton?.click();
+  }
+
+  // Asks about the open lecture without leaving it: the bar shrinks to a thinking pill and
+  // the answer opens in a pop-up. It is the same chat the lecture's Ask tab shows.
+  function askLecture(text) {
+    const doc = lectureDocs().find((item) => item.id === activeLectureId);
+    const question = String(text || "").trim();
+    if (!doc || !question || state.running) return;
+    setLecturePop("thinking");
+    render();
+    requestAnimationFrame(() => {
+      sendThroughComposer(question);
+      const started = Date.now();
+      let seen = false;
+      lecturePopTimer = setInterval(() => {
+        if (lecturePop !== "thinking") { setLecturePop(lecturePop); return; }
+        if (state.running) seen = true;
+        // Done once the run ends; a send that never started (signed out, no allowance) shows its reason in the pop-up.
+        if ((seen && !state.running) || (!seen && Date.now() - started > 2500)) {
+          setLecturePop("open");
+          render();
+        }
+      }, 200);
+    });
   }
 
   function closeLecture() {
     const id = activeLectureId;
+    setLecturePop("");
     activeLectureId = "";
     lectureTab = "notes";
     const scoped = contextPicker.sources();
@@ -2326,6 +2372,7 @@ export function createStudyHubController({
           kind: entry ? "writing" : note ? "note" : "writing",
           ...row,
           tab: lectureTab,
+          pop: lecturePop,
           entry: entry ? plainEntry(entry) : null,
           jots: loadJots(doc.id),
           html,
@@ -2754,6 +2801,7 @@ export function createStudyHubController({
     }
     activeLectureId = "";
     lectureTab = "notes";
+    setLecturePop("");
     contextPicker.only([]);
     state.activeCourseTab = "notes";
   }
@@ -4186,6 +4234,7 @@ export function createStudyHubController({
   }
 
   async function setTab(tab) {
+    if (tab !== "notes") setLecturePop("");
     if (!TABS.includes(tab) || tab === state.activeCourseTab) return;
     state.activeCourseTab = tab;
     quizMenuKey = "";
@@ -5968,6 +6017,14 @@ export function createStudyHubController({
       selectLecture,
       playLecture,
       closeLecture,
+      askLecture,
+      closeLecturePop() { setLecturePop(""); render(); },
+      // The pop-up's full-screen button: the same chat, now as the lecture's Ask tab.
+      expandLecturePop() {
+        const id = activeLectureId;
+        setLecturePop("");
+        if (id) selectLecture(id, "ask");
+      },
       startLiveRecording,
       // With no course yet, recording still takes one click: it lands in "Unsorted".
       async recordUnsorted() {
@@ -6037,9 +6094,17 @@ export function createStudyHubController({
       async ask(scopeId = "") {
         // The course chat replaces a lecture's own chat, so its lecture scope goes too.
         if (lectureTab === "ask") lectureTab = "notes";
+        setLecturePop("");
         contextPicker.only(scopeId ? [scopeId] : []);
         if (state.activeCourseTab === "chat") { render(); els.promptInput?.focus(); return; }
         await setTab("chat");
+      },
+      // A question typed in an ask bar: only now does the panel switch to Ask, with the question sent.
+      async askWith(text, scopeId = "") {
+        const question = String(text || "").trim();
+        if (!question) return;
+        await this.ask(scopeId);
+        requestAnimationFrame(() => sendThroughComposer(question));
       },
       newChat() { void openCourse(state.activeCourseId, { tab: "chat" }); },
       openChat: openConversation

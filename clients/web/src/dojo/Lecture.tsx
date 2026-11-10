@@ -191,14 +191,14 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
             <h1>{lecture.title}</h1>
             <div className="d3-studyline">
               <span className="d3-studyline-label">study this</span>
-              <button type="button" className="d3-slink" data-practice-create="flashcards"><Icon name="layers" size={16} />flashcards</button>
-              <button type="button" className="d3-slink" data-practice-create="quiz"><Icon name="test" size={16} />practice test</button>
-              <button type="button" className="d3-slink" data-practice-create="podcast"><Icon name="podcast" size={16} />podcast</button>
+              <button type="button" className="d3-slink is-flashcards" data-practice-create="flashcards"><Icon name="layers" size={16} />flashcards</button>
+              <button type="button" className="d3-slink is-quiz" data-practice-create="quiz"><Icon name="test" size={16} />practice test</button>
+              <button type="button" className="d3-slink is-podcast" data-practice-create="podcast"><Icon name="podcast" size={16} />podcast</button>
               <Menu label="More ways to study" className="d3-studyline-more" align="left" trigger={<span className="d3-slink">more<Icon name="chevD" size={14} /></span>}>
-                <button type="button" className="d3-mi" role="menuitem" data-practice-create="mindmap"><Icon name="mindmap" size={16} />mind map</button>
-                <button type="button" className="d3-mi" role="menuitem" data-practice-create="notes"><Icon name="notes" size={16} />summary / detailed notes</button>
-                <button type="button" className="d3-mi" role="menuitem" data-practice-create="tutor"><Icon name="tutor" size={16} />AI tutor (voice call)</button>
-                <button type="button" className="d3-mi" role="menuitem" data-practice-create="whiteboard"><Icon name="pen" size={16} />whiteboard</button>
+                <button type="button" className="d3-mi is-mindmap" role="menuitem" data-practice-create="mindmap"><Icon name="mindmap" size={16} />mind map</button>
+                <button type="button" className="d3-mi is-notes" role="menuitem" data-practice-create="notes"><Icon name="notes" size={16} />summary / detailed notes</button>
+                <button type="button" className="d3-mi is-tutor" role="menuitem" data-practice-create="tutor"><Icon name="tutor" size={16} />AI tutor (voice call)</button>
+                <button type="button" className="d3-mi is-whiteboard" role="menuitem" data-practice-create="whiteboard"><Icon name="pen" size={16} />whiteboard</button>
               </Menu>
             </div>
             {contents.length > 1 && (

@@ -31,7 +31,7 @@ export type LectureRow = {
 export type OpenLecture =
   | { kind: "live"; jots: Jot[]; recordingId: string }
   | { kind: "writing"; id: string; title: string; entry: AudioEntry | null; jots: Jot[]; writing?: boolean; noteError?: string; duration?: number; createdAt?: string }
-  | (LectureRow & { kind: "note" | "writing"; tab: "notes" | "transcript" | "ask"; entry: AudioEntry | null; jots: Jot[]; html: string; player: boolean });
+  | (LectureRow & { kind: "note" | "writing"; tab: "notes" | "transcript" | "ask"; entry: AudioEntry | null; jots: Jot[]; html: string; player: boolean; pop?: "" | "thinking" | "open" });
 
 export type CollectionItem = {
   kind: "deck" | "quiz" | "podcast" | "tutor" | "whiteboard" | "note";
@@ -94,6 +94,10 @@ export type DojoActions = {
   closePreview(): void;
   goHome(): void;
   ask(scopeId?: string): Promise<void>;
+  askWith(text: string, scopeId?: string): Promise<void>;
+  askLecture(text: string): void;
+  closeLecturePop(): void;
+  expandLecturePop(): void;
   newChat(): void;
   openChat(id: string): void;
 };

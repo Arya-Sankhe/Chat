@@ -86,6 +86,7 @@ const PATHS: Record<string, string> = {
   pause: '<path d="M9 5v14M15 5v14"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   chevD: '<path d="m6 9 6 6 6-6"/>',
