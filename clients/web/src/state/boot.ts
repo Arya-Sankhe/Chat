@@ -7,7 +7,8 @@ import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { isEmbedded, isNative, nativeInfoTarget, onEmbeddedEvents } from "../islands/platform/index.js";
 import { chatHooks, closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, openSettings, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
-import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, loadPaymentRequests, openNativeConversation, refreshAfterMamoReturn, rejoinTurnsAfterResume, trackPaymentRequests, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
+import { loadPaymentRequests, refreshAfterMamoReturn, trackPaymentRequests } from "./billing";
+import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, openNativeConversation, rejoinTurnsAfterResume, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 import { checkAndShowAppUpdate, hideLaunchScreenWaiting, showLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
 
 const set = useApp.setState;

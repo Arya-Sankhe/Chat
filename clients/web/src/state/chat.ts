@@ -17,9 +17,6 @@ export const openRouteResearchReport = core.openRouteResearchReport as () => Pro
 export const resumeGuestSend = core.resumeGuestSend as () => Promise<void>;
 export const closeGuestContinue = core.closeGuestContinue as () => void;
 export const handleSessionEnded = core.handleSessionEnded as () => void;
-export const loadPaymentRequests = core.loadPaymentRequests as () => Promise<void>;
-export const trackPaymentRequests = core.trackPaymentRequests as () => void;
-export const refreshAfterMamoReturn = core.refreshAfterMamoReturn as () => Promise<void>;
 export const handleNativeBack = core.handleNativeBack as () => Promise<void>;
 export const openNativeConversation = core.openNativeConversation as (id: string) => void;
 export const rejoinTurnsAfterResume = core.rejoinTurnsAfterResume as () => void;

@@ -34,8 +34,6 @@ const STORE_KEYS = new Set<keyof AppState>([
 
 /* The rest of the old `state`, with its initial values. */
 const local: Record<string, unknown> = {
-  paymentRequests: [],
-  mamoCoupon: null,
   activeCourseId: "",
   activeCourseTab: "materials",
   studyMaterials: null,
