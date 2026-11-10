@@ -10,7 +10,7 @@
     "dev": "node --env-file=.env --watch server/index.js",
     "research:worker": "node --env-file=.env server/research/worker.js",
     "documents:reingest": "node --env-file=.env scripts/reingest-documents.mjs",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test test/*.test.js",
     "check:syntax": "node scripts/check-syntax.mjs",
     "check:css-split": "node scripts/verify-css-split.mjs",
     "compose:prod": "docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml",
