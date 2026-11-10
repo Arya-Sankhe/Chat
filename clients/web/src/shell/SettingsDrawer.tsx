@@ -6,6 +6,7 @@ import { NATIVE_APP, chatHooks, closeSettings, setSettingsTab, showMobileSetting
 import { signOutAndReset } from "../state/chat";
 import { cx } from "./cx";
 import { AccountUsage } from "./Sidebar";
+import { AccountPanel, MemoryPanel, StorageList, formatStorageBytes } from "./SettingsPanels";
 
 /** Admins only: the reasoning display, and the global system prompt every chat starts from. */
 function AdminSettings({ hidden }: { hidden: boolean }) {
@@ -85,13 +86,6 @@ function SettingsHeader() {
         </button>
       </div>
   );
-}
-
-function formatStorageBytes(bytes: unknown) {
-  const value = Math.max(0, Number(bytes || 0));
-  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
 }
 
 type StorageMeter = { value: string; left: string; percent: number; valueText?: string; fill?: { width: string } };
@@ -312,71 +306,11 @@ export function SettingsDrawer() {
             <div className="settings-storage-manage">
               <h2>Manage files</h2>
               <p>Open chats or remove uploads to free up space.</p>
-              <div className="storage-list" id="settingsStorageList" />
+              <StorageList />
             </div>
           </section>
-          <section className="settings-section" data-settings-panel="account" hidden={tab !== "account"}>
-            <div className="account-fields" id="settingsAccountFields">
-              <div className="account-field">
-                <span>Name</span>
-                {" "}
-                <span id="settingsAccountName">—</span>
-              </div>
-              <div className="account-field">
-                <span>Email</span>
-                {" "}
-                <span id="settingsAccountEmail">—</span>
-              </div>
-              <div className="account-field">
-                <span>Download my data</span>
-                {" "}
-                <button className="account-export-btn" id="exportAccountButton" type="button">Download</button>
-              </div>
-              <div className="account-field hidden" id="settingsAccountCancelRow">
-                <span>Subscription</span>
-                {" "}
-                <button className="account-export-btn" id="cancelSubscriptionButton" type="button">Cancel</button>
-              </div>
-              <div className="account-field hidden" id="settingsAccountBillingRow">
-                <span>Billing &amp; invoices</span>
-                {" "}
-                <button className="account-export-btn" id="billingPortalButton" type="button">Manage</button>
-              </div>
-              <div className="account-field">
-                <span>Delete account</span>
-                {" "}
-                <button className="account-delete-btn" id="deleteAccountButton" type="button">Delete</button>
-              </div>
-            </div>
-            <p className="memory-empty hidden" id="settingsAccountGuest">Sign in to see your account.</p>
-          </section>
-          <section className="settings-section" data-settings-panel="memory" hidden={tab !== "memory"}>
-            <div className="memory-toggle-card">
-              <label className="settings-switch-row" htmlFor="memoryEnabledInput">
-                <span>
-                  <strong>Enable memory</strong>
-                  {" "}
-                  <small>Let Klui remember useful details for future chats.</small>
-                </span>
-                {" "}
-                <input id="memoryEnabledInput" type="checkbox" role="switch" />
-              </label>
-            </div>
-            <p className="memory-privacy">Memory starts with messages you send after you turn it on. Klui never learns from AI replies, uploaded files, images, tool results, generated documents, or temporary chats.</p>
-            <div className="memory-editor hidden" id="memoryEditor">
-              <label htmlFor="memoryContentInput">Memory summary</label>
-              {" "}
-              <textarea id="memoryContentInput" rows={12} maxLength={6000} spellCheck="true" placeholder="Klui keeps a short profile here: who you are, what you are working on, and how you like answers." />
-              {" "}
-              <div className="memory-actions">
-                <button className="admin-load danger" id="clearMemoryButton" type="button">Clear memory</button>
-                {" "}
-                <button className="admin-load" id="saveMemoryButton" type="button">Save changes</button>
-              </div>
-            </div>
-            <div className="memory-empty" id="memoryEmpty">Turn memory on to start building a private, editable summary from your future messages.</div>
-            <p className="settings-notice" id="memoryNotice" role="status" aria-live="polite" />
-          </section>
+          <AccountPanel hidden={tab !== "account"} />
+          <MemoryPanel key={accountKey} hidden={tab !== "memory"} />
           <AdminSettings key={accountKey} hidden={tab !== "general"} />
           <nav className="settings-legal" aria-label="Terms and policies">
             <a href="https://home.klui.ai/terms/" target="_blank" rel="noopener">Terms of use</a>

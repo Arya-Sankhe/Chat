@@ -35,7 +35,6 @@ import {
   isCouncilMode,
   openAuthDialog,
   openDeleteConfirm,
-  openSettings,
   openTitleRename,
   renderShell,
   savePinnedChatIds,
@@ -49,6 +48,7 @@ import {
 } from "../state/app";
 import { homeModes as homeModesController } from "../state/homeModes";
 import { loadMe } from "../state/boot";
+import { loadAccountStorage, loadSettingsTab, resetAccountData } from "../state/account";
 import { setCameraPhotoHandler } from "../state/camera";
 import {
   VISUALIZE_REPAIRING_LABEL,
@@ -99,25 +99,20 @@ import {
   exportStudyNote,
   deleteStudyNote,
   askDocument,
-  cancelMamoSubscription,
   cancelPendingDocumentTurn,
   cancelResearch,
   checkMamoCoupon,
   redeemInvite,
-  clearMemory,
   completeUpload,
   createContentReport,
   createConversation,
   createMamoCheckout,
-  createStripePortal,
   createResearch,
   createStudyCard,
   createStudyNote,
   createZiinaPaymentRequest,
-  deleteAccount,
   deleteAttachment,
   deleteConversation,
-  downloadAccountData,
   downloadAttachment,
   exportEditableDocument,
   exportResearchReport,
@@ -125,11 +120,9 @@ import {
   fetchConversation,
   fetchDocumentJobStatus,
   fetchDocumentStatus,
-  fetchMemory,
   fetchProject,
   fetchResearchReport,
   fetchResearchStatus,
-  fetchStorage,
   fetchStudyMaterials,
   fetchStudyPractice,
   fetchZiinaPaymentRequests,
@@ -147,7 +140,6 @@ import {
   synthesizeVoice,
   transcribeSpeech,
   transcribeVoiceTurn,
-  updateMemory,
   uploadFile,
   warmVoiceMode,
   approveAdminPayment,
@@ -278,9 +270,6 @@ function renderSearchResults() {}
 function renderResearchMode() {
   set({ imageToggleDisabled: state.running || state.researchMode });
 }
-
-// The storage meter renders from `me` in React (SettingsDrawer).
-function renderSettingsStorage() {}
 
 /* ─── From public/js/app.js ─── */
 
@@ -6142,267 +6131,14 @@ function keepVoiceRunning(session) {
 
 let voiceSettingsPicker = null;
 
-function profileDisplayName(email) {
-  const local = String(email || "").split("@")[0] || "";
-  return local || "Signed in";
-}
-
-function formatStorageBytes(bytes) {
-  const value = Math.max(0, Number(bytes || 0));
-  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
-}
-
-// Access runs through the end of the Dubai renewal day; Mamo charges on that day, so show it.
-function billingDay(periodEnd) {
-  return new Date(Date.parse(periodEnd) - (state.me?.subscription?.provider === "stripe" ? 0 : 1)).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
-}
-
-function renderSettingsAccount() {
-  const signedIn = Boolean(state.session);
-  els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
-  els.settingsAccountGuest?.classList.toggle("hidden", signedIn);
-  const sub = state.me?.subscription;
-  document.querySelector("#settingsAccountBillingRow")?.classList.toggle("hidden", !signedIn || !state.me?.billingPortalAvailable || isNative());
-  const canCancel = signedIn
-    && ["mamo", "stripe"].includes(sub?.provider)
-    && ["active", "trialing", "past_due"].includes(sub?.status)
-    && !sub?.cancelAtPeriodEnd;
-  els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
-  const cancelLabel = els.settingsAccountCancelRow?.querySelector("span");
-  if (cancelLabel) cancelLabel.textContent = canCancel && sub.currentPeriodEnd ? `Subscription · renews ${billingDay(sub.currentPeriodEnd)}` : "Subscription";
-  if (!signedIn) return;
-  const email = state.me?.user?.email || "Signed in";
-  if (els.settingsAccountName) els.settingsAccountName.textContent = state.me?.user?.name || profileDisplayName(email);
-  if (els.settingsAccountEmail) els.settingsAccountEmail.textContent = email;
-}
-
-async function deleteAccountAndReset() {
-  if (!state.session) return;
-  try {
-    await deleteAccount(state.session);
-    await signOutAndReset();
-    showToast("Account deleted.");
-  } catch (error) {
-    showToast(error.message || "Could not delete account.");
-  }
-}
-
-async function downloadAccountDataAndSave() {
-  if (!state.session) return;
-  if (els.exportAccountButton) els.exportAccountButton.disabled = true;
-  try {
-    await downloadAccountData(state.session);
-    showToast("Download started.");
-  } catch (error) {
-    showToast(error.message || "Could not download your data.");
-  } finally {
-    if (els.exportAccountButton) els.exportAccountButton.disabled = false;
-  }
-}
-
-async function cancelMamoSubscriptionAndRefresh() {
-  if (!state.session) return;
-  try {
-    await cancelMamoSubscription(state.session);
-    await loadMe();
-    renderSettingsAccount();
-    showToast("Subscription will end at period end.");
-  } catch (error) {
-    showToast(error.message || "Could not cancel subscription.");
-  }
-}
-
-function storageItemWhere(item) {
-  const where = item.conversationId
-    ? (item.conversationTitle ? `Chat ${item.conversationTitle}` : "Chat")
-    : item.projectId
-      ? (item.projectName ? `Project ${item.projectName}` : "Project")
-      : "Not in a chat";
-  if (item.status && item.status !== "uploaded") return `${where} · Incomplete upload`;
-  return where;
-}
-
-function storageItemById(id) {
-  return (state.storage?.items || []).find((item) => item.id === id) || null;
-}
-
-async function loadAccountStorage() {
-  if (!state.session || !els.settingsStorageList) return;
-  try {
-    state.storage = await fetchStorage(state.session);
-    renderAccountStorageList();
-  } catch (error) {
-    els.settingsStorageList.innerHTML = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
-  }
-}
-
+// After a delete: the usage meter, the profile menu and Settings' file list.
 function refreshAccountStorage() {
   return loadMe()
     .then(() => {
       renderProfileMenu();
-      renderSettingsStorage();
       return loadAccountStorage();
     })
     .catch(() => {});
-}
-
-function renderAccountStorageList() {
-  if (!els.settingsStorageList) return;
-  const items = state.storage?.items || [];
-  if (!items.length) {
-    els.settingsStorageList.innerHTML = `<p class="storage-list-empty">No files yet.</p>`;
-    return;
-  }
-  els.settingsStorageList.innerHTML = items.map((item) => {
-    const actions = item.canDelete
-      ? `<button class="admin-small-btn danger" type="button" data-storage-delete-file="${escapeHtml(item.id)}">Delete</button>`
-      : item.conversationId
-        ? `<button class="admin-small-btn" type="button" data-storage-open-chat="${escapeHtml(item.id)}">Open chat</button>
-           <button class="admin-small-btn danger" type="button" data-storage-delete-chat="${escapeHtml(item.id)}">Delete chat</button>`
-        : "";
-    return `
-      <div class="storage-row">
-        <div class="storage-row-copy">
-          <strong>${escapeHtml(item.fileName || "File")}</strong>
-          <small>${escapeHtml(formatStorageBytes(item.sizeBytes))} · ${escapeHtml(storageItemWhere(item))}</small>
-        </div>
-        <div class="storage-row-actions">${actions}</div>
-      </div>`;
-  }).join("");
-}
-
-function handleAccountStorageClick(event) {
-  const deleteFile = event.target.closest("[data-storage-delete-file]");
-  const openChat = event.target.closest("[data-storage-open-chat]");
-  const deleteChat = event.target.closest("[data-storage-delete-chat]");
-  if (!deleteFile && !openChat && !deleteChat) return;
-  const item = storageItemById(
-    deleteFile?.dataset.storageDeleteFile || openChat?.dataset.storageOpenChat || deleteChat?.dataset.storageDeleteChat
-  );
-  if (!item) return;
-
-  if (openChat) {
-    closeAccount();
-    closeSettings();
-    void openConversation(item.conversationId);
-    return;
-  }
-
-  if (deleteFile) {
-    const searchNote = item.projectId ? " This also deletes search data for that project file." : "";
-    openDeleteConfirm({
-      title: "Delete file?",
-      body: `Remove "${item.fileName || "this file"}"?${searchNote}`,
-      attachmentId: item.id
-    });
-    return;
-  }
-
-  if (!item.conversationId) return;
-  const title = item.conversationTitle || "New chat";
-  const others = Math.max(0, Number(item.siblingCount || 0) - 1);
-  const extra = others
-    ? ` This also deletes ${others} other file${others === 1 ? "" : "s"} in '${title}' (${formatStorageBytes(item.siblingBytes)} in that chat).`
-    : "";
-  openDeleteConfirm({
-    title: "Delete chat?",
-    body: `Delete "${title}" from your account?${extra}`,
-    chatId: item.conversationId
-  });
-}
-
-function renderMemorySettings() {
-  const memory = state.memory || { enabled: false, content: "" };
-  if (els.memoryEnabledInput) els.memoryEnabledInput.checked = Boolean(memory.enabled);
-  if (els.memoryContentInput && document.activeElement !== els.memoryContentInput) {
-    els.memoryContentInput.value = memory.content || "";
-  }
-  els.memoryEditor?.classList.toggle("hidden", !memory.enabled);
-  els.memoryEmpty?.classList.toggle("hidden", Boolean(memory.enabled));
-}
-
-async function loadMemorySettings() {
-  if (!state.session) return;
-  if (els.memoryNotice) els.memoryNotice.textContent = "Loading memory...";
-  try {
-    const payload = await fetchMemory(state.session);
-    state.memory = payload.memory;
-    renderMemorySettings();
-    if (els.memoryNotice) els.memoryNotice.textContent = "";
-  } catch (error) {
-    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not load memory.";
-  }
-}
-
-async function setMemoryEnabled(enabled) {
-  if (!els.memoryEnabledInput) return;
-  if (!state.session) {
-    renderMemorySettings();
-    return;
-  }
-  els.memoryEnabledInput.disabled = true;
-  if (els.memoryNotice) els.memoryNotice.textContent = enabled ? "Turning memory on..." : "Turning memory off...";
-  try {
-    const payload = await updateMemory(state.session, { enabled });
-    state.memory = payload.memory;
-    renderMemorySettings();
-    if (els.memoryNotice) {
-      els.memoryNotice.textContent = enabled
-        ? "Memory is on. Only new messages you send from now on can be remembered."
-        : "Memory is off. Your existing summary is kept but will not be used or updated.";
-    }
-  } catch (error) {
-    renderMemorySettings();
-    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not update memory.";
-  } finally {
-    els.memoryEnabledInput.disabled = false;
-  }
-}
-
-async function saveMemorySettings() {
-  if (!state.session || !els.memoryContentInput) return;
-  els.saveMemoryButton.disabled = true;
-  if (els.memoryNotice) els.memoryNotice.textContent = "Saving...";
-  try {
-    const payload = await updateMemory(state.session, { content: els.memoryContentInput.value });
-    state.memory = payload.memory;
-    renderMemorySettings();
-    if (els.memoryNotice) els.memoryNotice.textContent = "Saved. Changes apply to future replies.";
-  } catch (error) {
-    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not save memory.";
-  } finally {
-    els.saveMemoryButton.disabled = false;
-  }
-}
-
-async function clearMemorySettings() {
-  if (!state.session || !els.clearMemoryButton) return;
-  if (els.clearMemoryButton.dataset.confirming !== "true") {
-    els.clearMemoryButton.dataset.confirming = "true";
-    els.clearMemoryButton.textContent = "Confirm clear";
-    if (els.memoryNotice) els.memoryNotice.textContent = "This permanently removes the whole memory summary.";
-    setTimeout(() => {
-      if (els.clearMemoryButton?.dataset.confirming !== "true") return;
-      delete els.clearMemoryButton.dataset.confirming;
-      els.clearMemoryButton.textContent = "Clear memory";
-    }, 5000);
-    return;
-  }
-  delete els.clearMemoryButton.dataset.confirming;
-  els.clearMemoryButton.textContent = "Clear memory";
-  els.clearMemoryButton.disabled = true;
-  try {
-    const payload = await clearMemory(state.session);
-    state.memory = payload.memory;
-    renderMemorySettings();
-    if (els.memoryNotice) els.memoryNotice.textContent = "Memory cleared.";
-  } catch (error) {
-    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not clear memory.";
-  } finally {
-    els.clearMemoryButton.disabled = false;
-  }
 }
 
 // The overlay is the store's.
@@ -8248,7 +7984,7 @@ async function signOutAndReset() {
   await session.signOut();
   clearGuestSend();
   state.me = null;
-  state.memory = null;
+  resetAccountData();
   state.paymentRequests = [];
   state.conversations = [];
   conversationCache.clear();
@@ -8298,57 +8034,18 @@ function bindResearchEvents() {
 /* ─── Events: Settings (bindEvents) ─── */
 
 function bindSettingsEvents() {
-  els.memoryEnabledInput?.addEventListener("change", (event) => { void setMemoryEnabled(event.target.checked); });
-  els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
-  els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
-  els.exportAccountButton?.addEventListener("click", () => { void downloadAccountDataAndSave(); });
-  document.querySelector("#billingPortalButton")?.addEventListener("click", async () => {
-    try {
-      const portal = await createStripePortal(state.session);
-      await openExternal(portal.url);
-    } catch (error) { showToast(error.message || "Could not open billing."); }
-  });
-  els.cancelSubscriptionButton?.addEventListener("click", () => {
-    openDeleteConfirm({
-      title: "Cancel subscription?",
-      body: "You'll keep access until the end of the current period. Then it stops.",
-      confirmLabel: "Stop renewal",
-      onConfirm: cancelMamoSubscriptionAndRefresh
-    });
-  });
-  els.deleteAccountButton?.addEventListener("click", () => {
-    openDeleteConfirm({
-      title: "Delete account?",
-      body: "This permanently deletes your account, chats, files, and data. This cannot be undone.",
-      onConfirm: deleteAccountAndReset
-    });
-  });
   els.settingsDrawer?.addEventListener("click", (event) => {
     if (!els.settingsDrawer.classList.contains("open")) return;
     if (event.target.closest(".settings-panel")) return;
     closeSettings();
   });
-  els.profileMenuStorage?.addEventListener("click", () => {
-    closeProfileMenu();
-    openSettings();
-    setSettingsTab("storage");
-  });
-  els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
 }
 
 /** The data half of setSettingsTab(); React marks the tab and shows its panel. */
 function settingsTabSelected(selected) {
   if (selected !== "voice") voiceSettingsPicker?.stopPreview();
-  if (selected === "memory" && !state.memory) void loadMemorySettings();
   if (selected === "voice") renderVoiceSettings();
-  if (selected === "storage") {
-    if (els.settingsStorageList) els.settingsStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
-    void Promise.all([loadMe(), loadAccountStorage()]).then(renderSettingsStorage).catch(() => {});
-  }
-  if (selected === "account") {
-    renderSettingsAccount();
-    if (state.session) void loadMe().then(renderSettingsAccount).catch(() => {});
-  }
+  loadSettingsTab(selected);
 }
 
 /* ─── Events: the paywall (bindEvents) ─── */
