@@ -1,16 +1,15 @@
+import { beginReport, clearReport, reportPayload, settleReport } from "../state/researchReport";
+
+// Island change: the report view is React's (shell/ResearchReportView.tsx).
 // Island change: a new run's conversation is added by replacing `state.conversations`
 // (a store-owned list) instead of unshift().
 export function createResearchController({
   elements,
   state,
   createResearch,
-  exportResearchReport,
   fetchResearchStatus,
   fetchResearchReport,
-  fetchDocumentJobStatus,
-  downloadAttachment,
   escapeHtml,
-  renderContent,
   renderMessages,
   renderShell,
   renderResearchMode,
@@ -29,60 +28,8 @@ export function createResearchController({
   let researchPollTimer = null;
   let researchPollGeneration = 0;
 
-  const REPORT_THEME_KEYWORDS = {
-    commerce: ["best", "top", "review", "buy", "buying", "price", "cheap", "budget", "worth", " vs ", "deal", "product", "gadget", "headphone", "laptop", "phone", "fragrance", "perfume", "cologne", "skincare", "shoe", "watch", "mattress", "coffee", "brand", "affordable"],
-    science: ["study", "studies", "research", "scientist", "clinical", "health", "medical", "disease", "climate", "environment", "species", "brain", "gene", "quantum", "physics", "biology", "chemistry", "nasa", "space", "vaccine", "therapy"],
-    tech: ["software", "app ", "ai ", " ai", "model", "llm", "programming", "code", "developer", "api", "framework", "startup", "crypto", "blockchain", "bitcoin", "cybersecurity", "cloud", "database", "github", "javascript", "python"],
-    finance: ["market", "stock", "economy", "economic", "inflation", "invest", "finance", "financial", "revenue", "earnings", "gdp", "interest rate", "currency", "valuation", "etf", "trading"],
-    culture: ["history", "art", "film", "movie", "music", "album", "travel", "food", "recipe", "book", "novel", "game", "sport", "football", "fashion", "culture", "festival", "museum", "photography"]
-  };
-
-  const REPORT_THEME_KICKERS = {
-    editorial: "Deep Research",
-    commerce: "Buying Guide",
-    science: "Research Briefing",
-    tech: "Tech Report",
-    finance: "Market Briefing",
-    culture: "Feature"
-  };
-
   function researchMeta(message) {
     return message?.metadata?.research || null;
-  }
-
-  function reportMarkdownWithoutImages(markdown) {
-    return String(markdown || "").replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-  }
-
-  function pickReportTheme(payload) {
-    const haystack = `${payload?.run?.title || ""} ${payload?.run?.summary || ""} ${String(payload?.report || "").slice(0, 2500)}`.toLowerCase();
-    let best = "editorial";
-    let bestScore = 0;
-    for (const [theme, keywords] of Object.entries(REPORT_THEME_KEYWORDS)) {
-      let score = 0;
-      for (const keyword of keywords) if (haystack.includes(keyword)) score += 1;
-      if (score > bestScore) { bestScore = score; best = theme; }
-    }
-    return best;
-  }
-
-  function reportReadingMeta(payload) {
-    const words = String(payload?.report || "").trim().split(/\s+/).filter(Boolean).length;
-    const minutes = Math.max(1, Math.round(words / 220));
-    const sources = payload?.sources?.length || payload?.run?.sourceCount || 0;
-    const stamp = payload?.run?.finishedAt || payload?.run?.createdAt;
-    let dateLabel = "";
-    if (stamp) {
-      const date = new Date(stamp);
-      if (!Number.isNaN(date.getTime())) {
-        dateLabel = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      }
-    }
-    return { minutes, sources, dateLabel };
-  }
-
-  function stripLeadingH1(markdown) {
-    return String(markdown || "").replace(/^\s*#\s+.*(\r?\n)+/, "");
   }
 
   function cleanReportSummary(text) {
@@ -100,43 +47,6 @@ export function createResearchController({
     if (!value || /[.!?…:]["')\]*]?$/.test(value)) return value;
     const end = Math.max(value.lastIndexOf(". "), value.lastIndexOf("! "), value.lastIndexOf("? "));
     return end >= value.length * 0.4 ? value.slice(0, end + 1) : `${value.replace(/\s+\S*$/, "")}…`;
-  }
-
-  function reportMasthead(payload, theme, meta) {
-    const fallbackTitle = (String(payload?.report || "").match(/^\s*#\s+(.+)$/m)?.[1] || "Research report").trim();
-    const title = (payload?.run?.title || fallbackTitle).trim();
-    const metaParts = [`${meta.minutes} min read`, `${meta.sources} ${meta.sources === 1 ? "source" : "sources"}`];
-    if (meta.dateLabel) metaParts.push(meta.dateLabel);
-    return `
-    <header class="report-masthead">
-      <p class="report-kicker">${escapeHtml(REPORT_THEME_KICKERS[theme] || REPORT_THEME_KICKERS.editorial)}</p>
-      <h1 class="report-title">${escapeHtml(title)}</h1>
-      <div class="report-meta">${metaParts.map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</div>
-    </header>
-  `;
-  }
-
-  function reportSourceRows(sources) {
-    return (sources || []).map((source) => {
-      let href = "";
-      try {
-        const url = new URL(source.url);
-        if (["http:", "https:"].includes(url.protocol)) href = url.href;
-      } catch {}
-      if (!href) return "";
-      return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(source.title || href)}</strong><span>${escapeHtml(new URL(href).hostname.replace(/^www\./, ""))}</span></a>`;
-    }).join("");
-  }
-
-  function buildReportToc() {
-    if (!elements.researchReportArticle || !elements.researchReportToc) return;
-    const headings = [...elements.researchReportArticle.querySelectorAll("h2, h3")];
-    elements.researchReportToc.innerHTML = headings.map((heading, index) => {
-      const id = `report-section-${index + 1}`;
-      heading.id = id;
-      return `<a class="level-${heading.tagName.toLowerCase()}" href="#${id}">${escapeHtml(heading.textContent || "Section")}</a>`;
-    }).join("");
-    elements.researchReportToc.classList.toggle("hidden", !headings.length);
   }
 
   function formatElapsed(ms) {
@@ -289,29 +199,6 @@ export function createResearchController({
     return true;
   }
 
-  function renderResearchReport() {
-    const payload = state.researchReport;
-    if (!payload) return;
-    const theme = pickReportTheme(payload);
-    elements.researchReportView.dataset.reportTheme = theme;
-    const meta = reportReadingMeta(payload);
-    const markdown = stripLeadingH1(reportMarkdownWithoutImages(payload.report));
-    elements.researchReportArticle.innerHTML = reportMasthead(payload, theme, meta) + renderContent(markdown);
-    elements.researchReportArticle.querySelectorAll("img").forEach((image) => image.remove());
-    elements.researchReportSources.innerHTML = reportSourceRows(payload.sources);
-    elements.researchReportSourcesSummary.textContent = `Sources (${payload.sources?.length || 0})`;
-    elements.researchReportLoading.classList.add("hidden");
-    elements.researchReportLayout.classList.remove("hidden");
-    buildReportToc();
-  }
-
-  function setResearchReportView(mode) {
-    const textOnly = mode === "text";
-    elements.researchReportView.classList.toggle("text-only", textOnly);
-    elements.researchVisualTab.setAttribute("aria-selected", String(!textOnly));
-    elements.researchTextTab.setAttribute("aria-selected", String(textOnly));
-  }
-
   function updateResearchMessage(run) {
     const message = state.messages.find((entry) => String(entry.id) === String(run.messageId));
     if (!message) return;
@@ -415,30 +302,25 @@ export function createResearchController({
     renderMessages();
   }
 
+  // The report itself is React's (ResearchReportView); this opens, loads and closes it.
   async function openResearchReport(runId, { push = true } = {}) {
     if (!runId || !state.session) return;
     stopResearchPolling();
-    state.researchReport = null;
+    beginReport(runId);
     showOnly(elements.researchReportView);
-    setResearchReportView("visual");
-    elements.researchReportLoading.textContent = "Loading report...";
-    elements.researchReportLoading.classList.remove("hidden");
-    elements.researchReportLayout.classList.add("hidden");
     if (push && window.location.pathname !== `/research/${encodeURIComponent(runId)}`) {
       window.history.pushState({ researchId: runId }, "", `/research/${encodeURIComponent(runId)}`);
     }
     try {
-      state.researchReport = await fetchResearchReport(state.session, runId);
-      renderResearchReport();
+      settleReport(runId, await fetchResearchReport(state.session, runId));
     } catch (error) {
-      elements.researchReportLoading.textContent = error.message;
+      settleReport(runId, null, error.message);
     }
   }
 
   async function closeResearchReport({ push = true } = {}) {
-    closeDownloadMenu();
-    const conversationId = state.researchReport?.run?.conversationId || state.activeConversationId;
-    state.researchReport = null;
+    const conversationId = reportPayload()?.run?.conversationId || state.activeConversationId;
+    clearReport();
     if (push) window.history.pushState({ conversationId }, "", conversationUrl(conversationId));
     showOnly(elements.chatView);
     if (conversationId && state.activeConversationId !== conversationId) {
@@ -491,77 +373,9 @@ export function createResearchController({
     }
   }
 
-  function closeDownloadMenu() {
-    elements.researchDownloadMenu?.classList.add("hidden");
-    elements.researchDownload?.setAttribute("aria-expanded", "false");
-  }
-
-  function setDownloadBusy(busy) {
-    if (elements.researchDownload) {
-      elements.researchDownload.disabled = busy;
-      elements.researchDownload.setAttribute("aria-busy", String(busy));
-    }
-    elements.researchReportView?.querySelector("#researchDownloadStatus")?.classList.toggle("hidden", !busy);
-  }
-
-  async function waitForExport(jobId) {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const payload = await fetchDocumentJobStatus(state.session, jobId);
-      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) return payload.artifact;
-      if (["failed", "expired"].includes(payload?.job?.status)) {
-        throw new Error(payload.job.error?.message || "Download failed.");
-      }
-    }
-    throw new Error("Download is still processing. Try again shortly.");
-  }
-
-  async function exportReportFile(runId, format) {
-    const result = await exportResearchReport(state.session, runId, format);
-    const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
-    if (!artifact?.attachment_id) throw new Error("Download did not return a file.");
-    await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `research.${format}`);
-  }
-
-  async function downloadReport(format) {
-    const runId = state.researchReport?.run?.id;
-    if (!runId) return;
-    if (!state.session?.access_token) return showToast("Please sign in to download.");
-    setDownloadBusy(true);
-    try {
-      await exportReportFile(runId, format);
-    } finally {
-      setDownloadBusy(false);
-    }
-  }
-
-  elements.researchDownload?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!elements.researchDownloadMenu || elements.researchDownload.disabled) return;
-    const open = elements.researchDownloadMenu.classList.toggle("hidden") === false;
-    elements.researchDownload.setAttribute("aria-expanded", String(open));
-  });
-  elements.researchDownloadMenu?.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-research-export]");
-    if (!button) return;
-    closeDownloadMenu();
-    try {
-      await downloadReport(button.dataset.researchExport);
-    } catch (error) {
-      showToast(error.message || "Download failed.");
-    }
-  });
-  globalThis.document?.addEventListener("pointerdown", (event) => {
-    if (!elements.researchDownloadMenu || elements.researchDownloadMenu.classList.contains("hidden")) return;
-    if (elements.researchDownload?.contains(event.target) || elements.researchDownloadMenu.contains(event.target)) return;
-    closeDownloadMenu();
-  });
-
   return {
     researchMeta,
     renderResearchCard,
-    renderResearchReport,
-    setResearchReportView,
     openResearchReport,
     closeResearchReport,
     stopResearchPolling,
