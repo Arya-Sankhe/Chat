@@ -112,7 +112,6 @@ import {
   deleteConversation,
   downloadAttachment,
   exportEditableDocument,
-  exportResearchReport,
   fetchAttachmentView,
   fetchConversation,
   fetchDocumentJobStatus,
@@ -7711,35 +7710,6 @@ async function signOutAndReset() {
   renderShell();
 }
 
-/* ─── Events: the research report (bindEvents) ─── */
-
-function bindResearchEvents() {
-  els.researchReportBack?.addEventListener("click", () => researchController.closeResearchReport());
-  els.researchVisualTab?.addEventListener("click", () => researchController.setResearchReportView("visual"));
-  els.researchTextTab?.addEventListener("click", () => researchController.setResearchReportView("text"));
-  els.researchCopy?.addEventListener("click", () => {
-    const text = state.researchReport?.report || "";
-    copyText(text).then(() => flashCopySuccess(els.researchCopy)).catch(() => showToast("Copy failed."));
-  });
-  els.researchReportToc?.addEventListener("click", (event) => {
-    const link = event.target.closest("a[href^='#']");
-    if (!link) return;
-    const heading = document.getElementById(link.getAttribute("href").slice(1));
-    if (!heading) return;
-    event.preventDefault();
-    const header = els.researchReportView.querySelector(".research-report-header");
-    const top = heading.getBoundingClientRect().top
-      - els.researchReportView.getBoundingClientRect().top
-      + els.researchReportView.scrollTop
-      - (header?.offsetHeight || 0)
-      - 20;
-    els.researchReportView.scrollTo({
-      top: Math.max(0, top),
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-    });
-  });
-}
-
 /* ─── Events: Settings (bindEvents) ─── */
 
 function bindSettingsEvents() {
@@ -8361,31 +8331,15 @@ export function mountChat() {
   researchController = createResearchController({
     elements: {
       researchReportView: els.researchReportView,
-      researchReportBack: els.researchReportBack,
-      researchVisualTab: els.researchVisualTab,
-      researchTextTab: els.researchTextTab,
-      researchCopy: els.researchCopy,
-      researchDownload: els.researchDownload,
-      researchDownloadMenu: els.researchDownloadMenu,
-      researchReportLoading: els.researchReportLoading,
-      researchReportLayout: els.researchReportLayout,
-      researchReportToc: els.researchReportToc,
-      researchReportArticle: els.researchReportArticle,
-      researchReportSources: els.researchReportSources,
-      researchReportSourcesSummary: els.researchReportSourcesSummary,
       chatView: els.chatView,
       promptInput: els.promptInput,
       messages: els.messages
     },
     state,
     createResearch,
-    exportResearchReport,
     fetchResearchStatus,
     fetchResearchReport,
-    fetchDocumentJobStatus,
-    downloadAttachment,
     escapeHtml,
-    renderContent,
     renderMessages,
     renderShell,
     renderResearchMode,
@@ -8453,7 +8407,6 @@ export function mountChat() {
   });
   bindMessageEvents();
   bindComposerEvents();
-  bindResearchEvents();
   bindSettingsEvents();
   bindSelectionEvents();
   bindStudyEvents();
@@ -8462,6 +8415,7 @@ export function mountChat() {
   bindHistoryEvents();
   Object.assign(chatHooks, {
     openUpgradePlans,
+    closeResearchReport: () => researchController.closeResearchReport(),
     openAdminDrawer,
     refreshChatList,
     deletePendingAttachment,

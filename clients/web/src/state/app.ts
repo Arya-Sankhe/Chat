@@ -507,6 +507,8 @@ export function closeAccount() {
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
   openUpgradePlans: () => {},
+  /** The research report's back button (research.js closeResearchReport). */
+  closeResearchReport: () => {},
   deletePendingAttachment: async (_id: string) => {},
   deletePendingProject: async (_id: string) => {},
   openStudyHub: () => {},

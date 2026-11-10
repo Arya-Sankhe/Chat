@@ -49,7 +49,6 @@ const local: Record<string, unknown> = {
   clarificationChecking: false,
   clarificationRequestId: 0,
   activeResearchId: "",
-  researchReport: null,
   messages: [],
   messagePage: { hasMore: false, cursor: null },
   loadingOlderMessages: false,
