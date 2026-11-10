@@ -213,7 +213,8 @@ export function MemoryPanel({ hidden }: { hidden: boolean }) {
       return;
     }
     setConfirming(false);
-    if (await clearMemorySummary()) setDraft(null);
+    const before = draft;
+    if (await clearMemorySummary()) setDraft((current) => (current === before ? null : current));
   };
   return (
     <section className="settings-section" data-settings-panel="memory" hidden={hidden}>
