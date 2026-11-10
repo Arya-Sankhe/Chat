@@ -5,7 +5,7 @@
 // engine (islands/studyHub.js); this only draws it.
 import { useLayoutEffect, useRef } from "react";
 import { Icon, Klui, TOOL_ICON } from "./brand";
-import { clock, day, joinMeta, minutes } from "./fmt";
+import { clock, day, joinMeta } from "./fmt";
 import { Menu } from "./Menu";
 import { NotesTab } from "./Notes";
 import { LectureAsk, LecturePage } from "./Lecture";
@@ -152,15 +152,13 @@ function CourseTop({ hub, view, home }: { hub: DojoHub; view: DojoView; home: bo
 /* ---------- Overview (nothing open) ---------- */
 
 function Overview({ hub, view }: { hub: DojoHub; view: DojoView }) {
-  const lectures = view.lectures?.length || 0;
-  const total = (view.lectures || []).reduce((sum, row) => sum + row.duration, 0);
   return (
     <div className="d3-ws-body is-home">
       <section className="d3-overview" aria-label="Course overview">
         <div className="d3-bento">
           <div className="d3-bento-col">
             <section className="d3-tile is-lectures" aria-label="Lectures">
-              <div className="d3-h4">Lectures{lectures > 0 && <span>{joinMeta(`${lectures}`, total ? minutes(total) : "")}</span>}</div>
+              <div className="d3-h4">Lectures</div>
               <NotesTab hub={hub} view={view} />
             </section>
             <section className="d3-tile is-fill" aria-label="Materials">
@@ -202,7 +200,7 @@ function Side({ hub, view }: { hub: DojoHub; view: DojoView }) {
   return (
     <aside className="d3-side" aria-label="Course">
       <div className="d3-grp">
-        <div className="d3-h4">Lectures{lectures.length > 0 && <span>{lectures.length}</span>}</div>
+        <div className="d3-h4">Lectures</div>
         {view.live.here && (
           <button type="button" className={`d3-li is-live${openLecture === "live" ? " is-on" : ""}`} data-lecture="live">
             <span className="d3-rdot is-pulse" aria-hidden="true" /><span className="d3-li-text">recording now</span><small data-live-time>{clock(view.live.elapsed)}</small>
@@ -272,7 +270,8 @@ function madeMeta(item: CollectionItem, compact: boolean) {
   const progress = item.kind === "deck" ? item.progress : null;
   if (progress?.state === "resume") return `${Math.max(0, progress.total - (progress.seen || 0))} left`;
   if (progress?.state === "done") return `${progress.got}/${progress.total} known`;
-  return compact ? item.meta : joinMeta(item.meta, day(item.createdAt || ""));
+  // "Edited Oct 17" already says when, so it needs no second date.
+  return compact || /^edited\b/i.test(item.meta || "") ? item.meta : joinMeta(item.meta, day(item.createdAt || ""));
 }
 
 function MaterialList({ hub, view, compact = false }: { hub: DojoHub; view: DojoView; compact?: boolean }) {

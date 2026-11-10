@@ -622,7 +622,9 @@ export function createStudyHubController({
   }
 
   function lectureTitle(doc) {
-    return doc.metadata?.lecture_title_override || lectureNoteOf(doc.id)?.title || documentDisplayName(doc);
+    // A title that is still a file name reads without its audio extension.
+    const title = doc.metadata?.lecture_title_override || lectureNoteOf(doc.id)?.title || documentDisplayName(doc);
+    return title.replace(/\.(webm|m4a|mp3|mp4|wav|ogg|oga|opus|aac|flac)$/i, "") || title;
   }
 
   function lectureDate(doc) {
@@ -827,6 +829,14 @@ export function createStudyHubController({
     if (tab === "ask") els.promptInput?.focus();
   }
 
+  // Opens a lecture on its transcript and plays it from `at` seconds.
+  function playLecture(id, at = 0) {
+    const doc = lectureDocs().find((item) => item.id === id);
+    if (!doc) return;
+    selectLecture(id, "transcript");
+    audioViewer.playAt({ id: doc.id, title: lectureTitle(doc) }, at);
+  }
+
   // A lecture's own chat is showing (in the React Dojo, only while the lecture is the open item).
   function lectureAskOpen() {
     return lectureTab === "ask" && Boolean(activeLectureId) && (!host || state.activeCourseTab === "notes");
@@ -945,9 +955,11 @@ export function createStudyHubController({
     if (cite) {
       const doc = lectureDocs().find((item) => item.id === activeLectureId);
       if (!doc) return true;
+      // In the React Dojo the notes stay notes: a timestamp opens the transcript and plays from there.
+      if (host) { playLecture(doc.id, Number(cite.dataset.citeTime) || 0); return true; }
       stripLectureId = doc.id;
       citeTime = Number(cite.dataset.citeTime) || 0;
-      audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, citeTime);
+      audioViewer.playAt({ id: doc.id, title: lectureTitle(doc) }, citeTime);
       patchLectureStrip();
       return true;
     }
@@ -956,7 +968,7 @@ export function createStudyHubController({
       if (!doc) return true;
       stripLectureId = doc.id;
       if (audioViewer.status().id === doc.id && !audioViewer.status().loading) audioViewer.toggle();
-      else audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, 0);
+      else audioViewer.playAt({ id: doc.id, title: lectureTitle(doc) }, 0);
       patchLectureStrip();
       return true;
     }
@@ -969,7 +981,7 @@ export function createStudyHubController({
       const at = Math.max(0, Math.min(1, (event.clientX - box.left) / (box.width || 1))) * duration;
       stripLectureId = doc.id;
       citeTime = null;
-      audioViewer.playAt({ id: doc.id, title: documentDisplayName(doc) }, at);
+      audioViewer.playAt({ id: doc.id, title: lectureTitle(doc) }, at);
       patchLectureStrip();
       return true;
     }
@@ -2098,7 +2110,7 @@ export function createStudyHubController({
     const lectureAudio = els.studyView.querySelector(".dojo-lec-audio-slot");
     const lectureDoc = lectureAudio && lectureDocs().find((item) => item.id === activeLectureId);
     if (lectureDoc) {
-      audioViewer.open({ id: lectureDoc.id, title: documentDisplayName(lectureDoc) });
+      audioViewer.open({ id: lectureDoc.id, title: lectureTitle(lectureDoc) });
       audioViewer.mount(lectureAudio);
     }
     patchLectureStrip();
@@ -5954,6 +5966,7 @@ export function createStudyHubController({
       openCourses,
       setTab,
       selectLecture,
+      playLecture,
       closeLecture,
       startLiveRecording,
       // With no course yet, recording still takes one click: it lands in "Unsorted".

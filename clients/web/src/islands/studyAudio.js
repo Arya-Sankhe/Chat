@@ -3,14 +3,12 @@
 // timestamps instead of speakers. The viewer keeps its own state so studyHub can repaint
 // the panel at any time and simply mount it again.
 
-import { activeLine, createPodcastAudio, formatDurationLabel, formatTime, PLAYER_ICONS, PODCAST_SPEEDS, speedLabel, syncSpeedMenu } from "./studyPodcast.js";
+import { activeLine, createPodcastAudio, formatTime, PLAYER_ICONS, PODCAST_SPEEDS, speedLabel, syncSpeedMenu } from "./studyPodcast.js";
 
 const SKIP_SECONDS = 10;
 const svg = (paths, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICONS = {
   close: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
-  download: svg('<path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/>'),
-  copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'),
   back10: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/><text x="12.2" y="15.4" fill="currentColor" stroke="none" font-size="7.4" font-weight="700" text-anchor="middle" font-family="system-ui, sans-serif">10</text>', 22),
   fwd10: svg('<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/><text x="11.8" y="15.4" fill="currentColor" stroke="none" font-size="7.4" font-weight="700" text-anchor="middle" font-family="system-ui, sans-serif">10</text>', 22),
   speed: svg('<path d="M12 20a8 8 0 1 1 8-8"/><path d="m12 12 4-3"/>')
@@ -27,11 +25,6 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     refreshUrl: async (id) => (await fetchAudio(id))?.audio?.audioUrl || ""
   });
 
-  function meta(audio) {
-    const date = audio.createdAt ? new Date(audio.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
-    return [formatDurationLabel(audio.durationSeconds), audio.source === "recording" ? "Recorded" : "Uploaded", audio.wordCount ? `${audio.wordCount.toLocaleString()} words` : "", date].filter(Boolean).join(" · ");
-  }
-
   function playerState() {
     const state = player.state();
     return player.id === view?.id ? state : { ...state, time: 0, playing: false, waiting: false };
@@ -47,12 +40,10 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
 
   function markup() {
     const audio = view.audio;
-    const title = audio?.title || view.title || "Audio";
+    const title = view.title || audio?.title || "Audio";
     const head = `<header class="dojo-view-head dojo-pod-head">
       <span class="dojo-lecture-badge" aria-hidden="true">${svg('<path d="M3 12h2m3-5v10m4-13v16m4-11v6m3-3h2"/>')}</span>
-      <span class="dojo-pod-title"><h3 title="${escapeHtml(title)}">${escapeHtml(title)}</h3><small>${audio ? escapeHtml(meta(audio)) : "Audio"}</small></span>
-      ${audio?.transcript?.length ? `<button class="study-icon-btn" type="button" data-lec-copy aria-label="Copy transcript" title="Copy transcript">${ICONS.copy}</button>` : ""}
-      ${audio?.downloadUrl ? `<a class="study-icon-btn dojo-pod-download" href="${escapeHtml(audio.downloadUrl)}" download aria-label="Download audio" title="Download audio">${ICONS.download}</a>` : ""}
+      <span class="dojo-pod-title"><h3 title="${escapeHtml(title)}">${escapeHtml(title)}</h3></span>
       <button class="study-icon-btn" type="button" data-lec-close aria-label="Close" title="Close">${ICONS.close}</button>
     </header>`;
     if (view.error) {
@@ -71,14 +62,16 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     return `<div class="dojo-lecture">
       ${head}
       ${playable ? `<section class="dojo-pod-player dojo-lecture-player${state.playing ? " is-playing" : ""}${state.waiting ? " is-waiting" : ""}" aria-label="Player">
-        <div class="dojo-pod-scrub" style="--p: ${progress.toFixed(3)}%"><input type="range" min="0" max="${duration.toFixed(2)}" step="0.1" value="${Math.min(time, duration).toFixed(2)}" data-lec-seek aria-label="Seek" aria-valuetext="${formatTime(time)} of ${formatTime(duration)}"></div>
-        <div class="dojo-pod-times"><span data-lec-time>${formatTime(time)}</span><span data-lec-left>-${formatTime(Math.max(0, duration - time))}</span></div>
-        <div class="dojo-pod-transport">
-          <button class="dojo-pod-skip" type="button" data-lec-skip="-${SKIP_SECONDS}" aria-label="Back ${SKIP_SECONDS} seconds" title="Back ${SKIP_SECONDS}s">${ICONS.back10}</button>
+        <div class="dojo-lec-prow">
           <button class="dojo-pod-play" type="button" data-lec-toggle aria-label="${state.playing ? "Pause" : "Play"}" title="${state.playing ? "Pause" : "Play"} (Space)">${state.playing ? PLAYER_ICONS.pause : PLAYER_ICONS.play}</button>
-          <button class="dojo-pod-skip" type="button" data-lec-skip="${SKIP_SECONDS}" aria-label="Forward ${SKIP_SECONDS} seconds" title="Forward ${SKIP_SECONDS}s">${ICONS.fwd10}</button>
+          <span class="dojo-lec-ptime" data-lec-time>${formatTime(time)}</span>
+          <div class="dojo-pod-scrub" style="--p: ${progress.toFixed(3)}%"><input type="range" min="0" max="${duration.toFixed(2)}" step="0.1" value="${Math.min(time, duration).toFixed(2)}" data-lec-seek aria-label="Seek" aria-valuetext="${formatTime(time)} of ${formatTime(duration)}"></div>
+          <span class="dojo-lec-ptime is-dur">${formatTime(duration)}</span>
         </div>
-        <div class="dojo-pod-extras">
+        <div class="dojo-lec-prow is-tools">
+          <button class="dojo-pod-skip" type="button" data-lec-skip="-${SKIP_SECONDS}" aria-label="Back ${SKIP_SECONDS} seconds" title="Back ${SKIP_SECONDS}s">${ICONS.back10}</button>
+          <button class="dojo-pod-skip" type="button" data-lec-skip="${SKIP_SECONDS}" aria-label="Forward ${SKIP_SECONDS} seconds" title="Forward ${SKIP_SECONDS}s">${ICONS.fwd10}</button>
+          <span class="dojo-lec-pgap"></span>
           <div class="dojo-pod-volume" style="--v: ${(volume * 100).toFixed(0)}%">
             <button class="study-icon-btn" type="button" data-lec-mute aria-label="${state.muted ? "Unmute" : "Mute"}" title="${state.muted ? "Unmute" : "Mute"}">${volume === 0 ? PLAYER_ICONS.muted : PLAYER_ICONS.volume}</button>
             <input type="range" min="0" max="1" step="0.05" value="${volume}" data-lec-volume aria-label="Volume">
@@ -151,8 +144,6 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     }
     const now = root.querySelector("[data-lec-time]");
     if (now) now.textContent = formatTime(time);
-    const left = root.querySelector("[data-lec-left]");
-    if (left) left.textContent = `-${formatTime(Math.max(0, duration - time))}`;
     const index = activeLine(audio.transcript, time);
     const list = root.querySelector("[data-lec-transcript]");
     if (!list || list.dataset.active === String(index)) return;
@@ -181,11 +172,6 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
     if (!view) return;
     event.stopPropagation();
     if (event.target.closest("[data-lec-close]")) { close(event); return; }
-    if (event.target.closest("[data-lec-copy]")) {
-      const text = (view.audio?.transcript || []).map((line) => `[${formatTime(line.start)}] ${line.text}`).join("\n");
-      navigator.clipboard?.writeText(text).then(() => showToast("Transcript copied."), () => showToast("Copy failed."));
-      return;
-    }
     if (!view.audio?.audioUrl) return;
     if (view.speedOpen && !event.target.closest(".dojo-pod-speed")) setSpeedOpen(false);
     if (event.target.closest("[data-lec-toggle]")) { ensureLoaded(); void player.toggle(); return; }
@@ -291,7 +277,11 @@ export function createAudioSourceViewer({ escapeHtml, fetchAudio, showToast, onC
   }
 
   function open(doc) {
-    if (view?.id === doc.id) return;
+    if (view?.id === doc.id) {
+      // The same recording may have been renamed since it was opened.
+      if (doc.title && doc.title !== view.title) { view.title = doc.title; const h = root?.querySelector(".dojo-pod-title h3"); if (h) { h.textContent = doc.title; h.title = doc.title; } }
+      return;
+    }
     if (player.id && player.id !== doc.id) player.pause();
     // A timestamp asked for in another lecture must not play this one.
     pendingSeek = null;

@@ -185,14 +185,6 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
           <LectureMenu hub={hub} view={view} id={lecture.id} title={lecture.title} />
         </div>
         <div id="d3-lecture-panel" role="tabpanel" aria-labelledby={`d3-lecture-tab-${tab}`} style={{ display: "contents" }}>
-        {tab !== "transcript" && lecture.html && (
-          <div className="d3-player dojo-lec-strip" data-lec-strip>
-            <button type="button" className="d3-pbtn" data-strip-toggle="" aria-label="Play lecture" title="Play lecture"><Icon name="play" size={12} /></button>
-            <span className="d3-player-now" data-strip-time>0:00</span>
-            <span className="d3-player-track" data-strip-track=""><i data-strip-bar /></span>
-            <span className="d3-player-dur">{clock(lecture.duration)}</span>
-          </div>
-        )}
         {tab === "notes" && !lecture.html && <WritingBody lecture={lecture} />}
         {tab === "notes" && lecture.html && (
           <div className="d3-paper-body" data-lec-scroll>

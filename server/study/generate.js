@@ -738,7 +738,9 @@ async function generateLectureNotes({ context, config, course, source, options =
     temperature: 0.2
   });
   throwIfAborted(signal);
-  const parsed = parseMarkdownNote(streamed.content, { fallbackTitle: sourceFallbackTitle(source) || "Lecture notes" });
+  // The notes' own heading is the lecture's title; without one, the recording's name minus its extension.
+  const fallbackTitle = (sourceFallbackTitle(source) || "").replace(/\.(webm|m4a|mp3|mp4|wav|ogg|oga|opus|aac|flac)$/i, "").trim() || "Lecture notes";
+  const parsed = parseMarkdownNote(streamed.content, { fallbackTitle });
   if (!parsed?.content) throw new HttpError(502, GENERATION_FAILED);
   onStage?.("saving");
   throwIfAborted(signal);
@@ -746,10 +748,18 @@ async function generateLectureNotes({ context, config, course, source, options =
     project_id: course.id,
     document_file_id: documentFile.id,
     kind: "summary",
-    title: parsed.title || "Lecture notes",
+    title: shortLectureTitle(parsed.title) || fallbackTitle,
     content: `${LECTURE_NOTE_MARK}\n${parsed.content}`
   }, { signal });
   return { note, partial: Boolean(streamed.partial || streamed.finishReason === "length") };
+}
+
+// Keeps a model-written lecture title list-sized: plain text, at most 80 characters.
+export function shortLectureTitle(title) {
+  const plain = String(title || "").replace(/[*_`#]+/g, "").replace(/\s+/g, " ").trim();
+  if (plain.length <= 80) return plain;
+  const cut = plain.slice(0, 80);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > 40 ? cut.lastIndexOf(" ") : 80).trim()}…`;
 }
 
 export async function transcribeCourseImage({ context, config, course, attachment, signal }) {

@@ -75,6 +75,7 @@ export type DojoActions = {
   openCourses(): Promise<void>;
   setTab(tab: string): Promise<void>;
   selectLecture(id: string, tab?: string): void;
+  playLecture(id: string, at?: number): void;
   closeLecture(): void;
   startLiveRecording(courseId?: string): Promise<void>;
   recordInto(courseId: string): void;

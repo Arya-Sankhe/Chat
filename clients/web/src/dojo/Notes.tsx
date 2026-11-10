@@ -1,7 +1,7 @@
 import { LectureMenu } from "./LectureMenu";
 // Course › Notes: the lecture notes, newest first, as one flat notebook list.
 import { Icon, Klui } from "./brand";
-import { clock, day, joinMeta, minutes, thisWeek } from "./fmt";
+import { clock, day } from "./fmt";
 import type { DojoHub, DojoView, LectureRow } from "./types";
 
 export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
@@ -9,8 +9,7 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
   const busy = view.busy || [];
   const busyDocs = new Set(busy.map((entry) => entry.docId).filter(Boolean));
   const ready = lectures.filter((row) => row.ready && !busyDocs.has(row.id));
-  const week = ready.filter((row) => thisWeek(row.createdAt));
-  const earlier = ready.filter((row) => !thisWeek(row.createdAt));
+  const newest = [...ready].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const live = view.live.here;
   const empty = !ready.length && !busy.length && !live;
   return (
@@ -48,8 +47,7 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
           </div>
         </>
       )}
-      {week.length > 0 && <LectureGroup title="this week" rows={week} hub={hub} view={view} />}
-      {earlier.length > 0 && <LectureGroup title={week.length ? "earlier" : ""} rows={earlier} hub={hub} view={view} />}
+      {newest.length > 0 && <LectureList rows={newest} hub={hub} view={view} />}
       {empty && view.loaded && (
         <div className="d3-empty">
           <Klui size={56} />
@@ -62,18 +60,16 @@ export function NotesTab({ hub, view }: { hub: DojoHub; view: DojoView }) {
   );
 }
 
-function LectureGroup({ title, rows, hub, view }: { title: string; rows: LectureRow[]; hub: DojoHub; view: DojoView }) {
+function LectureList({ rows, hub, view }: { rows: LectureRow[]; hub: DojoHub; view: DojoView }) {
   return (
     <>
-      {title && <p className="d3-group">{title}</p>}
-      <div className="d3-list">
+      <div className="d3-list is-cards">
         {rows.map((row) => (
           <div className="d3-row" key={row.id}>
             <button type="button" className="d3-row-main" data-lecture={row.id}>
               <h3>{row.title}</h3>
-              {row.gist && <p>{row.gist}</p>}
               <span className="d3-row-meta">
-                <span>{joinMeta(day(row.createdAt), minutes(row.duration))}</span>
+                <span>{day(row.createdAt)}</span>
                 {row.writing && <span className="d3-chip is-proc">klui is writing…</span>}
                 {!row.writing && row.noteError && <span className="d3-chip is-error">notes didn’t finish</span>}
               </span>
@@ -87,8 +83,7 @@ function LectureGroup({ title, rows, hub, view }: { title: string; rows: Lecture
   );
 }
 
-// ▶ on a row opens the lecture and starts its audio from the top.
+// ▶ on a row opens the lecture's transcript and plays it from the top.
 export function playLecture(hub: DojoHub, id: string) {
-  hub.actions.selectLecture(id);
-  requestAnimationFrame(() => (document.querySelector("#studyView [data-strip-toggle]") as HTMLButtonElement | null)?.click());
+  hub.actions.playLecture(id, 0);
 }

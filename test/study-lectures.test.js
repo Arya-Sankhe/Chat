@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildLectureInput, cleanJots, LECTURE_NOTE_MARK } from "../server/study/lectureNotes.js";
-import { noteBody, noteModeAllowed, noteModesFromNotes } from "../server/study/generate.js";
+import { noteBody, noteModeAllowed, noteModesFromNotes, shortLectureTitle } from "../server/study/generate.js";
 import { jotsFromText, lectureNoteHtml, loadJots, moveJots, saveJots } from "../public/js/studyLectures.js";
 
 const lecture = {
@@ -54,4 +54,10 @@ test("typed lines survive when the device can't back them up", () => {
   moveJots("rec-1", "doc-9");
   assert.deepEqual(loadJots("doc-9"), lines);
   assert.deepEqual(loadJots("rec-1"), []);
+});
+
+test("a lecture's title is the notes' short heading, kept list-sized", () => {
+  assert.equal(shortLectureTitle("**Cell Cycle** Checkpoints"), "Cell Cycle Checkpoints");
+  const long = shortLectureTitle("An unusually long heading that keeps going about mitosis and checkpoints and regulation and more");
+  assert.ok(long.length <= 81 && long.endsWith("…"));
 });
