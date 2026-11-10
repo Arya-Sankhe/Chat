@@ -1,0 +1,1325 @@
+import { apiUrl, download as platformDownload, isNative, saveTextFile } from "./platform/index.js";
+
+let imageUploadMaxBytes = 10 * 1024 * 1024;
+
+async function readProblem(response) {
+  try {
+    const json = await response.json();
+    return json.error || "Request failed.";
+  } catch {
+    return response.statusText || "Request failed.";
+  }
+}
+
+function apiHeaders(session, extra = {}) {
+  return {
+    ...extra,
+    ...(!isNative() && authRuntime.buildId ? { "x-klui-build-id": authRuntime.buildId } : {}),
+    ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {})
+  };
+}
+
+const authRuntime = {
+  getSession: null,
+  refresh: null,
+  onSession: null,
+  onExpired: null,
+  buildCheck: null,
+  onUpgradeRequired: null,
+  buildId: ""
+};
+
+export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, onUpgradeRequired, buildId } = {}) {
+  authRuntime.getSession = typeof getSession === "function" ? getSession : null;
+  authRuntime.refresh = typeof refresh === "function" ? refresh : null;
+  authRuntime.onSession = typeof onSession === "function" ? onSession : null;
+  authRuntime.onExpired = typeof onExpired === "function" ? onExpired : null;
+  authRuntime.buildCheck = typeof buildCheck === "function" ? buildCheck : null;
+  authRuntime.onUpgradeRequired = typeof onUpgradeRequired === "function" ? onUpgradeRequired : null;
+  authRuntime.buildId = String(buildId || "");
+}
+
+async function resolveSession(session, { force = false } = {}) {
+  const current = authRuntime.getSession?.() || session;
+  if (!current?.access_token || !authRuntime.refresh) return current;
+  const next = await authRuntime.refresh(current, { force });
+  if (next?.access_token) {
+    if (next !== current) authRuntime.onSession?.(next);
+    return next;
+  }
+  authRuntime.onExpired?.();
+  return null;
+}
+
+async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ...options } = {}) {
+  let activeSession = await resolveSession(session);
+  let response = await fetch(apiUrl(path), {
+    ...options,
+    headers: apiHeaders(activeSession, headers)
+  });
+
+  if (response.status === 401 && retryOnUnauthorized && activeSession?.refresh_token && !options.signal?.aborted) {
+    activeSession = await resolveSession(activeSession, { force: true });
+    if (activeSession?.access_token) {
+      response = await fetch(apiUrl(path), {
+        ...options,
+        headers: apiHeaders(activeSession, headers)
+      });
+    }
+  }
+
+  if (!response.ok && [404, 410, 426].includes(response.status)) void authRuntime.buildCheck?.();
+  if ((response.status === 402 || response.status === 429) && authRuntime.onUpgradeRequired) {
+    void notifyUpgradeRequired(response, options.method || "GET");
+  }
+
+  return response;
+}
+
+// A paid feature (402 upgrade_required) or a spent free allowance (429 free_limit).
+async function notifyUpgradeRequired(response, method) {
+  const problem = await response.clone().json().catch(() => null);
+  const code = problem?.details?.code;
+  if (code !== "upgrade_required" && code !== "free_limit") return;
+  authRuntime.onUpgradeRequired?.({ message: problem.error || "", code, kind: problem.details.kind || "", method: String(method).toUpperCase() });
+}
+
+// A boot request index.html already started, handed out once so later calls fetch fresh data.
+// A failed early response is dropped so the caller makes its normal request instead.
+async function takeBootResponse(name) {
+  const boot = isNative() ? null : globalThis.__kluiBoot;
+  const pending = boot?.[name];
+  if (!pending) return null;
+  delete boot[name];
+  const response = await pending;
+  return response?.ok ? response : null;
+}
+
+// Island change: the shell fetches the config through the shared client, then hands
+// the upload limit here, as fetchConfig() below did for itself.
+export function configureUploadLimit(config) {
+  if (Number.isInteger(config?.maxImageBytes) && config.maxImageBytes > 0) {
+    imageUploadMaxBytes = config.maxImageBytes;
+  }
+}
+
+export async function fetchConfig() {
+  const response = await takeBootResponse("config") || await fetch(apiUrl("/api/config"), { cache: "no-store" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  const config = await response.json();
+  if (Number.isInteger(config.maxImageBytes) && config.maxImageBytes > 0) {
+    imageUploadMaxBytes = config.maxImageBytes;
+  }
+  return config;
+}
+
+export async function fetchBuild() {
+  const response = await fetch(apiUrl("/api/build"), { cache: "no-store" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchPlans() {
+  const response = await takeBootResponse("plans") || await fetch(apiUrl("/api/plans"));
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createZiinaPaymentRequest(session, planId) {
+  const response = await apiFetch("/api/payments/ziina", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ planId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchZiinaPaymentRequests(session) {
+  const response = await apiFetch("/api/payments/ziina", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function checkMamoCoupon(session, coupon, provider = "mamo") {
+  const response = await apiFetch(`/api/payments/${provider === "stripe" ? "stripe" : "mamo"}/coupon`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coupon })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createMamoCheckout(session, planId, coupon = "", provider = "mamo") {
+  const response = await apiFetch(`/api/payments/${provider === "stripe" ? "stripe" : "mamo"}`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(coupon ? { planId, coupon } : { planId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function cancelMamoSubscription(session) {
+  const response = await apiFetch("/api/me/subscription/cancel", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStripePortal(session) {
+  const response = await apiFetch("/api/payments/stripe/portal", { session, method: "POST" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function approveAdminPayment(session, id) {
+  const response = await apiFetch(`/api/admin/payments/${encodeURIComponent(id)}/approve`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function rejectAdminPayment(session, id) {
+  const response = await apiFetch(`/api/admin/payments/${encodeURIComponent(id)}/reject`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createContentReport(session, messageId) {
+  const response = await apiFetch("/api/reports", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ messageId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function resolveAdminReport(session, id, status = "done") {
+  const action = status === "reported" ? "reported" : "done";
+  const response = await apiFetch(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchMe(session) {
+  const response = await apiFetch("/api/me", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteAccount(session) {
+  const response = await apiFetch("/api/me", { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function downloadAccountData(session) {
+  const response = await apiFetch("/api/me/export", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  const text = await response.text();
+  const day = new Date().toISOString().slice(0, 10);
+  await saveTextFile(`klui-data-${day}.json`, text);
+}
+
+export async function fetchMemory(session) {
+  const response = await apiFetch("/api/memory", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateMemory(session, body) {
+  const response = await apiFetch("/api/memory", {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function clearMemory(session) {
+  const response = await apiFetch("/api/memory", { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function transcribeSpeech(session, audio) {
+  const response = await apiFetch("/api/speech-to-text", {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function warmVoiceMode(session) {
+  const response = await apiFetch("/api/voice/warm", { session, method: "POST" });
+  if (!response.ok) throw new Error(await readProblem(response));
+}
+
+export async function transcribeVoiceTurn(session, audio, { signal } = {}) {
+  const response = await apiFetch("/api/voice/transcribe", {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio,
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+/**
+ * Speaks one short piece of text; resolves to { audio (MP3 bytes), engine }. `session` names the
+ * voice conversation and `reply` numbers its replies, so the server keeps one voice per reply.
+ */
+export async function synthesizeVoice(session, { text, voice, speed }, { signal, session: speech, reply } = {}) {
+  const response = await apiFetch("/api/voice/speech", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text, voice, speed, session: speech, reply }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return { audio: await response.arrayBuffer(), engine: response.headers.get("x-speech-engine") || "" };
+}
+
+export async function listConversations(session, { limit } = {}) {
+  const response = await apiFetch(`/api/conversations${limit ? `?limit=${limit}` : ""}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function searchChats(session, query) {
+  const response = await apiFetch(`/api/conversations/search?q=${encodeURIComponent(query)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function listProjects(session) {
+  const response = await apiFetch("/api/projects", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createProject(session, name, extra = {}) {
+  const response = await apiFetch("/api/projects", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, ...extra })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchProject(session, id) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateProject(session, id, body) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteProject(session, id) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyMaterials(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStudySource(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyMaterial(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
+    session,
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ documentFileId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function generateStudyContent(session, courseId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/generate`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, (event) => {
+    if (!event || typeof event !== "object") return;
+    if (event.type === "error") throw new Error(event.error || "Generation failed.");
+    if (event.type === "heartbeat") return;
+    onEvent?.(event);
+  });
+}
+
+export async function fetchStudyPractice(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/practice`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQueue(session, courseId, params = {}) {
+  const search = new URLSearchParams();
+  if (params.documentFileId) search.set("documentFileId", params.documentFileId);
+  if (params.noteId) search.set("noteId", params.noteId);
+  if (params.deckKey) search.set("deckKey", params.deckKey);
+  if (params.manual) search.set("manual", "1");
+  const query = search.toString();
+  const response = await apiFetch(
+    `/api/study/courses/${encodeURIComponent(courseId)}/queue${query ? `?${query}` : ""}`,
+    { session }
+  );
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyDeck(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/decks`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyDeck(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/decks`, {
+    session,
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyCard(session, cardId) {
+  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyCard(session, cardId, body) {
+  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStudyCard(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/cards`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStudyNote(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/notes`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQuiz(session, quizId) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyQuiz(session, quizId, body) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyQuiz(session, quizId) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyPodcast(session, podcastId) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyPodcast(session, podcastId, body) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyPodcast(session, podcastId) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function submitStudyQuizAttempt(session, quizId, answers) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}/attempts`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answers })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyNote(session, noteId) {
+  const response = await apiFetch(`/api/study/notes/${encodeURIComponent(noteId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function exportStudyNote(session, noteId, format) {
+  const response = await apiFetch(`/api/study/notes/${encodeURIComponent(noteId)}/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format })
+  });
+  if (!response.ok && response.status !== 202) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createConversation(session, body = {}) {
+  const response = await apiFetch("/api/conversations", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchConversation(session, id, { limit, cursor } = {}) {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}${query ? `?${query}` : ""}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteConversation(session, id) {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    session,
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateConversation(session, id, body) {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createResearch(session, body) {
+  const response = await apiFetch("/api/research", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function requestClarifications(session, body) {
+  const response = await apiFetch("/api/clarifications", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchResearchStatus(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function cancelResearch(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/cancel`, {
+    session,
+    method: "POST"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchResearchReport(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/report`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function exportResearchReport(session, id, format) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format })
+  });
+  if (!response.ok && response.status !== 202) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+function uploadCategory(file) {
+  return String(file.type || "").startsWith("image/") ? "image" : "document";
+}
+
+const RESIZABLE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+// Vision models read images at about 2048px on the long edge, so larger photos are fit to that.
+// It keeps small text in screenshots legible while cutting upload time and token cost.
+export const IMAGE_UPLOAD_MAX_EDGE = 2048;
+
+function imageCanvas(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This browser could not resize the image.");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  return { canvas, context };
+}
+
+// One big drawImage jump aliases fine detail; halving in steps keeps edges and text clean.
+function drawImageScaled(bitmap, width, height) {
+  let source = bitmap;
+  let sourceWidth = bitmap.width;
+  let sourceHeight = bitmap.height;
+  while (sourceWidth / 2 >= width && sourceHeight / 2 >= height) {
+    const step = imageCanvas(Math.round(sourceWidth / 2), Math.round(sourceHeight / 2));
+    step.context.drawImage(source, 0, 0, step.canvas.width, step.canvas.height);
+    source = step.canvas;
+    sourceWidth = step.canvas.width;
+    sourceHeight = step.canvas.height;
+  }
+  const target = imageCanvas(width, height);
+  target.context.drawImage(source, 0, 0, width, height);
+  return target.canvas;
+}
+
+export async function downscaleImageForUpload(file, maxBytes = imageUploadMaxBytes, { signal, maxEdge = IMAGE_UPLOAD_MAX_EDGE } = {}) {
+  if (uploadCategory(file) !== "image") return file;
+  if (file.type === "image/gif") {
+    if (file.size <= maxBytes) return file;
+    throw new Error(`Animated GIFs must be ${Math.floor(maxBytes / 1024 / 1024)}MB or smaller.`);
+  }
+  if (!RESIZABLE_IMAGE_TYPES.has(file.type)) return file;
+
+  let bitmap;
+  try {
+    signal?.throwIfAborted();
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    // An image within the limit can still go up as-is; the server validates it.
+    if (file.size <= maxBytes) return file;
+    throw new Error("The image could not be read.");
+  }
+
+  try {
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    let scale = Math.min(1, maxEdge / longEdge);
+    if (scale === 1 && file.size <= maxBytes) return file;
+    // Bytes shrink roughly with pixel count; aim under the cap on the first encode.
+    if (file.size * scale * scale > maxBytes) scale = Math.min(0.98, Math.sqrt(maxBytes / file.size) * 0.98);
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      signal?.throwIfAborted();
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = drawImageScaled(bitmap, width, height);
+      // Keep the source format (PNG stays lossless for screenshots); lossy formats keep high quality.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, file.type, 0.9));
+      signal?.throwIfAborted();
+      if (!blob || blob.type !== file.type) throw new Error("This browser could not resize the image.");
+      if (blob.size <= maxBytes) {
+        return new File([blob], file.name, { type: blob.type, lastModified: file.lastModified });
+      }
+      scale *= Math.min(0.9, Math.sqrt(maxBytes / blob.size) * 0.98);
+    }
+  } finally {
+    bitmap.close?.();
+  }
+
+  throw new Error(`The image could not be reduced below ${Math.floor(maxBytes / 1024 / 1024)}MB.`);
+}
+
+export async function presignUpload(session, file, category = uploadCategory(file), { signal, projectId = null } = {}) {
+  const uploadFile = category === "image" ? await downscaleImageForUpload(file, imageUploadMaxBytes, { signal }) : file;
+  const response = await apiFetch("/api/uploads/presign", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      fileName: uploadFile.name,
+      contentType: uploadFile.type,
+      sizeBytes: uploadFile.size,
+      category,
+      projectId
+    }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return { upload: await response.json(), file: uploadFile };
+}
+
+export async function completeUpload(session, uploadId, { signal } = {}) {
+  const response = await apiFetch("/api/uploads/complete", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ uploadId }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+async function relayUploadContent(session, uploadId, file, category, { signal } = {}) {
+  const response = await apiFetch(`/api/uploads/${encodeURIComponent(uploadId)}/content`, {
+    session,
+    method: "PUT",
+    headers: { "content-type": file.type || "application/octet-stream" },
+    body: file,
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function putUploadContent(session, upload, file, category = upload.category || uploadCategory(file), { signal } = {}) {
+  try {
+    const put = await fetch(upload.uploadUrl, {
+      method: upload.method || "PUT",
+      headers: { ...(upload.headers || {}) },
+      body: file,
+      signal
+    });
+    if (put.ok) return { mode: "direct" };
+  } catch {
+    // Browser-side R2 CORS failures surface as network errors. Fall back to
+    // the same-origin upload relay so the user can keep working.
+  }
+
+  await relayUploadContent(session, upload.uploadId, file, category, { signal });
+  return { mode: "relay" };
+}
+
+export async function uploadImage(session, file, { signal } = {}) {
+  const prepared = await presignUpload(session, file, "image", { signal });
+  const { upload } = prepared;
+  file = prepared.file;
+  await putUploadContent(session, upload, file, "image", { signal });
+  return completeUpload(session, upload.uploadId, { signal });
+}
+
+export async function uploadFile(session, file, { signal } = {}) {
+  const category = uploadCategory(file);
+  const prepared = await presignUpload(session, file, category, { signal });
+  const { upload } = prepared;
+  file = prepared.file;
+  await putUploadContent(session, upload, file, category, { signal });
+  return completeUpload(session, upload.uploadId, { signal });
+}
+
+export async function fetchDocumentStatus(session, attachmentId) {
+  const response = await apiFetch(`/api/documents/${encodeURIComponent(attachmentId)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStorage(session) {
+  const response = await apiFetch("/api/storage", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteAttachment(session, attachmentId) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchDocumentJobStatus(session, jobId) {
+  const response = await apiFetch(`/api/documents/jobs/${encodeURIComponent(jobId)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchAttachmentView(session, attachmentId, { sheetFallback = false } = {}) {
+  const suffix = sheetFallback ? "?fallback=sheet" : "";
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/view${suffix}`, {
+    session,
+    headers: { accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function saveEditableDocument(session, attachmentId, markdown, revision) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown, revision })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, webSearch = "auto", signal }) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/revise`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown, selection, instruction, webSearch }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function reviseEmailDraft(session, { draft, instruction, messageId, emailIndex, signal }) {
+  const response = await apiFetch("/api/email/revise", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ draft, instruction, messageId, emailIndex }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+// Ask Klui in the document viewer: a precise edit of this document, limited to the selection
+// when there is one. Returns the new version ({status, artifact, summary}).
+export async function askDocument(session, attachmentId, { instruction, selection = null, webSearch = "auto", signal }) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/ask`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instruction, webSearch, ...(selection ? { selection } : {}) }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function exportEditableDocument(session, attachmentId, format, markdown) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format, markdown })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+/**
+ * Authenticated download: ask the API for a short-lived signed URL and
+ * navigate to it. The presigned URL carries its own auth in the query
+ * string, so the browser doesn't need the Bearer token.
+ */
+export async function downloadAttachment(session, attachmentId, fileName = "download") {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/download?json=1`, {
+    session,
+    headers: { accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+
+  const payload = await response.json();
+  const url = payload?.url;
+  if (!url) throw new Error("Download URL was not returned.");
+
+  await platformDownload(url, payload.fileName || fileName);
+}
+
+async function readSseStream(response, onEvent) {
+  if (!response.body) throw new Error("Streaming is not available in this browser.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+
+      if (!data) continue;
+      if (data === "[DONE]") return;
+      onEvent(JSON.parse(data));
+    }
+  }
+}
+
+export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) throw new Error(await readProblem(response));
+  const turnRunId = response.headers.get("x-klui-turn-run-id") || "";
+  if (turnRunId) onEvent({ type: "turn:submitted", turnRunId });
+  return readSseStream(response, onEvent);
+}
+
+export async function cancelPendingDocumentTurn(session, conversationId, turnRunId) {
+  const response = await apiFetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnRunId)}/cancel`,
+    {
+      session,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}"
+    }
+  );
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function streamCompareConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+  return streamConversationMessage(session, conversationId, payload, { signal, onEvent });
+}
+
+export async function streamTemporaryChat(session, payload, { signal, onEvent }) {
+  const response = await apiFetch("/api/temporary-chat", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, onEvent);
+}
+
+export async function fetchAdminSummary(session) {
+  const response = await apiFetch("/api/admin/summary", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateAdminSettings(session, settings) {
+  const response = await apiFetch("/api/admin/settings", {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(settings)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function prepareStudyTutor(session, courseId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/tutor`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  let result = null;
+  await readSseStream(response, (event) => {
+    if (!event || typeof event !== "object" || event.type === "heartbeat") return;
+    if (event.type === "error") throw new Error(event.error || "Could not prepare the lesson.");
+    if (event.type === "complete") result = event.result;
+    onEvent?.(event);
+  });
+  if (!result?.session) throw new Error("Could not prepare the lesson.");
+  return result;
+}
+
+export async function fetchStudyTutor(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyTutor(session, sessionId, body) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyTutor(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function transcribeTutorAudio(session, sessionId, audio, { signal } = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/transcribe`, {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio,
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function streamTutorTurn(session, sessionId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/turn`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, (event) => {
+    if (event && typeof event === "object") onEvent?.(event);
+  });
+}
+
+export async function endStudyTutor(session, sessionId, body = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/end`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+// The lesson's whiteboard, made the first time a call opens it.
+export async function openTutorBoard(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/board`, { session, method: "POST" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+/* ---------- Dojo audio sources ---------- */
+
+export async function presignCourseAudio(session, courseId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/audio`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+// XHR instead of fetch so long lectures can show real upload progress.
+function putWithProgress(url, { method = "PUT", headers = {}, body, onProgress, signal }) {
+  return new Promise((resolve, reject) => {
+    // A cancel that landed while an earlier step was awaiting would never fire the listener.
+    if (signal?.aborted) {
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const settle = (fn, value) => {
+      signal?.removeEventListener("abort", abort);
+      fn(value);
+    };
+    xhr.open(method, url);
+    Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress?.(event.loaded / event.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? settle(resolve) : settle(reject, Object.assign(new Error("Upload failed."), { status: xhr.status })));
+    xhr.onerror = () => settle(reject, Object.assign(new Error("Network error during upload."), { network: true }));
+    xhr.onabort = () => settle(reject, new DOMException("Upload cancelled.", "AbortError"));
+    signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(body);
+  });
+}
+
+export async function putCourseAudio(session, upload, file, { onProgress, signal } = {}) {
+  try {
+    await putWithProgress(upload.uploadUrl, { method: upload.method, headers: upload.headers, body: file, onProgress, signal });
+    return { mode: "direct" };
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    // Same fallback as other uploads: relay through the app when R2 rejects the browser.
+  }
+  const activeSession = await resolveSession(session);
+  await putWithProgress(apiUrl(`/api/uploads/${encodeURIComponent(upload.uploadId)}/content`), {
+    headers: apiHeaders(activeSession, { "content-type": upload.contentType || file.type || "application/octet-stream" }),
+    body: file, onProgress, signal
+  });
+  return { mode: "relay" };
+}
+
+export async function completeCourseAudio(session, courseId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/audio/complete`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(problem.error || response.statusText || "Request failed."), {
+      status: response.status, uploadReleased: problem.details?.uploadReleased === true
+    });
+  }
+  return response.json();
+}
+
+export async function fetchCourseTranscriptions(session, courseId, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/transcriptions`, { session, signal });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function retryCourseTranscription(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/transcriptions/${encodeURIComponent(documentFileId)}/retry`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyAudio(session, documentFileId) {
+  const response = await apiFetch(`/api/study/audio/${encodeURIComponent(documentFileId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+// Whiteboards. Errors carry the HTTP status and the server's code (e.g. revision_conflict).
+async function boardProblem(response) {
+  let body = null;
+  try { body = await response.json(); } catch { /* not JSON */ }
+  const error = new Error(body?.error || response.statusText || "Request failed.");
+  error.status = response.status;
+  error.code = body?.details?.code || "";
+  error.details = body?.details || null;
+  return error;
+}
+
+export async function createWhiteboard(session, courseId, { title } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/whiteboards`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title })
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboard(session, boardId, { signal } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, { session, signal });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function saveWhiteboard(session, boardId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function deleteWhiteboard(session, boardId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, { session, method: "DELETE" });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardTurns(session, boardId, { before = "" } = {}) {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/turns${query}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardTurn(session, boardId, turnId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/turns/${encodeURIComponent(turnId)}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function uploadWhiteboardFile(session, boardId, fileId, blob) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/files/${encodeURIComponent(fileId)}`, {
+    session,
+    method: "POST",
+    headers: { "content-type": blob.type || "application/octet-stream" },
+    body: blob
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardFile(session, boardId, fileId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/files/${encodeURIComponent(fileId)}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.blob();
+}
+
+/** Streams an ask; resolves when the stream ends. Throws a status-carrying error for HTTP failures. */
+export async function streamWhiteboardAsk(session, boardId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/ask`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return readSseStream(response, (event) => {
+    if (event && typeof event === "object") onEvent?.(event);
+  });
+}
+
+export async function redeemInvite(session, coupon) {
+  const response = await apiFetch("/api/invite/redeem", {
+    method: "POST",
+    session,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coupon })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function manageStudyLecture(session, documentFileId, patch) {
+  const response = await apiFetch(`/api/study/audio/${encodeURIComponent(documentFileId)}`, {
+    session, method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}

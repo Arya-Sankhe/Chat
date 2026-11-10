@@ -130,11 +130,14 @@ export function loadConfig(env = process.env) {
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
+    "klui-app://localhost",
     ...readList(env.MOBILE_ALLOWED_ORIGINS)
   ]);
 
   return {
     buildId: readBuildId(),
+    // "new" serves the rebuilt web app (clients/web/dist); anything else serves public/.
+    webClient: clean(env.WEB_CLIENT).toLowerCase() === "new" ? "new" : "legacy",
     host: env.HOST || "0.0.0.0",
     port,
     appUrl,

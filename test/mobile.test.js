@@ -40,6 +40,7 @@ test("mobile config includes the packaged Capacitor origin and configured develo
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
+    "klui-app://localhost",
     "http://localhost:5173",
     "https://preview.example"
   ]);

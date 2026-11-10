@@ -34,7 +34,8 @@ test("photo transcript menus generate flashcards and practice tests from the not
     collapsedGroups: new Set(), collectionGroupId: type => type, COLLECTION_GROUPS: { notes: "Notes" },
     escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
     isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
-    startGeneration: job => jobs.push(job), studioItem: () => null, handleAudioCardClick: () => false
+    startGeneration: job => jobs.push(job), studioItem: () => null, handleAudioCardClick: () => false,
+    handleLectureClick: () => false, isLectureNote: () => false, studyToolsMarkup: () => "", lectureDocs: () => []
   };
   runInNewContext(functions, ctx);
   const markup = ctx.practiceMarkup();
@@ -431,7 +432,8 @@ test("Dojo replaces the board with animated folders and three persistent panels"
   assert.match(hub, /dojo-folder-sheet--one/);
   assert.match(css, /@media \(hover: hover\) and \(pointer: fine\)/);
   assert.match(css, /prefers-reduced-motion/);
-  for (const panel of ["Sources", "Ask", "Create"]) assert.ok(hub.includes(`aria-label="${panel}"`));
+  for (const panel of ["Lectures and materials", "Study"]) assert.ok(hub.includes(`aria-label="${panel}"`));
+  assert.match(hub, /aria-label="\$\{activeLectureId \? "Lecture" : "Ask"\}"/);
   assert.match(hub, /messagesSlot.append\(els.messages\)/);
   assert.match(hub, /parkMessages\(\)/);
   assert.match(html, /aria-label="Dojo"/);

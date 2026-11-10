@@ -6,3 +6,8 @@ npm-debug.log*
 coverage
 artifacts
 .DS_Store
+clients/**/node_modules
+clients/web/dist
+clients/devtools
+clients/mobile/*
+!clients/mobile/package.json

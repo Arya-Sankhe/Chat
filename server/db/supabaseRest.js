@@ -252,6 +252,10 @@ export class SupabaseRest {
     return study.createStudyNote(this, userId, note, options);
   }
 
+  async updateStudyNote(userId, id, patch, options) {
+    return study.updateStudyNote(this, userId, id, patch, options);
+  }
+
   async deleteStudyNote(userId, id, options) {
     return study.deleteStudyNote(this, userId, id, options);
   }

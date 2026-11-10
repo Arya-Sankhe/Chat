@@ -34,6 +34,17 @@ export async function createStudyNote(client, userId, note, { signal } = {}) {
   return single(rows);
 }
 
+export async function updateStudyNote(client, userId, id, patch, { signal } = {}) {
+  const rows = await client.request("study_notes", {
+    method: "PATCH",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    body: patch,
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
 export async function deleteStudyNote(client, userId, id, { signal } = {}) {
   const rows = await client.request("study_notes", {
     method: "DELETE",

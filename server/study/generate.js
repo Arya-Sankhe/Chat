@@ -5,6 +5,7 @@ import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { salvageJsonObjects } from "./jsonSalvage.js";
 import { enrichSourceWithSelectiveVision, pageKey } from "./vision.js";
+import { LECTURE_NOTE_MARK, buildLectureInput, jotsFromNote, lectureNotesSystemPrompt, lectureStyle, lectureStyleMark } from "./lectureNotes.js";
 
 const GENERATE_MAX_MS = 10 * 60 * 1000;
 const INACTIVITY_MS = 30_000;
@@ -389,7 +390,7 @@ export const DETAILED_NOTE_MARK = "<!--klui:detailed-->";
 
 export function normalizeNoteMode(value) {
   const mode = String(value || "").trim().toLowerCase();
-  return mode === "summary" || mode === "detailed" || mode === "mindmap" ? mode : "";
+  return mode === "summary" || mode === "detailed" || mode === "mindmap" || mode === "lecture" ? mode : "";
 }
 
 export function isDetailedNote(note) {
@@ -400,7 +401,7 @@ export function isDetailedNote(note) {
 
 export function noteBody(note) {
   const text = String(note?.content || "");
-  return text.replace(/^<!--klui:(?:detailed|mindmap)-->\n?/, "");
+  return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?(?:<!--klui:style:[a-z]+-->\n?)?/, "");
 }
 
 export function noteModesFromNotes(notes, documentFileId) {
@@ -410,6 +411,7 @@ export function noteModesFromNotes(notes, documentFileId) {
     if (note.document_file_id !== documentFileId) continue;
     if (note.kind === "image_transcript") continue;
     if (String(note.content || "").startsWith("<!--klui:mindmap-->")) modes.mindmap = true;
+    else if (String(note.content || "").startsWith(LECTURE_NOTE_MARK)) modes.lecture = true;
     else if (isDetailedNote(note)) modes.detailed = true;
     else if (note.kind === "summary") modes.summary = true;
   }
@@ -679,6 +681,7 @@ export async function generateSummary({
   pageNumber = null,
   documents = null
 }) {
+  if (normalizeNoteMode(mode) === "lecture") return generateLectureNotes({ context, config, course, source, options, signal, onStage });
   onStage?.("preparing");
   const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
   throwIfAborted(signal);
@@ -717,6 +720,61 @@ export async function generateSummary({
     content: mindmap ? `<!--klui:mindmap-->\n${parsed.content}` : detailed ? `${DETAILED_NOTE_MARK}\n${parsed.content}` : parsed.content
   }, { signal });
   return { note, partial };
+}
+
+async function generateLectureNotes({ context, config, course, source, options = {}, signal, onStage }) {
+  onStage?.("preparing");
+  const documentFile = source.documentFile;
+  // A remake rewrites the saved notes in another style from the same transcript; the
+  // student's own lines come back out of the old notes (the device copy is gone by now).
+  const remake = options.restyleNote || null;
+  const style = lectureStyle(options.lectureStyle);
+  const jots = remake ? jotsFromNote(remake.content) : options.jots;
+  const user = buildLectureInput({ documentFile, jots });
+  onStage?.("generating");
+  const streamed = await streamComplete({
+    context,
+    config,
+    signal,
+    maxTokens: 12000,
+    system: lectureNotesSystemPrompt(style),
+    user,
+    expect: "markdown",
+    temperature: 0.2
+  });
+  throwIfAborted(signal);
+  // The notes' own heading is the lecture's title; without one, the recording's name minus its extension.
+  const fallbackTitle = (sourceFallbackTitle(source) || "").replace(/\.(webm|m4a|mp3|mp4|wav|ogg|oga|opus|aac|flac)$/i, "").trim() || "Lecture notes";
+  const parsed = parseMarkdownNote(streamed.content, { fallbackTitle });
+  if (!parsed?.content) throw new HttpError(502, GENERATION_FAILED);
+  onStage?.("saving");
+  throwIfAborted(signal);
+  const content = `${LECTURE_NOTE_MARK}\n${lectureStyleMark(style)}${parsed.content}`;
+  const partial = Boolean(streamed.partial || streamed.finishReason === "length");
+  // A remake keeps the lecture's title, so the list doesn't shuffle names under the student.
+  if (remake) {
+    // Half-written notes never replace whole ones.
+    if (partial) throw new HttpError(502, "Couldn't finish rewriting these notes. Your notes are unchanged.");
+    const note = await context.db.updateStudyNote(context.user.id, remake.id, { content }, { signal });
+    if (!note) throw new HttpError(404, "These notes were removed.");
+    return { note, partial };
+  }
+  const note = await context.db.createStudyNote(context.user.id, {
+    project_id: course.id,
+    document_file_id: documentFile.id,
+    kind: "summary",
+    title: shortLectureTitle(parsed.title) || fallbackTitle,
+    content
+  }, { signal });
+  return { note, partial };
+}
+
+// Keeps a model-written lecture title list-sized: plain text, at most 80 characters.
+export function shortLectureTitle(title) {
+  const plain = String(title || "").replace(/[*_`#]+/g, "").replace(/\s+/g, " ").trim();
+  if (plain.length <= 80) return plain;
+  const cut = plain.slice(0, 80);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > 40 ? cut.lastIndexOf(" ") : 80).trim()}…`;
 }
 
 export async function transcribeCourseImage({ context, config, course, attachment, signal }) {

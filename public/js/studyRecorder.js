@@ -425,6 +425,7 @@ export function createLectureRecorder({ onChange }) {
     get elapsed() { return elapsed(); },
     get result() { return result; },
     get courseId() { return meta?.courseId || ""; },
+    get recordingId() { return meta?.id || result?.id || ""; },
     get persisted() { return persisted; },
     get quiet() { return quiet; },
     setTitle(title) {

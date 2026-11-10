@@ -1,0 +1,26 @@
+{
+  "name": "klui-clients",
+  "private": true,
+  "description": "Rebuilt Klui web and mobile clients. Independent of the root server package.",
+  "packageManager": "npm@11.14.1",
+  "workspaces": [
+    "shared",
+    "web",
+    "mobile"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "web:dev": "npm run dev -w @klui/web",
+    "web:build": "npm run build -w @klui/web",
+    "mobile:start": "npm run start -w @klui/mobile"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "pixelmatch": "^8.0.0",
+    "playwright": "^1.64.1",
+    "pngjs": "^7.0.0"
+  }
+}

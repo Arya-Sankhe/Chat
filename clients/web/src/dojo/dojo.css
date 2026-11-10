@@ -1,0 +1,637 @@
+/* Dojo v3 — the AI note app for lectures. Tokens from the council's v4 mockup
+   (/tmp/dojo-v3/final/COMPONENTS.md): one set, light and dark. Sky is for *your* words,
+   timestamps and audio. Functional text uses --d3-tx / --d3-tx2 (≥4.5:1 on every surface). */
+
+.study-view.d3-on { padding: 0; overflow: hidden; }
+.study-view.d3-on.study-view--detail { padding: 0; }
+
+.d3 {
+  --d3-bg: #eaf3fb;
+  --d3-paper: #ffffff;
+  --d3-paper2: #f2f7fc;
+  --d3-paper3: #e6eff8;
+  --d3-tx: #0c1624;
+  --d3-tx2: #3f5068;
+  --d3-bd: rgba(12, 45, 85, .12);
+  --d3-bd2: rgba(12, 45, 85, .22);
+  --d3-sky: #084e85;
+  --d3-skybg: rgba(62, 155, 225, .16);
+  --d3-skyline: rgba(8, 78, 133, .5);
+  --d3-sky-soft: #3d9be3;
+  --d3-skyline-soft: rgba(61, 155, 227, .45);
+  --d3-ts-bg: #eaf4fc;
+  --d3-pill: #0c1624;
+  --d3-pilltx: #ffffff;
+  --d3-red: #d92d20;
+  --d3-danger: #b42318;
+  --d3-shadow: 0 24px 60px rgba(31, 90, 150, .16);
+  --d3-mark-a: #7ec8f8;
+  --d3-mark-b: #2f8fd6;
+  --d3-mark-c: #0a5a99;
+  --d3-mark-depth: #063d66;
+  --d3-mark-line: #084e85;
+  --d3-wash: radial-gradient(1000px 520px at 82% -10%, rgba(159, 217, 251, .55), transparent 62%), radial-gradient(760px 460px at 6% 108%, rgba(189, 230, 255, .6), transparent 60%);
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--d3-tx);
+  background: var(--d3-wash), var(--d3-bg);
+  font-family: "Avenir Next", Avenir, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body[data-mode="dark"] .d3 {
+  --d3-bg: #0a0e15;
+  --d3-paper: #151a23;
+  --d3-paper2: #1c2330;
+  --d3-paper3: #242e3f;
+  --d3-tx: #f4f7fb;
+  --d3-tx2: #bcc7d6;
+  --d3-bd: rgba(255, 255, 255, .10);
+  --d3-bd2: rgba(255, 255, 255, .20);
+  --d3-sky: #9ad7fc;
+  --d3-skybg: rgba(88, 174, 240, .17);
+  --d3-skyline: rgba(140, 205, 250, .48);
+  --d3-sky-soft: #9ad7fc;
+  --d3-skyline-soft: rgba(140, 205, 250, .48);
+  --d3-ts-bg: rgba(88, 174, 240, .17);
+  --d3-pill: #f5f8ff;
+  --d3-pilltx: #0a0e15;
+  --d3-red: #ff6b61;
+  --d3-danger: #ff9d94;
+  --d3-shadow: 0 24px 60px rgba(0, 0, 0, .38);
+  --d3-mark-a: #bde6ff;
+  --d3-mark-b: #9fd9fb;
+  --d3-mark-c: #66bdf6;
+  --d3-mark-depth: #2f7fc4;
+  --d3-mark-line: transparent;
+  --d3-wash: radial-gradient(1000px 520px at 82% -10%, rgba(102, 189, 246, .2), transparent 62%), radial-gradient(760px 460px at 6% 108%, rgba(88, 174, 240, .12), transparent 60%), radial-gradient(520px 260px at 28% -6%, rgba(189, 230, 255, .08), transparent 65%);
+}
+
+.d3 *, .d3 *::before, .d3 *::after { box-sizing: border-box; }
+/* Zero specificity, so the engine's own tool markup (decks, tests, maps) keeps its styles. */
+:where(.d3) button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; text-align: inherit; }
+:where(.d3) button:disabled { cursor: default; opacity: .55; }
+.d3 h1, .d3 h2, .d3 h3, .d3 p { margin: 0; }
+.d3 :focus-visible { outline: 2px solid var(--d3-sky); outline-offset: 2px; border-radius: 8px; }
+.d3-icon { display: block; flex: none; }
+.d3-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.d3-scroll { flex: 1; min-height: 0; overflow: auto; padding: 26px 40px 48px; }
+.d3-top-space { flex: 1; }
+
+/* top bar */
+.d3-top { flex: none; height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 24px; border-bottom: 1px solid var(--d3-bd); }
+.d3-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13.5px; color: var(--d3-tx2); white-space: nowrap; }
+.d3-crumb b { color: var(--d3-tx); font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+.d3-crumb-back { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 9px; color: var(--d3-tx2); }
+.d3-crumb-back:hover { background: var(--d3-paper2); color: var(--d3-tx); }
+
+/* buttons */
+.d3-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--d3-bd2) !important; background: var(--d3-paper) !important; border-radius: 999px; padding: 8px 15px !important; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); white-space: nowrap; transition: transform 140ms ease, background 140ms ease; }
+.d3-btn:hover:not(:disabled) { background: var(--d3-paper2) !important; }
+.d3-btn:active:not(:disabled) { transform: scale(.97); }
+.d3-btn.is-filled { background: var(--d3-pill) !important; color: var(--d3-pilltx); border-color: transparent !important; }
+.d3-btn.is-filled:hover:not(:disabled) { background: var(--d3-pill) !important; filter: brightness(1.12); }
+.d3-btn.is-big { padding: 13px 24px !important; font-size: 16px; }
+.d3-btn.is-live { color: var(--d3-red); border-color: color-mix(in srgb, var(--d3-red) 45%, transparent) !important; font-variant-numeric: tabular-nums; }
+.d3-iconbtn { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 10px; color: var(--d3-tx2); }
+.d3-iconbtn:hover { background: var(--d3-paper2); color: var(--d3-tx); }
+.d3-quietlink { font-size: 13px; color: var(--d3-tx2); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--d3-bd2); }
+.d3-quietlink:hover { color: var(--d3-tx); }
+.d3-rdot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--d3-red); display: inline-block; }
+.d3-rdot.is-pulse { animation: d3-pulse 1.6s ease-in-out infinite; }
+@keyframes d3-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--d3-red) 45%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+.d3-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--d3-bd2); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 650; color: var(--d3-tx2); white-space: nowrap; }
+.d3-chip.is-proc { color: var(--d3-sky); border-color: var(--d3-skyline); background: var(--d3-skybg); }
+.d3-chip.is-error { color: var(--d3-danger); border-color: color-mix(in srgb, var(--d3-danger) 45%, transparent); }
+.d3-chipbtn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--d3-bd2); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--d3-tx); background: var(--d3-paper); max-width: 360px; }
+.d3-chipbtn > :not(svg) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* menus */
+.d3-menu-wrap { position: relative; flex: none; }
+.d3-menu-trigger { display: inline-flex; }
+.d3-menu { position: absolute; top: calc(100% + 6px); z-index: 30; min-width: 220px; max-width: 340px; max-height: 360px; overflow: auto; background: var(--d3-paper2); border: 1px solid var(--d3-bd2); border-radius: 14px; box-shadow: 0 18px 44px rgba(0, 0, 0, .22); padding: 6px; }
+.d3-menu--right { right: 0; }
+.d3-menu--left { left: 0; }
+.d3-mi { display: flex !important; width: 100%; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 600; padding: 9px 10px !important; border-radius: 9px; color: var(--d3-tx); white-space: nowrap; }
+.d3-mi:hover { background: var(--d3-skybg) !important; }
+.d3-mi.is-danger { color: var(--d3-danger); }
+.d3-mi.is-current { background: var(--d3-skybg) !important; color: var(--d3-sky); }
+.d3-mi-text { overflow: hidden; text-overflow: ellipsis; }
+.d3-mi-empty { padding: 10px; font-size: 13px; color: var(--d3-tx2); }
+
+/* home */
+.d3-wordmark { width: 170px; height: auto; overflow: visible; }
+.d3-folder .dojo-folder-sheet { transition: transform 340ms cubic-bezier(.23, 1, .32, 1); }
+.d3-course-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #4fa58c; }
+.d3-course-dot[data-tone="clay"] { background: #d98c4c; }
+.d3-course-dot[data-tone="blue"] { background: #5a8ee0; }
+.d3-course-dot[data-tone="lilac"] { background: #8e6dd8; }
+.d3-course-dot[data-tone="rose"] { background: #d7718f; }
+
+/* flat notebook lists */
+.d3-group { font-size: 12px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; color: var(--d3-tx2); margin: 18px 2px 8px; }
+.d3-list { background: var(--d3-paper); border: 1px solid var(--d3-bd); border-radius: 18px; overflow: visible; }
+.d3-list + .d3-list { margin-top: 12px; }
+.d3-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 12px 4px 4px; border-bottom: 1px solid var(--d3-bd); }
+.d3-row:last-child { border-bottom: 0; }
+.d3-row-main { flex: 1; min-width: 0; display: flex !important; flex-direction: column; align-items: flex-start; gap: 3px; padding: 11px 14px !important; border-radius: 14px; text-align: left !important; }
+.d3-row-main:hover:not(:disabled):not(.is-static) { background: var(--d3-paper2) !important; }
+.d3-row-main.is-tool { flex-direction: row; align-items: center; gap: 14px; }
+.d3-row-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.d3-row h3 { font-size: 15.5px; letter-spacing: -.01em; line-height: 1.3; display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.d3-row p { font-size: 13.5px; line-height: 1.45; color: var(--d3-tx2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.d3-row-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--d3-tx2); }
+.d3-row.is-live h3 { color: var(--d3-red); }
+.d3-row.is-failed h3 { color: var(--d3-danger); }
+.d3-row-action { flex: none; font-size: 13px; font-weight: 650; color: var(--d3-tx2); border: 1px solid var(--d3-bd2); border-radius: 999px; padding: 5px 12px; }
+.d3-row-main:hover .d3-row-action { color: var(--d3-tx); }
+.d3-pin { color: var(--d3-sky); }
+.d3-playbtn { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--d3-bd2) !important; color: var(--d3-sky); }
+.d3-playbtn:hover { background: var(--d3-skybg) !important; }
+.d3-bar { display: block; width: min(260px, 100%); height: 5px; margin-top: 4px; border-radius: 99px; background: var(--d3-paper3); overflow: hidden; }
+.d3-bar i { display: block; height: 100%; width: 100%; transform-origin: left; background: linear-gradient(90deg, #66bdf6, #1f7fd0); border-radius: 99px; transition: transform 400ms ease; }
+.d3-bar.is-progress { width: min(320px, 100%); }
+.d3-thumb { width: 54px; height: 44px; flex: none; border-radius: 11px; border: 1px solid var(--d3-bd2); background: var(--d3-paper2); display: grid; place-items: center; color: var(--d3-sky); overflow: hidden; }
+.d3-thumb.is-map { width: 150px; height: 60px; display: flex; align-items: center; gap: 0; padding: 6px 8px; place-items: unset; overflow: hidden; }
+.d3-tbranches { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-left: 10px; margin-left: 8px; border-left: 1px solid var(--d3-bd2); }
+.d3-tnode { display: block; border: 1px solid var(--d3-skyline); background: var(--d3-skybg); color: var(--d3-sky); border-radius: 6px; font-size: 10px; font-weight: 650; padding: 0 6px; line-height: 14px; height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 84px; }
+.d3-tnode.is-root { color: var(--d3-tx); background: var(--d3-paper); border-color: var(--d3-bd2); flex: none; max-width: 44px; align-self: center; }
+.d3-skeleton span { display: block; height: 11px; border-radius: 6px; background: linear-gradient(90deg, var(--d3-paper2), var(--d3-paper3), var(--d3-paper2)); background-size: 200% 100%; animation: d3-shimmer 1.4s linear infinite; }
+@keyframes d3-shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+.d3-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 38px 24px; border: 1px dashed var(--d3-bd2); border-radius: 18px; margin-top: 16px; }
+.d3-empty h3 { font-size: 16px; }
+.d3-empty p { max-width: 420px; font-size: 14px; line-height: 1.55; color: var(--d3-tx2); }
+.d3-error { color: var(--d3-danger) !important; font-size: 13px; line-height: 1.45; }
+.d3-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--d3-skyline); border-top-color: var(--d3-sky); animation: d3-spin 800ms linear infinite; display: inline-block; }
+@keyframes d3-spin { to { transform: rotate(360deg); } }
+
+/* course header + tabs */
+.d3-tabbody { padding-bottom: 12px; }
+.d3-toolbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; }
+.d3-toolbar .d3-group { margin: 0 2px; }
+.d3-askbar { margin-top: 18px; width: 100%; display: flex !important; align-items: center; gap: 11px; border: 1px solid var(--d3-bd2) !important; background: var(--d3-paper2) !important; border-radius: 999px; padding: 7px 8px 7px 12px !important; color: var(--d3-tx2); font-size: 14px; }
+.d3-askbar > span:not(.d3-sendbtn):not(.d3-klui) { flex: 1; text-align: left; }
+.d3-askbar:hover { border-color: var(--d3-skyline) !important; }
+.d3-sendbtn { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--d3-sky); border: 1px solid var(--d3-skyline); background: var(--d3-skybg); }
+/* the ask bar is a real input: you type in place, and send moves you on */
+.d3-askbar.is-input { cursor: text; transition: border-color 140ms ease, box-shadow 140ms ease; }
+.d3-askbar.is-input:focus-within { border-color: var(--d3-skyline) !important; box-shadow: 0 0 0 3px var(--d3-skybg); }
+.d3-askbar textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--d3-tx); font: inherit; font-size: 14px; line-height: 20px; padding: 0; max-height: 140px; }
+.d3-askbar textarea::placeholder { color: var(--d3-tx2); }
+.d3 .d3-askbar textarea:focus-visible { outline: 0; }
+.d3-askbar .d3-sendbtn { cursor: pointer; padding: 0; transition: background-color 140ms ease, color 140ms ease; }
+.d3-askbar .d3-sendbtn.is-ready { background: var(--d3-sky); color: var(--d3-paper); border-color: var(--d3-sky); }
+
+/* the paper */
+.d3-course.is-lecture { background: transparent; }
+.d3-stage { flex: 1; min-height: 0; display: flex; justify-content: center; padding: 18px 28px 22px; }
+.d3-paper { width: min(820px, 100%); min-height: 0; display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd); border-radius: 22px; box-shadow: var(--d3-shadow); overflow: hidden; }
+.d3-paper-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px 20px; border-bottom: 1px solid var(--d3-bd); }
+.d3-paper-meta { flex: 1; text-align: right; font-size: 12.5px; color: var(--d3-tx2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d3-seg { display: flex; padding: 3px; border-radius: 999px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); flex: none; }
+.d3-seg button { padding: 6px 14px !important; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--d3-tx2); }
+.d3-seg button.is-on { background: var(--d3-pill) !important; color: var(--d3-pilltx); }
+.d3-paper-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 52px 40px; position: relative; }
+.d3-paper-body h1 { font-size: 27px; letter-spacing: -.02em; line-height: 1.2; margin: 2px 0 8px; }
+.d3-paperfoot { flex: none; padding: 10px 18px 14px; border-top: 1px solid var(--d3-bd); font-size: 12.5px; color: var(--d3-tx2); }
+.d3-paperfoot.is-warning { color: var(--d3-danger); }
+.d3-paperfoot .d3-askbar { margin: 0; }
+.d3-paperfoot.is-ask .composer-area, .d3-composer .composer-area { margin: 0 auto; }
+
+/* recording: one quiet strip, then a blank page for jots, all on one left edge */
+.d3-listen { flex: none; display: flex; align-items: center; gap: 12px; margin: 14px 16px 0; padding: 8px 8px 8px 12px; border-radius: 18px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); }
+.d3-listen-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.d3-listen-copy strong { font-size: 14.5px; font-weight: 700; }
+.d3-listen-copy span { font-size: 12.5px; color: var(--d3-tx2); font-variant-numeric: tabular-nums; }
+.d3-listen.is-writing { margin: 14px 52px 4px; padding: 10px 14px 10px 12px; }
+.d3-levels { flex: none; display: flex; align-items: center; gap: 3px; height: 24px; width: 120px; }
+.d3-levels i { flex: 1; height: 100%; border-radius: 2px; background: var(--d3-sky); transform: scaleY(.1); transition: transform 90ms linear; }
+.d3-listen.is-paused .d3-levels i { transform: scaleY(.06) !important; opacity: .5; }
+.d3-pad { flex: 1; min-height: 0; overflow: auto; padding: 22px 16px 18px; display: flex; flex-direction: column; }
+.d3-pad-title { font-size: 13px; color: var(--d3-tx2); margin: 0; }
+.d3-pad-title b { color: var(--d3-tx); font-weight: 700; }
+.d3-pad-hint { font-size: 12.5px; color: var(--d3-tx2); opacity: .85; margin: 2px 0 14px; }
+.d3-pad-box { position: relative; flex: 1; }
+.d3-pad-text, .d3-pad-mirror { font: inherit; font-size: 16px; line-height: 1.75; letter-spacing: normal; white-space: pre-wrap; overflow-wrap: anywhere; }
+.d3-pad-text { display: block; width: 100%; min-height: 360px; height: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--d3-tx); padding: 0 56px 0 0; }
+.d3 .d3-pad-text:focus-visible { outline: 0; }
+.d3-pad-text::placeholder { color: var(--d3-tx2); opacity: .7; }
+.d3-pad-mirror { position: absolute; left: 0; right: 56px; top: 0; visibility: hidden; pointer-events: none; }
+.d3-pad-gutter { position: absolute; right: 0; top: 0; width: 48px; }
+.d3-pad-gutter span { position: absolute; right: 0; font-size: 12px; line-height: 28px; font-weight: 700; color: var(--d3-sky); opacity: .85; font-variant-numeric: tabular-nums; }
+.d3-paperfoot[data-rec-quiet]:empty { display: none; }
+
+/* Buddy: the little notebook face */
+.d3-buddy { flex: none; display: inline-flex; color: var(--d3-sky-soft); }
+.d3-buddy svg { overflow: visible; }
+.d3-buddy-page { fill: var(--d3-skybg); stroke: currentColor; stroke-width: 1.6; }
+.d3-buddy-ring, .d3-buddy-line { stroke: currentColor; stroke-width: 1.6; }
+.d3-buddy-line { stroke: var(--d3-tx); stroke-width: 1.5; }
+.d3-buddy-eyes circle { fill: var(--d3-tx); }
+.d3-buddy-cheek { fill: #f59bb0; opacity: .55; }
+.d3-buddy-pen { fill: var(--d3-paper); stroke: currentColor; stroke-width: 1.3; transform-origin: 26px 26px; animation: d3-scribble .9s ease-in-out infinite; }
+.d3-buddy.is-listening .d3-buddy-eyes { transform-origin: 16px 16px; animation: d3-blink 4.2s ease-in-out infinite; }
+.d3-buddy.is-writing .d3-buddy-eyes { transform: translateY(1px); }
+.d3-buddy.is-sad { color: var(--d3-tx2); }
+@keyframes d3-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes d3-scribble { 0%, 100% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(-1.5px, .5px) rotate(-8deg); } }
+
+/* note style: a quiet pill in the lecture's top bar, and a status while the notes are rewritten */
+.d3-stylemenu { flex: none; }
+.d3-stylebtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--d3-bd); font-size: 12.5px; font-weight: 600; color: var(--d3-tx2); white-space: nowrap; }
+.d3-stylemenu .d3-menu-trigger:hover .d3-stylebtn, .d3-stylemenu .d3-menu-trigger[aria-expanded="true"] .d3-stylebtn { color: var(--d3-tx); background: var(--d3-paper2); }
+.d3-stylemenu .d3-menu { min-width: 260px; }
+.d3-menu-head { padding: 6px 10px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--d3-tx2); }
+.d3-style-item { justify-content: space-between; white-space: normal !important; }
+.d3-style-copy { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.d3-style-copy b { font-weight: 650; }
+.d3-style-copy small { font-size: 12px; font-weight: 500; color: var(--d3-tx2); }
+.d3-style-item:disabled { opacity: .55; cursor: default; }
+.d3-restyle { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; padding: 8px 14px 8px 10px; width: fit-content; border-radius: 999px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); font-size: 13px; font-weight: 600; color: var(--d3-tx2); }
+.d3-note.is-restyling { opacity: .4; pointer-events: none; transition: opacity 200ms ease; }
+@media (prefers-reduced-motion: reduce) { .d3-buddy * { animation: none !important; } }
+
+/* writing */
+.d3-steps { list-style: none; margin: 14px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.d3-steps li { display: flex; align-items: center; gap: 11px; font-size: 14.5px; color: var(--d3-tx2); flex-wrap: wrap; }
+.d3-steps li.is-done, .d3-steps li.is-now { color: var(--d3-tx); }
+.d3-steps li.is-failed { color: var(--d3-danger); }
+.d3-steps small { flex-basis: 100%; padding-left: 37px; font-size: 12.5px; color: var(--d3-tx2); }
+.d3-step-dot { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--d3-bd2); color: var(--d3-sky); }
+.d3-steps li.is-done .d3-step-dot, .d3-steps li.is-now .d3-step-dot { background: var(--d3-skybg); border-color: var(--d3-skyline); }
+.d3-kept { margin: 16px 0; padding: 12px 16px; border-radius: 14px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); }
+.d3-kept-title { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--d3-tx2); }
+.d3-kept p { font-size: 14px; line-height: 1.55; margin: 7px 0 0; display: flex; gap: 10px; align-items: baseline; }
+.d3-skeleton { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.d3-skeleton span.is-short { width: 55%; }
+
+/* timestamps — one pill everywhere */
+.d3-ts, .d3 .dojo-cite { display: inline-flex !important; align-items: center; gap: 5px; white-space: nowrap; vertical-align: 1px; line-height: 1.5; padding: 1px 9px 1px 7px !important; border-radius: 999px; border: 1px solid var(--d3-skyline) !important; background: var(--d3-ts-bg) !important; color: var(--d3-sky) !important; font-size: 12px !important; font-weight: 750; font-variant-numeric: tabular-nums; }
+.d3 .dojo-cite::before { content: ""; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; }
+.d3 .dojo-cite:hover { filter: brightness(1.08); }
+.d3 .dojo-cite.is-playing { background: var(--d3-sky) !important; color: var(--d3-paper) !important; }
+.d3-ts.is-static { flex: none; }
+
+/* finished notes */
+.d3-studyline { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 6px 0 10px; border-bottom: 1px solid var(--d3-bd); }
+.d3-studyline-label { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--d3-tx2); }
+.d3-slink { display: inline-flex !important; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); padding: 3px 4px; border-radius: 8px; }
+.d3-slink:hover { color: var(--d3-sky); }
+.d3-contents { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 10px 0 14px; font-size: 12.5px; color: var(--d3-tx2); }
+.d3-contents b { color: var(--d3-tx); }
+.d3-contents button:hover { color: var(--d3-sky); text-decoration: underline; }
+.d3-note { max-width: 716px; font-size: 15.5px; line-height: 1.62; color: var(--d3-tx); }
+.d3-note h1 { display: none; }
+.d3-note h2 { font-size: 17px; letter-spacing: -.01em; margin: 22px 0 8px; scroll-margin-top: 12px; }
+.d3-note h3 { font-size: 15.5px; margin: 16px 0 6px; }
+.d3-note p { margin: 10px 0; }
+.d3-note ul, .d3-note ol { padding-left: 20px; margin: 8px 0; }
+.d3-note li { margin: 6px 0; }
+.d3-note ul li::marker { color: var(--d3-sky); }
+.d3-note blockquote { margin: 14px 0; padding: 12px 16px; border-radius: 14px; background: var(--d3-skybg); border: 1px solid var(--d3-skyline); }
+.d3-note blockquote strong { color: var(--d3-sky); }
+.d3-note blockquote p { margin: 0; }
+.d3-note .dojo-mine { display: inline; background: var(--d3-skybg); color: inherit; border-left: 3px solid var(--d3-sky); border-radius: 6px; padding: 2px 8px; font-weight: 600; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.d3-note .dojo-mine::before { content: "you"; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--d3-sky); border: 1px solid var(--d3-skyline); border-radius: 99px; padding: 0 6px; margin-right: 7px; vertical-align: 1px; }
+.d3-note table { border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+.d3-note th, .d3-note td { border: 1px solid var(--d3-bd2); padding: 7px 10px; text-align: left; }
+.d3-note code { font-size: .92em; }
+
+/* the slim player: hidden until a timestamp or ▶ is tapped (the engine adds .is-on) */
+.d3-player { display: none; flex: none; align-items: center; gap: 12px; margin: 10px 16px 0; padding: 6px 14px 6px 7px; min-height: 46px; border-radius: 999px; background: var(--d3-paper2); border: 1px solid var(--d3-bd2); font-size: 12.5px; color: var(--d3-tx2); font-variant-numeric: tabular-nums; }
+.d3-player.is-on { display: flex; }
+.d3-pbtn { width: 34px; height: 34px; flex: none; border-radius: 50% !important; display: grid !important; place-items: center; border: 1px solid var(--d3-bd2) !important; color: var(--d3-tx) !important; }
+.d3-pbtn svg { width: 14px; height: 14px; }
+.d3-player-now { color: var(--d3-tx); font-weight: 650; min-width: 38px; }
+.d3-player-track { flex: 1; height: 6px; border-radius: 99px; background: var(--d3-paper3); overflow: hidden; cursor: pointer; }
+.d3-player-track i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--d3-sky); }
+
+/* transcript + ask on the paper */
+.d3-paper-body.is-transcript { padding: 12px 18px; }
+.d3-paper-body.is-transcript .dojo-lec-audio-slot { height: 100%; }
+/* lecture-recording elements use the lighter sky blue: timestamps, ▶ buttons, the lecture list, the live notepad */
+.d3-ts, .d3 .dojo-cite, .d3-playbtn, .d3-li[data-lecture], .d3-listen, .d3-pad-gutter, .d3-steps { --d3-sky: var(--d3-sky-soft); --d3-skyline: var(--d3-skyline-soft); }
+/* the transcript's player: the notes' slim blue player, in two short rows */
+.d3 .dojo-lecture { --pod: var(--d3-sky-soft); }
+.d3 .dojo-lecture .dojo-view-head { padding: 4px 4px 2px; }
+.d3 .dojo-lecture-badge { background: var(--d3-skybg); color: var(--d3-sky-soft); width: 28px; height: 28px; border-radius: 9px; }
+.d3 .dojo-lecture-player { display: grid; gap: 2px; margin: 8px 4px 2px; padding: 6px 10px 4px 7px; border-radius: 18px; background: var(--d3-paper2); border: 1px solid var(--d3-bd2); color: var(--d3-tx2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.d3 .dojo-lec-prow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.d3 .dojo-lec-prow .dojo-pod-scrub { flex: 1; min-width: 0; }
+.d3 .dojo-lec-ptime { flex: none; min-width: 34px; color: var(--d3-tx); font-weight: 650; }
+.d3 .dojo-lec-ptime.is-dur { color: var(--d3-tx2); font-weight: 500; text-align: right; }
+.d3 .dojo-lecture-player .dojo-pod-scrub input::-webkit-slider-runnable-track { height: 6px; background: linear-gradient(90deg, var(--d3-sky-soft) var(--p), var(--d3-paper3) var(--p)); }
+.d3 .dojo-lecture-player .dojo-pod-scrub input::-moz-range-track { height: 6px; background: linear-gradient(90deg, var(--d3-sky-soft) var(--p), var(--d3-paper3) var(--p)); }
+.d3 .dojo-lecture-player .dojo-pod-scrub input::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -3px; border: 0; background: var(--d3-sky-soft); box-shadow: none; }
+.d3 .dojo-lecture-player .dojo-pod-scrub input::-moz-range-thumb { width: 12px; height: 12px; border: 0; background: var(--d3-sky-soft); box-shadow: none; }
+.d3 .dojo-lecture-player .dojo-pod-play { width: 34px; height: 34px; flex: none; background: transparent; color: var(--d3-tx); border: 1px solid var(--d3-bd2); box-shadow: none; }
+.d3 .dojo-lecture-player.is-playing .dojo-pod-play { background: var(--d3-sky-soft); border-color: var(--d3-sky-soft); color: var(--d3-paper2); }
+.d3 .dojo-lecture-player .dojo-pod-play svg { width: 14px; height: 14px; }
+.d3 .dojo-lecture-player .dojo-pod-play::after { inset: -3px; }
+.d3 .dojo-lec-prow.is-tools { gap: 2px; padding-left: 2px; }
+.d3 .dojo-lecture-player .dojo-pod-skip { width: 30px; height: 30px; color: var(--d3-tx2); }
+.d3 .dojo-lecture-player .dojo-pod-skip svg { width: 19px; height: 19px; }
+.d3 .dojo-lecture-player .dojo-pod-skip:hover { background: var(--d3-skybg); color: var(--d3-tx); }
+.d3 .dojo-lec-pgap { flex: 1; }
+.d3 .dojo-lecture-player .dojo-pod-volume { color: var(--d3-tx2); }
+.d3 .dojo-lecture-player .dojo-pod-volume .study-icon-btn { width: 28px; height: 28px; }
+.d3 .dojo-lecture-player .dojo-pod-volume input { width: 64px; }
+.d3 .dojo-lecture-player .dojo-pod-speed { position: relative; margin-left: 6px; }
+.d3 .dojo-lecture-player .dojo-pod-speed-btn { min-width: 0; padding: 3px 8px; border-color: var(--d3-bd2); background: transparent; color: var(--d3-tx2); font-size: 11.5px; }
+.d3 .dojo-lecture-player .dojo-pod-speed-btn svg { width: 12px; height: 12px; }
+.d3 .dojo-lecture-player .dojo-pod-speed-btn.is-on { border-color: var(--d3-skyline); background: var(--d3-skybg); color: var(--d3-sky-soft); }
+.d3 .dojo-lecture-line.is-active time { color: var(--d3-sky-soft); }
+.d3 .dojo-lecture .dojo-pod-transcript-head { padding: 10px 8px 4px; }
+.d3-paper-body.is-ask { display: flex; flex-direction: column; padding: 14px 28px 10px; }
+.d3-scope { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--d3-bd2); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--d3-tx2); margin-bottom: 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d3-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.d3-chat .dojo-messages-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.d3-chat .dojo-messages-slot > #messages { flex: 1; min-height: 0; overflow: auto; }
+.d3-chat-welcome { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 30px 0; }
+.d3-chat-welcome h2 { font-size: 20px; letter-spacing: -.015em; }
+.d3-prompts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.d3-prompts button { border: 1px solid var(--d3-bd2) !important; border-radius: 999px; padding: 7px 14px !important; font-size: 13.5px; font-weight: 600; background: var(--d3-paper) !important; }
+.d3-prompts button:hover { border-color: var(--d3-skyline) !important; color: var(--d3-sky); }
+
+/* course Ask tab */
+.d3-ask { display: flex; flex-direction: column; min-height: calc(100vh - 230px); }
+.d3-ask .d3-chat { min-height: 300px; }
+.d3-composer { position: sticky; bottom: 0; padding: 10px 0 4px; background: linear-gradient(180deg, transparent, var(--d3-bg) 30%); }
+
+/* an open tool / preview fills the tab */
+.d3-tool { display: flex; flex-direction: column; min-height: calc(100vh - 220px); }
+.d3-tool.is-studio { padding-top: 12px; }
+.d3-tool-slot, .d3-preview { flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; }
+.d3-tool-slot > .dojo-studio-view { flex: 1; min-height: 0; }
+.d3-preview { min-height: 70vh; border: 1px solid var(--d3-bd); background: var(--d3-paper); }
+
+@media (max-width: 900px) {
+  .d3-scroll { padding: 18px 18px 40px; }
+  .d3-paper-body { padding: 16px 22px 30px; }
+  .d3-listen.is-writing { margin-left: 22px; margin-right: 22px; }
+  .d3-stage { padding: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .d3 *, .d3 *::before, .d3 *::after { animation: none !important; transition: none !important; }
+}
+.d3 .d3-folder { max-width: none; margin: 0; flex: none; }
+
+/* The chat core's composer, moved into the paper foot or the Ask tab. */
+.d3 .study-composer-slot { position: static; padding: 0; pointer-events: auto; background: none; }
+.d3-paperfoot.is-ask:has(.study-composer-slot) { padding: 8px 12px 10px; }
+.d3 .study-composer-slot .composer-area { position: relative !important; inset: auto !important; padding: 0 !important; width: 100%; }
+.d3 .study-composer-slot .composer-wrap { width: 100% !important; max-width: none !important; }
+
+/* Keep navigation available while the course body scrolls. */
+.d3-history-search { width: 100%; padding: 8px; background: var(--d3-paper); color: var(--d3-tx); border: 1px solid var(--d3-bd); border-radius: 8px; }
+.d3-menu { max-height: min(440px, 70vh); overflow-y: auto; }
+@media (max-width: 600px) {
+  .d3-listen { flex-wrap: wrap; }
+  .d3-listen-copy { flex-basis: calc(100% - 65px); }
+  .d3-levels { display: none; }
+  .d3-listen > button { flex: 1; white-space: normal; }
+}
+
+.d3-lecture-dialog { margin: auto; width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--d3-bd2); border-radius: 20px; color: var(--d3-tx); background: var(--d3-paper); }
+.d3-lecture-dialog::backdrop { background: #0008; }
+.d3-lecture-dialog form, .d3-lecture-dialog label { display: flex; flex-direction: column; gap: 12px; }
+.d3-lecture-dialog h2 { font-size: 20px; }
+.d3-lecture-dialog input, .d3-lecture-dialog select { width: 100%; padding: 10px; color: var(--d3-tx); background: var(--d3-paper2); border: 1px solid var(--d3-bd2); border-radius: 8px; font: inherit; }
+.d3-lecture-dialog p { font-size: 13px; color: var(--d3-tx2); }
+.d3-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+/* ---------- Course workspace: overview, or one thing open + the right panel ---------- */
+.d3-ws { background: var(--d3-wash), var(--d3-bg); }
+.d3-ws .d3-top { border-bottom: 0; height: 60px; padding: 0 24px; }
+.d3-crumb-back.is-course { color: var(--d3-tx); font-weight: 650; padding-left: 8px; }
+/* A long course name shortens with "…"; "dojo" and the chevron keep their size. */
+.d3-crumb > svg, .d3-crumb > .d3-crumb-back:not(.is-course) { flex: none; }
+.d3-crumb > b, .d3-crumb > .d3-crumb-back.is-course { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.d3-ws-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 0 24px 20px; }
+.d3-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd); border-radius: 22px; box-shadow: var(--d3-shadow); overflow: hidden; }
+.d3-main-bar { flex: none; height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--d3-bd); }
+.d3-main-back { border: 1px solid var(--d3-bd2) !important; border-radius: 50% !important; }
+.d3-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); }
+.d3-switch button { display: inline-flex !important; align-items: center; gap: 7px; height: 30px; padding: 0 14px !important; border-radius: 999px; font-size: 13px; font-weight: 650; color: var(--d3-tx2); background: transparent !important; border: 0 !important; white-space: nowrap; transition: background 160ms ease, color 160ms ease; }
+.d3-switch button:hover:not(.is-on) { color: var(--d3-tx); }
+.d3-switch button.is-on { background: var(--d3-pill) !important; color: var(--d3-pilltx); cursor: default; }
+.d3-main-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; animation: d3-main-in 220ms ease both; }
+.d3-main-body > .d3-tabbody { padding: 0 24px 12px; flex: 1; display: flex; flex-direction: column; }
+.d3-main-body > .d3-tabbody.is-studio { padding: 12px; }
+.d3-main-body > .d3-ask { flex: 1; min-height: 0; padding-top: 14px; }
+.d3-main-body > .d3-ask .d3-chat { flex: 1; min-height: 0; overflow: auto; }
+.d3-main-body > .d3-ask .d3-composer { position: static; flex: none; }
+.d3-main-body .d3-composer { background: linear-gradient(180deg, transparent, var(--d3-paper) 30%); }
+.d3-main-body .d3-preview { min-height: 0; border: 0; }
+.d3-main-body > .d3-stage { padding: 0; }
+.d3-main-body .d3-paper { width: min(860px, 100%); border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.d3-main-dock { flex: none; padding: 8px 22px 16px; }
+.d3-main-dock .d3-askbar { margin: 0 auto; max-width: 760px; }
+/* a lecture question: the bar shrinks to a thinking pill, then the answer pops up */
+.d3-main-dock.is-pop-thinking { display: flex; justify-content: center; }
+.d3-main-dock.is-pop-open { display: none; }
+.d3-thinking { display: inline-flex; align-items: center; gap: 9px; padding: 6px 14px 6px 8px; border-radius: 999px; border: 1px solid var(--d3-skyline-soft); background: var(--d3-paper2); box-shadow: 0 6px 18px rgba(31, 90, 150, .12); animation: d3-shrink 340ms cubic-bezier(.2, .8, .2, 1) both; }
+.d3-dots { display: inline-flex; gap: 4px; }
+.d3-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--d3-sky-soft); animation: d3-dot 1.1s ease-in-out infinite; }
+.d3-dots i:nth-child(2) { animation-delay: .15s; }
+.d3-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes d3-shrink { from { opacity: .4; transform: scaleX(3.2); } to { opacity: 1; transform: none; } }
+@keyframes d3-dot { 0%, 70%, 100% { transform: translateY(0); opacity: .45; } 35% { transform: translateY(-4px); opacity: 1; } }
+.d3-pop { position: absolute; right: 18px; bottom: 16px; z-index: 6; width: min(440px, calc(100% - 36px)); height: min(580px, calc(100% - 84px)); display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd2); border-radius: 20px; box-shadow: 0 24px 60px rgba(12, 30, 60, .22); overflow: hidden; }
+.d3-pop[hidden] { display: flex !important; visibility: hidden; pointer-events: none; opacity: 0; clip-path: inset(50%); }
+.d3-pop[hidden] * { visibility: hidden !important; animation: none !important; }
+/* The pop-up is narrow and already names its lecture: the context pill keeps only its icon. */
+.d3-pop .composer-context-btn > span:not(.composer-context-chevron) { display: none; }
+.d3-pop .composer-actions, .d3-pop .composer-bottom { min-width: 0; }
+.d3-pop.is-open { animation: d3-pop-in 260ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: bottom center; }
+@keyframes d3-pop-in { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+.d3-pop-head { flex: none; display: flex; align-items: center; gap: 9px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--d3-bd); }
+.d3-pop-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.d3-pop-title b { font-size: 13.5px; }
+.d3-pop-title small { font-size: 11.5px; color: var(--d3-tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d3-pop .d3-pop-chat { flex: 1; min-height: 0; overflow: auto; padding: 4px 6px; }
+.d3-pop .d3-composer { flex: none; padding: 6px 8px 8px; }
+@media (max-width: 640px) {
+  .d3-pop { right: 8px; left: 8px; bottom: 8px; width: auto; height: min(78%, calc(100% - 60px)); }
+}
+@media (prefers-reduced-motion: reduce) { .d3-thinking, .d3-pop.is-open, .d3-dots i { animation: none; } }
+@keyframes d3-main-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.d3-h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 0 4px; font-size: 11.5px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; color: var(--d3-tx2); }
+.d3-h4 > span { margin-left: auto; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.d3-h4-link { margin-left: auto; }
+.d3-h4-link { display: inline-flex !important; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--d3-sky); background: transparent !important; border: 0 !important; padding: 2px 4px !important; border-radius: 6px; }
+
+/* Overview: a 2×2 grid of tiles. Lectures over materials on the left, Create over your work
+   on the right; the top tiles take what they need, the bottom ones fill down to Ask. */
+.d3-overview { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.d3-bento { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.d3-bento-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.d3-tile { flex: 0 1 auto; min-height: 0; max-height: 58%; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; border-radius: 22px; background: var(--d3-paper); border: 1px solid var(--d3-bd); box-shadow: var(--d3-shadow); }
+.d3-tile.is-fill { flex: 1 1 0; max-height: none; min-height: 150px; }
+.d3-tile > .d3-h4 { position: sticky; top: 0; z-index: 2; margin: 0; padding: 16px 6px 10px; background: var(--d3-paper); }
+.d3-tile .d3-tabbody { padding: 0; }
+.d3-tile .d3-group { margin: 6px 6px 4px; font-size: 11px; }
+.d3-tile .d3-list { background: transparent; border: 0; border-radius: 0; }
+.d3-tile .d3-row { padding: 2px 0; }
+.d3-tile .d3-row h3 { font-size: 14.5px; }
+.d3-tile .d3-row-main { padding: 9px 10px !important; }
+/* lectures: each one its own quiet little card */
+.d3-list.is-cards { display: grid; gap: 6px; background: transparent; border: 0; border-radius: 0; }
+.d3-list.is-cards .d3-row { padding: 2px 8px 2px 2px; border: 1px solid var(--d3-bd); border-radius: 14px; background: color-mix(in srgb, var(--d3-paper2) 55%, transparent); transition: background-color 140ms ease, border-color 140ms ease; }
+.d3-list.is-cards .d3-row:last-child { border-bottom: 1px solid var(--d3-bd); }
+.d3-list.is-cards .d3-row:hover { background: var(--d3-paper2); border-color: var(--d3-bd2); }
+.d3-list.is-cards .d3-row-main:hover:not(:disabled) { background: transparent !important; }
+.d3-list.is-cards .d3-row-main { gap: 2px; padding: 9px 10px !important; }
+.d3-tile .d3-empty { padding: 18px 10px; }
+.d3-tile .d3-li { padding: 8px 10px !important; }
+.d3-tile .d3-make { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin: 0; }
+.d3-tile .d3-side-empty { padding: 2px 6px 8px; }
+.d3-overview > .d3-main-dock { padding: 0; }
+.d3-make { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 22px; }
+.d3-make-btn { display: flex !important; align-items: center; gap: 10px; height: 48px; padding: 0 14px !important; border-radius: 14px; border: 1px solid var(--d3-bd) !important; background: var(--d3-paper2) !important; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); text-align: left; transition: border-color 140ms ease, transform 140ms ease; }
+.d3-make-btn:hover { border-color: var(--d3-bd2) !important; }
+.d3-make-btn:active { transform: scale(.98); }
+.d3-make-btn.is-flashcards svg, .d3-tool-ic.is-flashcards, .d3-slink.is-flashcards svg, .d3-mi.is-flashcards svg { color: #4fbf86; }
+.d3-make-btn.is-quiz svg, .d3-tool-ic.is-quiz, .d3-slink.is-quiz svg, .d3-mi.is-quiz svg { color: #9a82f5; }
+.d3-make-btn.is-mindmap svg, .d3-tool-ic.is-mindmap, .d3-slink.is-mindmap svg, .d3-mi.is-mindmap svg { color: #5aa6f0; }
+.d3-make-btn.is-notes svg, .d3-tool-ic.is-notes, .d3-slink.is-notes svg, .d3-mi.is-notes svg { color: #e0a64a; }
+.d3-make-btn.is-podcast svg, .d3-tool-ic.is-podcast, .d3-slink.is-podcast svg, .d3-mi.is-podcast svg { color: #f07a95; }
+.d3-make-btn.is-tutor svg, .d3-tool-ic.is-tutor, .d3-slink.is-tutor svg, .d3-mi.is-tutor svg { color: #4cc4d6; }
+.d3-make-btn.is-whiteboard svg, .d3-tool-ic.is-whiteboard, .d3-slink.is-whiteboard svg, .d3-mi.is-whiteboard svg { color: #e8b84a; }
+.d3-mat-ic { color: #f08a7e; }
+.d3-make.is-icons { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0 2px; }
+.d3-make.is-icons .d3-make-btn { height: 52px; flex-direction: column; justify-content: center; gap: 4px; padding: 0 !important; border-radius: 12px; }
+.d3-make.is-icons small { font-size: 10.5px; font-weight: 600; color: var(--d3-tx2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Right panel */
+.d3-side { flex: none; width: 300px; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; animation: d3-side-in 260ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes d3-side-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+.d3-grp { flex: none; padding: 12px 8px 8px; border-radius: 18px; background: var(--d3-paper); border: 1px solid var(--d3-bd); }
+.d3-li { position: relative; width: 100%; display: flex !important; align-items: center; gap: 9px; padding: 7px 9px !important; border-radius: 10px; font-size: 13px; color: var(--d3-tx); text-align: left; background: transparent !important; border: 0 !important; }
+button.d3-li:hover:not(:disabled):not(.is-on) { background: var(--d3-paper2) !important; }
+.d3-li.is-on { background: var(--d3-skybg) !important; box-shadow: inset 0 0 0 1px var(--d3-skyline); }
+.d3-li > svg { flex: none; }
+.d3-li-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d3-li small { flex: none; font-size: 11.5px; color: var(--d3-tx2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.d3-li.is-live { color: var(--d3-red); font-weight: 650; }
+.d3-li.is-failed { color: var(--d3-danger); }
+.d3-li .d3-iconbtn.is-tiny { width: 24px; height: 24px; }
+.d3-wave { flex: none; display: inline-flex; align-items: center; gap: 2px; width: 30px; height: 16px; }
+.d3-wave i { display: block; width: 2px; border-radius: 2px; background: var(--d3-bd2); }
+.d3-li.is-on .d3-wave i { background: var(--d3-sky); }
+.d3-side-empty { padding: 4px 8px 6px; font-size: 12.5px; line-height: 1.45; color: var(--d3-tx2); }
+
+@media (prefers-reduced-motion: reduce) { .d3-main-body, .d3-side { animation: none; } }
+/* An inline document viewer waiting outside the Dojo (you switched to Ask) stays out of sight. */
+.chat-panel > .document-viewer.is-inline-source { display: none !important; }
+/* In the Dojo the page itself shows the live recording (the top bar, the notepad), so the
+   floating recorder pill is only for the rest of the app. */
+body.study-open .dojo-rec-pill { display: none !important; }
+
+/* Narrow screens: the right panel goes under the main panel, the overview becomes one column. */
+@media (max-width: 860px) {
+  .d3-ws-body { flex-direction: column; overflow: auto; padding: 0 12px 16px; }
+  .d3-main { flex: none; min-height: calc(100dvh - 90px); }
+  .d3-side { width: auto; overflow: visible; animation: none; }
+  .d3-ws-body.is-home { overflow: auto; }
+  .d3-overview { flex: none; }
+  .d3-bento, .d3-bento-col { display: flex; flex-direction: column; gap: 12px; flex: none; }
+  .d3-tile, .d3-tile.is-fill { flex: none; max-height: none; min-height: 0; overflow: visible; }
+  .d3-tile > .d3-h4 { position: static; }
+  .d3-overview > .d3-main-dock { position: sticky; bottom: 0; padding: 18px 0 2px; background: linear-gradient(180deg, transparent, var(--d3-bg) 45%); }
+    .d3-ws .d3-top { padding: 0 12px; }
+}
+
+/* ---------- Same ground as the rest of Klui ----------
+   The Dojo sits on the app's own background (black or white, like the sidebar), with
+   neutral cards; the sky blue stays only as an accent. */
+.d3, body[data-mode="dark"] .d3 {
+  --d3-bg: var(--bg);
+  --d3-paper: color-mix(in srgb, var(--bg) 55%, var(--bg-secondary));
+  --d3-paper2: var(--bg-secondary);
+  --d3-paper3: color-mix(in srgb, var(--bg-secondary) 86%, var(--text));
+  --d3-tx: var(--text);
+  --d3-tx2: var(--text-secondary);
+  --d3-bd: color-mix(in srgb, var(--text) 9%, transparent);
+  --d3-bd2: color-mix(in srgb, var(--text) 17%, transparent);
+  --d3-wash: none;
+}
+
+/* ---------- Home: the original library ---------- */
+.d3-lib-scroll { padding: 36px clamp(24px, 4.5vw, 72px) 48px; }
+.d3-home .study-page--library { margin: 0 auto; }
+.d3-lib-head { flex-direction: row !important; align-items: flex-end !important; justify-content: space-between; flex-wrap: wrap; gap: 20px 28px !important; }
+.d3-lib-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.d3-home .dojo-wordmark { width: clamp(200px, 22vw, 290px); }
+.d3 .d3-home .dojo-folder { max-width: 190px; margin-bottom: 14px; flex: initial; }
+.study-course-card > .d3-menu-wrap { position: absolute; top: 10px; right: 10px; }
+.study-course-card > .d3-menu-wrap .d3-iconbtn { color: var(--text-tertiary); }
+.study-course-card .d3-menu { min-width: 160px; }
+
+/* ---------- Record control ----------
+   One quiet capsule: Record leads (red dot, full-strength text), the course it saves to
+   is quieter, and upload is just an icon. */
+.d3-rec { display: inline-flex; align-items: stretch; height: 40px; flex: none; border-radius: 999px; border: 1px solid var(--d3-bd2); background: var(--d3-paper); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent); }
+.d3-rec > * + * { border-left: 1px solid var(--d3-bd); }
+.d3-rec button { transition: background-color 140ms ease, color 140ms ease; }
+.d3-rec-go { display: inline-flex !important; align-items: center; gap: 9px; padding: 0 16px 0 15px !important; border-radius: 999px 0 0 999px; font-size: 13.5px; font-weight: 650; color: var(--d3-tx); white-space: nowrap; }
+.d3-rec > .d3-rec-go:only-child { border-radius: 999px; }
+.d3-rec-go:hover { background: color-mix(in srgb, var(--d3-red) 9%, transparent) !important; }
+.d3-rec-go:active { transform: scale(.98); }
+.d3-rec-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--d3-red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--d3-red) 18%, transparent); transition: box-shadow 160ms ease; }
+.d3-rec-go:hover .d3-rec-dot { box-shadow: 0 0 0 5px color-mix(in srgb, var(--d3-red) 18%, transparent); }
+.d3-rec-dot.is-pulse { animation: d3-pulse 1.6s ease-in-out infinite; }
+.d3-rec-to { display: flex; }
+.d3-rec-to > .d3-menu-trigger { align-items: center; gap: 7px; padding: 0 12px 0 13px; font-size: 12.5px; color: var(--d3-tx2); white-space: nowrap; }
+.d3-rec-to > .d3-menu-trigger:hover { background: var(--d3-paper2) !important; color: var(--d3-tx); }
+.d3-rec-to > .d3-menu-trigger b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--d3-tx); }
+.d3-rec-to .d3-menu { min-width: 230px; }
+.d3-rec-to .d3-mi.is-on { color: var(--d3-sky); }
+.d3-mi-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.d3-menu-label { padding: 6px 10px 4px; font-size: 11.5px; font-weight: 600; color: var(--d3-tx2); }
+.d3-rec-up { display: grid !important; place-items: center; width: 42px; border-radius: 0 999px 999px 0; color: var(--d3-tx2); }
+.d3-rec-up:hover { background: var(--d3-paper2) !important; color: var(--d3-tx); }
+.d3-rec.is-live { border-color: color-mix(in srgb, var(--d3-red) 40%, transparent); }
+.d3-rec-time { font-variant-numeric: tabular-nums; }
+.d3-rec-sub { font-weight: 500; color: var(--d3-tx2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .d3-lib-head { flex-direction: column !important; align-items: flex-start !important; }
+  .d3-rec-to > .d3-menu-trigger b { max-width: 110px; }
+}
+@media (prefers-reduced-motion: reduce) { .d3-rec-dot.is-pulse { animation: none; } }
+/* The capsule shrinks on narrow screens: the course name truncates first. */
+.d3-rec { max-width: 100%; min-width: 0; }
+.d3-rec-go, .d3-rec-up { flex: none; }
+.d3-rec.is-live .d3-rec-go { flex: 0 1 auto; min-width: 0; border-radius: 999px; }
+.d3-rec-sub { min-width: 0; white-space: nowrap; }
+.d3-rec-to { flex: 0 1 auto; min-width: 0; }
+.d3-rec-to > .d3-menu-trigger { min-width: 0; max-width: 100%; }
+.d3-rec-to > .d3-menu-trigger b { min-width: 0; }
+.d3-rec-to > .d3-menu-trigger .d3-icon, .d3-rec-to .d3-course-dot { flex: none; }
+@media (max-width: 640px) {
+  .d3-lib-brand, .d3-home .d3-rec { width: 100%; }
+  .d3-rec-to { flex: 1 1 auto; }
+  .d3-rec-to > .d3-menu-trigger { width: 100%; }
+  .d3-rec-to > .d3-menu-trigger b { max-width: none; flex: 0 1 auto; }
+  .d3-rec-to .d3-menu { max-width: calc(100vw - 48px); }
+  .d3-top .d3-rec-word { display: none; }
+}
+/* The course list opens under the whole capsule, so it never leaves a narrow screen. */
+.d3-rec { position: relative; }
+.d3-rec > .d3-rec-to.d3-menu-wrap { position: static; }
+.d3-rec-to .d3-menu { right: 0; max-width: 100%; }
+@media (max-width: 380px) { .d3-rec-word { display: none; } .d3-rec-to .d3-menu { left: 0; min-width: 0; } }
+
+/* ---------- In the Android/iOS app ----------
+   The Dojo runs edge to edge just under the status bar. The app's menu button sits at the
+   start of the Dojo's own top row instead of on a row of its own. */
+body.capacitor-native.study-open .study-view.d3-on.d3-on { padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 0 0 !important; }
+body.capacitor-native.study-open:has(.study-view.d3-on) .native-mobile-bar { pointer-events: none; }
+body.capacitor-native.study-open:has(.study-view.d3-on) #nativeMobileMenu { pointer-events: auto; top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px); left: 12px; }
+body.capacitor-native.study-open .d3 .d3-top { padding-left: 64px; }
+body.capacitor-native.study-open .d3 .d3-lib-scroll { padding-top: 64px; }
