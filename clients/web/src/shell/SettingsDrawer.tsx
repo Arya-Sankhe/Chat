@@ -128,6 +128,8 @@ export function SettingsDrawer() {
   const usageShown = useApp((s) => Boolean(s.me?.plan));
   const upgradePlans = useApp((s) => Array.isArray(s.plans) && s.plans.length > 0);
   const settings = useApp((s) => s.settings);
+  // Drafts belong to one account: a different sign-in remounts the editors.
+  const accountKey = useApp((s) => String(s.me?.user?.id || ""));
   const appearance = settings.appearance;
   const accent = COLOR_PRESETS.has(settings.colorPreset) ? settings.colorPreset : "default";
   const storage = useStorageMeter();
@@ -375,7 +377,7 @@ export function SettingsDrawer() {
             <div className="memory-empty" id="memoryEmpty">Turn memory on to start building a private, editable summary from your future messages.</div>
             <p className="settings-notice" id="memoryNotice" role="status" aria-live="polite" />
           </section>
-          <AdminSettings hidden={tab !== "general"} />
+          <AdminSettings key={accountKey} hidden={tab !== "general"} />
           <nav className="settings-legal" aria-label="Terms and policies">
             <a href="https://home.klui.ai/terms/" target="_blank" rel="noopener">Terms of use</a>
             {" "}
