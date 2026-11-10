@@ -812,6 +812,13 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 }
 
+/* Closed, it waits just off the right edge; its shadow would show there as a grey strip. */
+.account-drawer:not(.open) {
+
+  box-shadow: none;
+
+}
+
 .drawer-header {
 
   display: flex;

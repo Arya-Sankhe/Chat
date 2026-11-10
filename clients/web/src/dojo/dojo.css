@@ -508,3 +508,12 @@ body.study-open .dojo-rec-pill { display: none !important; }
 .d3-rec > .d3-rec-to.d3-menu-wrap { position: static; }
 .d3-rec-to .d3-menu { right: 0; max-width: 100%; }
 @media (max-width: 380px) { .d3-rec-word { display: none; } .d3-rec-to .d3-menu { left: 0; min-width: 0; } }
+
+/* ---------- In the Android/iOS app ----------
+   The Dojo runs edge to edge just under the status bar. The app's menu button sits at the
+   start of the Dojo's own top row instead of on a row of its own. */
+body.capacitor-native.study-open .study-view.d3-on.d3-on { padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 0 0 !important; }
+body.capacitor-native.study-open:has(.study-view.d3-on) .native-mobile-bar { pointer-events: none; }
+body.capacitor-native.study-open:has(.study-view.d3-on) #nativeMobileMenu { pointer-events: auto; top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px); left: 12px; }
+body.capacitor-native.study-open .d3 .d3-top { padding-left: 64px; }
+body.capacitor-native.study-open .d3 .d3-lib-scroll { padding-top: 64px; }
