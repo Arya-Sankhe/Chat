@@ -96,8 +96,8 @@ function AdminDashboard({ summary, reload }: { summary: any; reload: () => Promi
         </Row>
       )) : <div className="admin-row-sub">No plan data yet.</div>}
       <div className="admin-queue-tabs" role="tablist" aria-label="Queues">
-        <button className={`admin-queue-tab${tab === "payments" ? " active" : ""}`} type="button" role="tab" aria-selected={tab === "payments"} onClick={() => setTab("payments")}>Payments</button>
-        <button className={`admin-queue-tab${tab === "reports" ? " active" : ""}`} type="button" role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>Reports{reports.length ? ` (${reports.length})` : ""}</button>
+        <button className={`admin-queue-tab${tab === "payments" ? " active" : ""}`} type="button" role="tab" data-admin-tab="payments" aria-selected={tab === "payments"} onClick={() => setTab("payments")}>Payments</button>
+        <button className={`admin-queue-tab${tab === "reports" ? " active" : ""}`} type="button" role="tab" data-admin-tab="reports" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>Reports{reports.length ? ` (${reports.length})` : ""}</button>
       </div>
       <div hidden={tab !== "payments"}>
         {payments.length ? payments.map((payment) => (

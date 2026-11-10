@@ -11,11 +11,14 @@ import { AccountUsage } from "./Sidebar";
 function AdminSettings({ hidden }: { hidden: boolean }) {
   const admin = useApp((s) => s.me?.profile?.role === "admin");
   const showReasoning = useApp((s) => s.settings.showModelReasoning !== false);
-  const systemPrompt = useApp((s) => s.settings.systemPrompt);
+  const savedPrompt = useApp((s) => s.settings.systemPrompt);
+  // The draft stays local until Save, so an account refresh mid-edit keeps it.
+  const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   if (!admin) return null;
+  const systemPrompt = draft ?? savedPrompt ?? "";
   const save = async () => {
-    const prompt = String(systemPrompt || "").trim();
+    const prompt = String(systemPrompt).trim();
     if (!prompt) {
       showToast("System prompt cannot be empty.");
       return;
@@ -25,6 +28,7 @@ function AdminSettings({ hidden }: { hidden: boolean }) {
       const payload = await updateAdminSettings(session.current(), { systemPrompt: prompt });
       const saved = payload.settings?.systemPrompt || prompt;
       updateSetting("systemPrompt", saved);
+      setDraft(null);
       const me = useApp.getState().me;
       if (me) useApp.setState({ me: { ...me, settings: { ...(me.settings || {}), systemPrompt: saved } } });
       showToast("Global system prompt saved.");
@@ -53,7 +57,7 @@ function AdminSettings({ hidden }: { hidden: boolean }) {
         <h2>System prompt</h2>
         {" "}
         <div className="field-group">
-          <textarea id="systemPromptInput" rows={4} spellCheck="true" value={systemPrompt || ""} onChange={(event) => useApp.setState((s) => ({ settings: { ...s.settings, systemPrompt: event.target.value } }))} />
+          <textarea id="systemPromptInput" rows={4} spellCheck="true" value={systemPrompt} onChange={(event) => setDraft(event.target.value)} />
         </div>
         {" "}
         <button className="admin-load settings-save-btn" id="saveSystemPromptButton" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving..." : "Save global prompt"}</button>

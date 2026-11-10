@@ -132,11 +132,10 @@ for (const site of SITES) {
       await page.waitForSelector("#toast.visible", { timeout: 8000 });
     });
     // Put the global prompt back for the next run.
-    // (The textarea can be scrolled away by then; set it directly.)
-    await page.evaluate((value) => {
-      document.getElementById("systemPromptInput").value = value;
-      document.getElementById("saveSystemPromptButton").click();
-    }, original);
+    // Fill it like a person would, so React's change handler sees the value.
+    await page.locator("#systemPromptInput").scrollIntoViewIfNeeded();
+    await page.fill("#systemPromptInput", original);
+    await page.click("#saveSystemPromptButton");
     await page.waitForTimeout(1500);
     if (!phone) {
       await step("signedOut", async () => {
