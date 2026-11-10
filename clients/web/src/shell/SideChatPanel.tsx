@@ -120,9 +120,10 @@ export function SideChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, open, docked]);
 
+  // Only a new focus request moves focus; reopening docked without one leaves it be.
   useEffect(() => {
-    if (focusTick && open) inputRef.current?.focus();
-  }, [focusTick, open]);
+    if (focusTick && useSideChat.getState().open) inputRef.current?.focus();
+  }, [focusTick]);
 
   const startDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as Element).closest("button") || docked || !panel.current) return;
