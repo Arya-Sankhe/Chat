@@ -883,18 +883,19 @@ export function createStudyHubController({
 
   // Puts text in the real chat composer and presses send, so it goes out exactly like a typed
   // message. True once it went out (or a research clarification took it over); otherwise the
-  // composer is emptied again and the send button's own checks have said why.
-  function sendThroughComposer(text) {
+  // composer is emptied again (or, with keepRefused, the question waits there) and the send
+  // button's own checks have said why.
+  function sendThroughComposer(text, { keepRefused = false } = {}) {
     if (!canSendFromBar()) return false;
     setComposerText(text);
     if (els.sendButton.disabled) {
-      setComposerText("");
+      if (!keepRefused) setComposerText("");
       showToast("Klui can't send that yet. Try again in a moment.");
       return false;
     }
     els.sendButton.click();
     if (state.running || state.clarification || state.clarificationChecking) return true;
-    if (composerText().trim() === text) setComposerText("");
+    if (!keepRefused && composerText().trim() === text) setComposerText("");
     return false;
   }
 
@@ -6142,13 +6143,15 @@ export function createStudyHubController({
         const question = String(text || "").trim();
         const courseId = state.activeCourseId;
         if (!question || !courseId || !canSendFromBar()) return false;
-        await this.ask(scopeId);
-        // Navigating away while Ask was opening drops the question rather than sending it elsewhere.
-        if (state.activeCourseId !== courseId || state.activeCourseTab !== "chat") return false;
+        const opening = this.ask(scopeId);
+        // ask() has already switched tabs; any navigation from here on drops the question
+        // rather than sending it from somewhere else.
         const ticket = askTicket;
+        await opening;
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        if (ticket !== askTicket || state.activeCourseId !== courseId) return false;
-        return sendThroughComposer(question);
+        if (ticket !== askTicket || state.activeCourseId !== courseId || state.activeCourseTab !== "chat") return false;
+        // The bar is gone by now, so a refused question (signed out, no allowance) waits in Ask's box.
+        return sendThroughComposer(question, { keepRefused: true });
       },
       newChat() { void openCourse(state.activeCourseId, { tab: "chat" }); },
       openChat: openConversation
