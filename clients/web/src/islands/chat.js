@@ -39,7 +39,7 @@ import {
   openTitleRename,
   renderShell,
   savePinnedChatIds,
-  saveSettings as saveStoreSettings,
+  closeAccount,
   setSettingsTab,
   showToast,
   startSidebarLogin,
@@ -170,7 +170,6 @@ import { renderMindMap } from "./mindMap.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
-import { createAdminPanel } from "./adminPanel.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
@@ -282,30 +281,6 @@ function renderResearchMode() {
 
 // The storage meter renders from `me` in React (SettingsDrawer).
 function renderSettingsStorage() {}
-
-/* ─── The admin dashboard (adminPanel.js) ─── */
-
-const adminPanel = createAdminPanel({
-  // React mounts the drawers after this module loads: look them up on use.
-  elements: {
-    get adminOutput() { return els.adminOutput; },
-    get loadAdminButton() { return els.loadAdminButton; },
-    get saveSystemPromptButton() { return els.saveSystemPromptButton; },
-    get systemPromptInput() { return els.systemPromptInput; }
-  },
-  state,
-  fetchAdminSummary,
-  updateAdminSettings,
-  approveAdminPayment,
-  rejectAdminPayment,
-  resolveAdminReport,
-  escapeHtml,
-  isAdminUser: () => isAdminUser(),
-  showToast: (message) => showToast(message),
-  // saveSettings(); the store keeps the settings, this persists them.
-  saveSettings: () => saveStoreSettings(state.settings),
-  syncSettingsInputs: () => syncSettingsInputs()
-});
 
 /* ─── From public/js/app.js ─── */
 
@@ -6239,80 +6214,6 @@ async function cancelMamoSubscriptionAndRefresh() {
   }
 }
 
-function renderAccountUsageMarkup() {
-  const plan = state.me?.plan;
-  const usage = state.me?.usage || {};
-  if (!plan) return "";
-  if (plan.free) return renderFreeUsageMarkup(usage.free);
-
-  const api = usage.api || {};
-  const percent = Math.max(0, Math.min(100, Math.floor(Number(api.percent || 0))));
-  const resetLabel = api.weekEnd
-    ? `Resets ${new Date(api.weekEnd).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-    : "Resets weekly";
-
-  return `
-    <div class="account-usage">
-      <div class="account-usage-head">
-        <span class="account-usage-label">Weekly usage</span>
-        <span class="account-usage-value">${percent}%</span>
-      </div>
-      <div class="account-usage-track" aria-hidden="true">
-        <span class="account-usage-fill" style="width: ${percent}%"></span>
-      </div>
-      <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
-    </div>
-  `;
-}
-
-function freeResetLabel(resetsAt) {
-  const minutes = Math.max(1, Math.round((Date.parse(resetsAt) - Date.now()) / 60_000));
-  if (!Number.isFinite(minutes)) return "Resets daily";
-  return minutes < 60 ? `Resets in ${minutes}m` : `Resets in ${Math.round(minutes / 60)}h`;
-}
-
-function renderFreeUsageMarkup(free) {
-  if (!free) return "";
-  const icons = {
-    messages: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-    images: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'
-  };
-  const row = (kind, label) => {
-    const item = free[kind];
-    const percent = item.limit > 0 ? Math.min(100, Math.round((item.used / item.limit) * 100)) : 100;
-    return `
-      <div class="free-usage-row">
-        <div class="account-usage-head">
-          <span class="account-usage-label"><svg viewBox="0 0 24 24" aria-hidden="true">${icons[kind]}</svg>${escapeHtml(label)}</span>
-          <span class="account-usage-value">${item.remaining ? escapeHtml(`${item.remaining} left`) : "Used up"}</span>
-        </div>
-        <div class="account-usage-track" role="progressbar" aria-label="${escapeHtml(label)} used today" aria-valuemin="0" aria-valuemax="${item.limit}" aria-valuenow="${item.used}">
-          <span class="account-usage-fill${item.remaining ? "" : " is-spent"}" style="width: ${percent}%"></span>
-        </div>
-      </div>`;
-  };
-  return `
-    <div class="account-usage free-usage">
-      ${row("messages", "Messages")}
-      ${row("images", "Image uploads")}
-      <p class="account-usage-note">Free plan · ${escapeHtml(freeResetLabel(free.resetsAt))}</p>
-    </div>
-  `;
-}
-
-function renderAccount() {
-  const sub = state.me?.subscription;
-  const plan = state.me?.plan;
-  els.accountInfo.innerHTML = `
-    <div class="account-label">${escapeHtml(state.me?.user?.email || "Signed in")}</div>
-    <p class="account-detail">Plan: ${escapeHtml(plan?.name || "No active plan")}</p>
-    <p class="account-detail">Access: ${escapeHtml(sub?.status || state.me?.access?.mode || "none")}</p>
-    ${sub?.currentPeriodEnd ? `<p class="account-detail">${sub.cancelAtPeriodEnd ? "Ends" : "Renews"}: ${escapeHtml(billingDay(sub.currentPeriodEnd))}</p>` : ""}
-    ${renderAccountUsageMarkup()}
-  `;
-  els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
-}
-
 function storageItemWhere(item) {
   const where = item.conversationId
     ? (item.conversationTitle ? `Chat ${item.conversationTitle}` : "Chat")
@@ -6342,7 +6243,6 @@ function refreshAccountStorage() {
     .then(() => {
       renderProfileMenu();
       renderSettingsStorage();
-      if (els.accountDrawer.classList.contains("open")) renderAccount();
       return loadAccountStorage();
     })
     .catch(() => {});
@@ -6411,12 +6311,6 @@ function handleAccountStorageClick(event) {
     body: `Delete "${title}" from your account?${extra}`,
     chatId: item.conversationId
   });
-}
-
-function renderAdminOnlyControls() {
-  const admin = isAdminUser();
-  els.settingsReasoningSection?.classList.toggle("hidden", !admin);
-  els.settingsSystemPromptSection?.classList.toggle("hidden", !admin);
 }
 
 function renderMemorySettings() {
@@ -6512,25 +6406,13 @@ async function clearMemorySettings() {
 }
 
 // The overlay is the store's.
-function closeAccount() {
-  els.accountDrawer.classList.remove("open");
-  els.accountDrawer.setAttribute("aria-hidden", "true");
-  set((s) => ({ overlay: s.overlay === "account" ? "" : s.overlay }));
-}
-
 function openStorageDrawer() {
   if (!state.session) return;
   closeProfileMenu();
-  set({ sidebarOpen: false });
-  renderAccount();
-  els.accountDrawer.classList.add("open");
-  els.accountDrawer.setAttribute("aria-hidden", "false");
-  set({ overlay: "account" });
+  set({ sidebarOpen: false, accountOpen: true, overlay: "account" });
+  // React redraws the drawer from the store once `me` is fresh.
   loadMe()
-    .then(() => {
-      renderAccount();
-      renderProfileMenu();
-    })
+    .then(() => renderProfileMenu())
     .catch(() => {});
 }
 
@@ -8446,53 +8328,12 @@ function bindSettingsEvents() {
     if (event.target.closest(".settings-panel")) return;
     closeSettings();
   });
-  // The settings are the store's: replace them rather than write into them.
-  els.systemPromptInput.addEventListener("input", (e) => { state.settings = { ...state.settings, systemPrompt: e.target.value }; });
-  els.showModelReasoningInput?.addEventListener("change", (e) => {
-    updateSetting("showModelReasoning", e.target.checked);
-    renderMessages();
-  });
-  els.saveSystemPromptButton?.addEventListener("click", () => { void adminPanel.saveGlobalSystemPrompt(); });
   els.profileMenuStorage?.addEventListener("click", () => {
     closeProfileMenu();
     openSettings();
     setSettingsTab("storage");
   });
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
-}
-
-/* ─── Events: the account drawer and the admin dashboard (bindEvents) ─── */
-function bindAccountEvents() {
-  els.signOutButton.addEventListener("click", signOutAndReset);
-  els.closeAccountButton.addEventListener("click", closeAccount);
-  els.loadAdminButton.addEventListener("click", () => { void adminPanel.loadAdminDashboard(); });
-  els.adminOutput.addEventListener("click", (e) => {
-    const tab = e.target.closest("[data-admin-tab]");
-    if (tab) {
-      adminPanel.setAdminQueueTab(tab.dataset.adminTab);
-      return;
-    }
-    const done = e.target.closest("[data-resolve-report]");
-    if (done) {
-      adminPanel.resolveReport(done.dataset.resolveReport, done.dataset.resolveStatus);
-      return;
-    }
-    const approve = e.target.closest("[data-approve-payment]");
-    if (approve) {
-      adminPanel.updateAdminPayment(approve.dataset.approvePayment, "approve");
-      return;
-    }
-    const reject = e.target.closest("[data-reject-payment]");
-    if (reject) adminPanel.updateAdminPayment(reject.dataset.rejectPayment, "reject");
-  });
-}
-
-/** syncSettingsInputs(): the appearance controls and the storage meter are React's. */
-function syncSettingsInputs() {
-  els.systemPromptInput.value = state.settings.systemPrompt;
-  if (els.showModelReasoningInput) {
-    els.showModelReasoningInput.checked = state.settings.showModelReasoning !== false;
-  }
 }
 
 /** The data half of setSettingsTab(); React marks the tab and shows its panel. */
@@ -9235,7 +9076,6 @@ export function mountChat() {
   bindPaywallEvents();
   bindSelectionEvents();
   bindStudyEvents();
-  bindAccountEvents();
   bindTemporaryChatEvents();
   bindChatDismissEvents();
   bindHistoryEvents();
@@ -9261,7 +9101,7 @@ export function mountChat() {
       if (blocked) showCouncilDocumentsNotice(blocked);
       return Boolean(blocked);
     },
-    settingsOpened: syncSettingsInputs,
+    renderMessages,
     settingsTabSelected,
     pendingNeedsVision: pendingPromptNeedsVision,
     showAttachmentModelNotice,
@@ -9312,7 +9152,7 @@ export function mountChat() {
       return true;
     },
     account: () => {
-      if (!els.accountDrawer.classList.contains("open")) return false;
+      if (!useApp.getState().accountOpen) return false;
       closeAccount();
       return true;
     }
@@ -9322,7 +9162,6 @@ export function mountChat() {
   const renderChatShell = () => {
     // renderShell() ran renderTemporaryChatMode() and then renderResearchMode().
     renderResearchMode();
-    renderAdminOnlyControls();
     syncComposerSkillState();
     // ...and renderConversations(), which clears the open chat's unread dot.
     renderConversations();

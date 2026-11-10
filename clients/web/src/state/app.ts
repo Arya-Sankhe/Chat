@@ -98,6 +98,8 @@ export interface AppState {
   /** openRenameDialog(): open when set; `onSave` renames something other than a chat. */
   rename: { title: string; value: string; chatId: string; onSave: ((title: string) => Promise<void>) | null } | null;
   overlay: OverlayMode;
+  /** The account drawer (account details and, for admins, the dashboard). */
+  accountOpen: boolean;
   betaWelcomeOpen: boolean;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
@@ -168,6 +170,7 @@ export const useApp = create<AppState>(() => ({
   confirm: null,
   rename: null,
   overlay: "",
+  accountOpen: false,
   betaWelcomeOpen: false,
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
@@ -497,6 +500,10 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
   applySpectrumLevel(mode === "nitro" ? 0 : mode === "pro" ? SPECTRUM_N - 1 : 1);
 }
 
+export function closeAccount() {
+  set((s) => ({ accountOpen: false, overlay: s.overlay === "account" ? "" : s.overlay }));
+}
+
 /** What the composer asks of the chat core (islands/chat.js), filled when it mounts. */
 export const chatHooks = {
   openUpgradePlans: () => {},
@@ -511,7 +518,8 @@ export const chatHooks = {
   researchChanging: (_next: boolean) => {},
   /** Documents Council can't read: shows the notice and returns true. */
   councilBlocked: () => false,
-  settingsOpened: () => {},
+  /** Re-draws the open chat's messages (e.g. after the reasoning display changes). */
+  renderMessages: () => {},
   settingsTabSelected: (_tab: string) => {},
   pendingNeedsVision: () => false,
   showAttachmentModelNotice: () => {},
@@ -580,7 +588,6 @@ export function closeSearchDialog() {
 export function openSettings() {
   dismissComposerKeyboard();
   set({ sidebarOpen: false });
-  chatHooks.settingsOpened();
   setSettingsTab("general");
   if (get().mobile) showMobileSettingsOverview();
   set({ settingsOpen: true, overlay: "settings" });
