@@ -86,8 +86,8 @@ export function Course({ hub, view }: { hub: DojoHub; view: DojoView }) {
   // A lecture keeps you on its notes and answers in a pop-up; everything else moves to Ask on send.
   const pop = view.tab === "notes" && view.lecture && "pop" in view.lecture ? view.lecture.pop || "" : "";
   const askFromBar = (text: string) => {
-    if (item?.lectureAsk && item.lectureId) { actions.askLecture(text); return; }
-    void actions.askWith(text, item?.tab === "materials" && view.previewId ? view.previewId : "");
+    if (item?.lectureAsk && item.lectureId) return actions.askLecture(text);
+    return actions.askWith(text, item?.tab === "materials" && view.previewId ? view.previewId : "");
   };
   const toItem = () => {
     if (!item) return;
@@ -187,7 +187,7 @@ function Overview({ hub, view }: { hub: DojoHub; view: DojoView }) {
           </div>
         </div>
         <div className="d3-main-dock">
-          <AskBar placeholder={`ask ${view.course?.name || "this course"} anything…`} onSend={(text) => void hub.actions.askWith(text)} />
+          <AskBar placeholder={`ask ${view.course?.name || "this course"} anything…`} onSend={(text) => hub.actions.askWith(text)} />
         </div>
       </section>
     </div>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon, Klui } from "./brand";
 import { Slot } from "./Slot";
 
-export function AskBar({ placeholder, onSend }: { placeholder: string; onSend: (text: string) => void }) {
+export function AskBar({ placeholder, onSend }: { placeholder: string; onSend: (text: string) => boolean | Promise<boolean> }) {
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const grow = () => {
@@ -14,14 +14,19 @@ export function AskBar({ placeholder, onSend }: { placeholder: string; onSend: (
     box.style.height = `${Math.min(box.scrollHeight, 140)}px`;
   };
   useEffect(grow, [text]);
-  const send = () => {
+  const [sending, setSending] = useState(false);
+  // The question stays in the bar until it has really gone out (busy, blocked or a waiting draft keep it).
+  const send = async () => {
     const question = text.trim();
     if (!question) { input.current?.focus(); return; }
-    setText("");
-    onSend(question);
+    if (sending) return;
+    setSending(true);
+    let sent = false;
+    try { sent = await onSend(question); } finally { setSending(false); }
+    if (sent) setText("");
   };
   return (
-    <form className="d3-askbar is-input" onSubmit={(event) => { event.preventDefault(); send(); }} onClick={(event) => { if (event.target === event.currentTarget) input.current?.focus(); }}>
+    <form className="d3-askbar is-input" onSubmit={(event) => { event.preventDefault(); void send(); }} onClick={(event) => { if (event.target === event.currentTarget) input.current?.focus(); }}>
       <Klui size={24} />
       <textarea
         ref={input}
@@ -31,10 +36,10 @@ export function AskBar({ placeholder, onSend }: { placeholder: string; onSend: (
         placeholder={placeholder}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); }
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
         }}
       />
-      <button type="submit" className={`d3-sendbtn${text.trim() ? " is-ready" : ""}`} aria-label="Send" title="Send"><Icon name="send" size={16} /></button>
+      <button type="submit" disabled={sending} className={`d3-sendbtn${text.trim() ? " is-ready" : ""}`} aria-label="Send" title="Send"><Icon name="send" size={16} /></button>
     </form>
   );
 }

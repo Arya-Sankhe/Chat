@@ -175,6 +175,8 @@ export function createStudyHubController({
   // the answer is written) or "open" (the answer in a pop-up over the lecture).
   let lecturePop = "";
   let lecturePopTimer = 0;
+  // Bumped on every navigation, so a question queued for one place never sends from another.
+  let askTicket = 0;
   const recordToKey = "klui.dojo.recordTo";
   // Entrance animations play once per item; later repaints of the same item stay still.
   const shownEntrances = new Set();
@@ -851,16 +853,49 @@ export function createStudyHubController({
     lecturePop = next;
     clearInterval(lecturePopTimer);
     lecturePopTimer = 0;
+    askTicket += 1;
   }
 
-  // Puts text in the real chat composer and presses send, so it goes out exactly like a typed message.
-  function sendThroughComposer(text) {
+  function composerText() {
     const input = els.promptInput;
-    if (!input || !text) return;
+    return input ? String("value" in input ? input.value : input.textContent || "") : "";
+  }
+
+  function setComposerText(text) {
+    const input = els.promptInput;
+    if (!input) return;
     if ("value" in input) input.value = text;
     else input.textContent = text;
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    els.sendButton?.click();
+  }
+
+  // Whether a question from an ask bar can go out now; says why not when it can't.
+  function canSendFromBar() {
+    if (!els.promptInput || !els.sendButton) return false;
+    if (state.running) { showToast("Wait for the current answer to finish first."); return false; }
+    // The bars share the chat's composer; a message waiting in it is never overwritten.
+    if (composerText().trim() || state.images?.length || state.pastedText) {
+      showToast("You have an unsent message in Ask. Send or clear it first.");
+      return false;
+    }
+    return true;
+  }
+
+  // Puts text in the real chat composer and presses send, so it goes out exactly like a typed
+  // message. True once it went out (or a research clarification took it over); otherwise the
+  // composer is emptied again and the send button's own checks have said why.
+  function sendThroughComposer(text) {
+    if (!canSendFromBar()) return false;
+    setComposerText(text);
+    if (els.sendButton.disabled) {
+      setComposerText("");
+      showToast("Klui can't send that yet. Try again in a moment.");
+      return false;
+    }
+    els.sendButton.click();
+    if (state.running || state.clarification || state.clarificationChecking) return true;
+    if (composerText().trim() === text) setComposerText("");
+    return false;
   }
 
   // Asks about the open lecture without leaving it: the bar shrinks to a thinking pill and
@@ -868,23 +903,25 @@ export function createStudyHubController({
   function askLecture(text) {
     const doc = lectureDocs().find((item) => item.id === activeLectureId);
     const question = String(text || "").trim();
-    if (!doc || !question || state.running) return;
+    if (!doc || !question || !canSendFromBar()) return false;
+    // The pop-up state scopes the send to this lecture (see lectureAskOpen).
     setLecturePop("thinking");
+    if (!sendThroughComposer(question)) { setLecturePop(""); return false; }
     render();
-    requestAnimationFrame(() => {
-      sendThroughComposer(question);
-      const started = Date.now();
-      let seen = false;
-      lecturePopTimer = setInterval(() => {
-        if (lecturePop !== "thinking") { setLecturePop(lecturePop); return; }
-        if (state.running) seen = true;
-        // Done once the run ends; a send that never started (signed out, no allowance) shows its reason in the pop-up.
-        if ((seen && !state.running) || (!seen && Date.now() - started > 2500)) {
-          setLecturePop("open");
-          render();
-        }
-      }, 200);
-    });
+    const ticket = askTicket;
+    let seen = state.running;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (ticket !== askTicket || lecturePop !== "thinking") { clearInterval(timer); return; }
+      if (state.running) seen = true;
+      // Done once the run ends (a research clarification shows in the pop-up straight away).
+      if ((seen && !state.running) || (!seen && Date.now() - started > 1500)) {
+        setLecturePop("open");
+        render();
+      }
+    }, 200);
+    lecturePopTimer = timer;
+    return true;
   }
 
   function closeLecture() {
@@ -4235,6 +4272,7 @@ export function createStudyHubController({
 
   async function setTab(tab) {
     if (tab !== "notes") setLecturePop("");
+    askTicket += 1;
     if (!TABS.includes(tab) || tab === state.activeCourseTab) return;
     state.activeCourseTab = tab;
     quizMenuKey = "";
@@ -6102,9 +6140,15 @@ export function createStudyHubController({
       // A question typed in an ask bar: only now does the panel switch to Ask, with the question sent.
       async askWith(text, scopeId = "") {
         const question = String(text || "").trim();
-        if (!question) return;
+        const courseId = state.activeCourseId;
+        if (!question || !courseId || !canSendFromBar()) return false;
         await this.ask(scopeId);
-        requestAnimationFrame(() => sendThroughComposer(question));
+        // Navigating away while Ask was opening drops the question rather than sending it elsewhere.
+        if (state.activeCourseId !== courseId || state.activeCourseTab !== "chat") return false;
+        const ticket = askTicket;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (ticket !== askTicket || state.activeCourseId !== courseId) return false;
+        return sendThroughComposer(question);
       },
       newChat() { void openCourse(state.activeCourseId, { tab: "chat" }); },
       openChat: openConversation

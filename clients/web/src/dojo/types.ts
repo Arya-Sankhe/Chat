@@ -94,8 +94,8 @@ export type DojoActions = {
   closePreview(): void;
   goHome(): void;
   ask(scopeId?: string): Promise<void>;
-  askWith(text: string, scopeId?: string): Promise<void>;
-  askLecture(text: string): void;
+  askWith(text: string, scopeId?: string): Promise<boolean>;
+  askLecture(text: string): boolean;
   closeLecturePop(): void;
   expandLecturePop(): void;
   newChat(): void;
