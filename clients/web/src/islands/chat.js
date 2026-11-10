@@ -49,6 +49,7 @@ import {
 import { homeModes as homeModesController } from "../state/homeModes";
 import { loadMe } from "../state/boot";
 import { loadAccountStorage, loadSettingsTab, resetAccountData } from "../state/account";
+import { applyCouponFromUrl, resetBilling } from "../state/billing";
 import { setCameraPhotoHandler } from "../state/camera";
 import {
   VISUALIZE_REPAIRING_LABEL,
@@ -101,16 +102,12 @@ import {
   askDocument,
   cancelPendingDocumentTurn,
   cancelResearch,
-  checkMamoCoupon,
-  redeemInvite,
   completeUpload,
   createContentReport,
   createConversation,
-  createMamoCheckout,
   createResearch,
   createStudyCard,
   createStudyNote,
-  createZiinaPaymentRequest,
   deleteAttachment,
   deleteConversation,
   downloadAttachment,
@@ -125,7 +122,6 @@ import {
   fetchResearchStatus,
   fetchStudyMaterials,
   fetchStudyPractice,
-  fetchZiinaPaymentRequests,
   listConversations,
   listProjects,
   presignUpload,
@@ -5957,14 +5953,6 @@ async function resumeGuestSend() {
   }
 }
 
-/** bootstrap(): an open paywall redraws once the pending payment requests arrive. */
-function trackPaymentRequests() {
-  paymentRequestsPromise = loadPaymentRequests();
-  void paymentRequestsPromise.then(() => {
-    if (!els.paywallView.classList.contains("hidden")) renderPlans();
-  });
-}
-
 /** bootstrap() reopens a research report linked from the URL. */
 async function openRouteResearchReport() {
   const reportId = researchIdFromLocation();
@@ -6172,25 +6160,7 @@ function renderVoiceSettings() {
   });
 }
 
-let paymentRequestsPromise = Promise.resolve();
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out.`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-function showPaywall({ allowReturn = false } = {}) {
-  els.paywallEmail.textContent = state.me?.user?.email || "";
-  renderPlans();
-  applyCouponFromUrl();
-  els.paywallBackButton?.classList.toggle("hidden", !allowReturn);
-  els.paywallCloseButton?.classList.toggle("hidden", !allowReturn);
-  showOnly(els.paywallView);
-}
-
+// The pricing screen is React's (PaywallView); a ?coupon= link is applied as it opens.
 function openUpgradePlans() {
   if (!state.session) return;
   closeProfileMenu();
@@ -6201,269 +6171,8 @@ function openUpgradePlans() {
     return;
   }
   if (!hasUpgradePlans()) return;
-  showPaywall({ allowReturn: true });
-}
-
-// Mirrors the home.klui.ai pricing cards. Prices exclude Mamo's processing fee, which is
-// added at checkout; `chargeAed` is the exact monthly card charge.
-function renderPlans() {
-  const inviteOnly = state.me?.access?.mode === "testing";
-  const subtitle = document.querySelector(".paywall-subheadline");
-  if (subtitle) subtitle.textContent = inviteOnly
-    ? "INVITE ONLY · Start on Free. Redeem an invite code for free Pro access."
-    : "Every feature on both plans. No 5-hour limits.";
-  const requestsByPlan = new Map(
-    (state.paymentRequests || [])
-      .filter((request) => request.status === "pending")
-      .map((request) => [request.planId, request])
-  );
-  // Lucide-style 24px stroke icons; keep in sync with home/pricing/index.html.
-  const icon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
-  const features = [
-    [icon('<path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/>'), "Notes, flashcards & tests"],
-    [icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>'), "Compare AI answers"],
-    [icon('<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>'), "Slides, docs & visuals"],
-    [icon('<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>'), "Web search & Deep Research"],
-    [icon('<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/>'), "Voice chat & course memory"],
-    [icon('<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>'), "No ads"]
-  ];
-  const planMeta = {
-    lite: { features },
-    pro: { features, usage: "4× usage" }
-  };
-  const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
-  renderCouponPanel();
-  els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
-    const id = String(plan.id || "").toLowerCase();
-    const planClass = id.replace(/[^a-z0-9_-]/g, "");
-    const meta = planMeta[id] || { features: [] };
-    const pending = requestsByPlan.get(plan.id);
-    const mamo = ["mamo", "stripe"].includes(plan.checkout);
-    const offer = mamo ? offers.get(plan.id) : null;
-    const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
-    const feeNote = fee ? " <small>+ processing fee</small>" : "";
-    const price = offer
-      ? `<div class="plan-price plan-price-offer">
-          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.trialDays ? "Free trial" : offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
-          <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
-          <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          <span>${offer.trialDays ? `first ${escapeHtml(trialLength(offer.trialDays))}` : "first month"}${fee && offer.initialAmountAed ? " + processing fee" : ""}</span>
-        </div>
-        <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
-      : plan.amountAed
-        ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
-        : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
-    return `
-    <article class="plan-card plan-card-${escapeHtml(planClass)}">
-      ${meta.usage ? `<p class="plan-tag plan-usage-tag">${escapeHtml(meta.usage)}</p>` : ""}
-      <h3 class="plan-name">${escapeHtml(plan.name)}</h3>
-      ${price}
-      <ul class="plan-features">
-        ${meta.features.map(([svg, label]) => `<li>${svg}${escapeHtml(label)}</li>`).join("")}
-      </ul>
-      ${inviteOnly ? `
-      <button class="plan-pay-btn" type="button" disabled>INVITE ONLY</button>
-      <p class="plan-payment-note">${state.me?.subscription?.provider === "invite" && id === "pro" ? "Your free Pro access is active." : "Redeem an invite code above for free Pro access. No payment required."}</p>
-      ` : mamo ? `
-      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
-      ${plan.checkout === "stripe" ? `<p class="plan-payment-note">${offer ? `AED ${escapeHtml(aed(offer.initialChargeAed))} due today. Then AED ${escapeHtml(aed(offer.renewalChargeAed))} / month.` : `AED ${escapeHtml(aed(plan.chargeAed))} charged monthly.`} Processing fee included.</p>` : ""}
-      ` : `
-      ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
-      <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
-        ${pending ? "Open Ziina payment" : "Pay with Ziina"}
-      </button>
-      ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? `<p class="plan-payment-note">Access activates after we verify your Ziina payment.</p>` : `<p class="plan-payment-note">Ziina link is not configured yet.</p>`}
-      `}
-    </article>
-  `;
-  }).join("");
-}
-
-function renderPendingPayment(request) {
-  return `
-    <div class="payment-pending">
-      <span>Pending verification</span>
-      <strong>${escapeHtml(request.referenceCode || "")}</strong>
-    </div>
-  `;
-}
-
-async function refreshAfterMamoReturn() {
-  const params = new URLSearchParams(window.location.search);
-  const stripeReturn = params.get("stripe") === "success";
-  const mamoReturn = ["captured", "card_verified"].includes(params.get("status")) && params.get("transactionId");
-  if (!state.session || (!stripeReturn && !mamoReturn)) return;
-  const planId = params.get("planId");
-  // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (state.me?.billingIssue) { showToast(state.me.billingIssue); return; }
-    if (state.me?.access?.active && (!planId || state.me?.subscription?.planId === planId)) return;
-    if (attempt === 0) showToast("Confirming your payment…");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    if (!state.session) return;
-    await withTimeout(loadMe(), 4000, "Payment confirmation").catch(() => {});
-    renderShell();
-  }
-  if (!state.me?.access?.active) showToast("Payment confirmation is still pending. Refresh in a moment.");
-}
-
-async function loadPaymentRequests() {
-  if (!state.session?.access_token) {
-    state.paymentRequests = [];
-    return;
-  }
-  try {
-    const payload = await fetchZiinaPaymentRequests(state.session);
-    state.paymentRequests = payload.paymentRequests || [];
-  } catch {
-    state.paymentRequests = [];
-  }
-}
-
-async function startMamoPayment(planId) {
-  if (isNative()) return;
-  if (!requireAuth()) return;
-  try {
-    // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
-    await couponCheck;
-    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "", state.plans.find((plan) => plan.id === planId)?.checkout);
-    if (payload.paymentUrl) await openExternal(payload.paymentUrl);
-  } catch (err) {
-    showToast(err.message);
-  }
-}
-
-function trialLength(days) {
-  return days % 7 === 0 ? `${days / 7} week${days === 7 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"}`;
-}
-
-function couponSummary({ percentOff, trialDays }) {
-  if (trialDays) return `${trialLength(trialDays)} free`;
-  return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
-}
-
-// The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
-function renderCouponPanel() {
-  const inviteOnly = state.me?.access?.mode === "testing";
-  const available = !isNative() && (inviteOnly || (state.plans || []).some((plan) => ["mamo", "stripe"].includes(plan.checkout)));
-  els.paywallCoupon?.classList.toggle("hidden", !available);
-  if (!available) return;
-  const applied = state.mamoCoupon?.coupon;
-  const open = !applied && (inviteOnly || els.paywallCouponToggle?.getAttribute("aria-expanded") === "true");
-  const label = els.paywallCouponToggle?.querySelector("span");
-  if (label) label.textContent = inviteOnly ? "Have an invite code?" : "Have a coupon code?";
-  els.paywallCouponToggle?.classList.toggle("hidden", Boolean(applied) || open);
-  els.paywallCouponForm?.classList.toggle("hidden", !open);
-  els.paywallCouponApplied?.classList.toggle("hidden", !applied);
-  els.paywallCoupon?.classList.toggle("is-applied", Boolean(applied));
-  if (applied) {
-    if (els.paywallCouponCode) els.paywallCouponCode.textContent = applied.code;
-    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied);
-  }
-}
-
-function openCouponForm() {
-  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
-  renderCouponPanel();
-  els.paywallCouponInput?.focus();
-}
-
-function removeMamoCoupon() {
-  state.mamoCoupon = null;
-  if (els.paywallCouponInput) els.paywallCouponInput.value = "";
-  if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = "";
-  els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
-  renderPlans();
-  els.paywallCouponToggle?.focus();
-}
-
-let couponCheck = null;
-
-function applyMamoCoupon(event) {
-  event?.preventDefault();
-  couponCheck = checkCouponCode().finally(() => { couponCheck = null; });
-  return couponCheck;
-}
-
-async function checkCouponCode() {
-  if (!requireAuth()) return;
-  const code = String(els.paywallCouponInput?.value || "").trim().toUpperCase();
-  const setStatus = (text) => { if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = text; };
-  if (!code) {
-    setStatus("Enter a coupon code.");
-    els.paywallCouponInput?.focus();
-    return;
-  }
-  els.paywallCouponApply?.setAttribute("disabled", "");
-  try {
-    if (state.me?.access?.mode === "testing") {
-      await redeemInvite(state.session, code);
-      await loadMe();
-      state.mamoCoupon = null;
-      setStatus("Pro is now active for free. No payment required.");
-      els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
-      renderShell();
-      showToast("Invite accepted. You now have Pro for free.");
-      return;
-    }
-    state.mamoCoupon = await checkMamoCoupon(state.session, code, state.plans.find((plan) => plan.checkout === "stripe") ? "stripe" : "mamo");
-    setStatus("");
-    els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
-  } catch (err) {
-    state.mamoCoupon = null;
-    setStatus(err.message || "That coupon code isn't valid.");
-  } finally {
-    els.paywallCouponApply?.removeAttribute("disabled");
-  }
-  renderPlans();
-}
-
-// klui.ai/?coupon=CODE applies a shared code the first time the paywall opens.
-// Read at load, before any route sync can rewrite the address.
-let couponFromUrl = (() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const code = String(params.get("coupon") || "").trim().toUpperCase().slice(0, 32);
-    if (!code) return "";
-    params.delete("coupon");
-    const query = params.toString();
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-    return code;
-  } catch {
-    return "";
-  }
-})();
-
-function applyCouponFromUrl() {
-  if (!couponFromUrl || state.mamoCoupon || !els.paywallCouponInput || isNative()) return;
-  els.paywallCouponInput.value = couponFromUrl;
-  couponFromUrl = "";
-  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
-  void applyMamoCoupon();
-}
-
-async function startZiinaPayment(planId) {
-  if (isNative()) return;
-  if (!requireAuth()) return;
-  await paymentRequestsPromise;
-  const plan = state.plans.find((candidate) => candidate.id === planId);
-  if (!plan) return;
-  const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
-  if (existing) {
-    if (existing.paymentUrl) await openExternal(existing.paymentUrl);
-    return;
-  }
-
-  try {
-    const payload = await createZiinaPaymentRequest(state.session, planId);
-    const request = payload.paymentRequest;
-    state.paymentRequests = [request, ...(state.paymentRequests || [])];
-    renderPlans();
-    if (request.paymentUrl) await openExternal(request.paymentUrl);
-  } catch (err) {
-    showToast(err.message);
-  }
+  showOnly(els.paywallView);
+  applyCouponFromUrl();
 }
 
 const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap";
@@ -7985,7 +7694,7 @@ async function signOutAndReset() {
   clearGuestSend();
   state.me = null;
   resetAccountData();
-  state.paymentRequests = [];
+  resetBilling();
   state.conversations = [];
   conversationCache.clear();
   state.pinnedChatIds = [];
@@ -8046,30 +7755,6 @@ function settingsTabSelected(selected) {
   if (selected !== "voice") voiceSettingsPicker?.stopPreview();
   if (selected === "voice") renderVoiceSettings();
   loadSettingsTab(selected);
-}
-
-/* ─── Events: the paywall (bindEvents) ─── */
-
-function bindPaywallEvents() {
-  els.paywallCouponForm?.addEventListener("submit", applyMamoCoupon);
-  els.paywallCouponToggle?.addEventListener("click", openCouponForm);
-  els.paywallCouponRemove?.addEventListener("click", removeMamoCoupon);
-  els.paywallPlans.addEventListener("click", (e) => {
-    const mamoButton = e.target.closest("[data-start-mamo]");
-    if (mamoButton) {
-      startMamoPayment(mamoButton.dataset.startMamo);
-      return;
-    }
-    const button = e.target.closest("[data-start-payment]");
-    if (!button) return;
-    startZiinaPayment(button.dataset.startPayment);
-  });
-  els.paywallBackButton?.addEventListener("click", () => {
-    renderShell();
-  });
-  els.paywallCloseButton?.addEventListener("click", () => {
-    renderShell();
-  });
 }
 
 /* ─── Events: text selection and the side chat (bindEvents) ─── */
@@ -8770,7 +8455,6 @@ export function mountChat() {
   bindComposerEvents();
   bindResearchEvents();
   bindSettingsEvents();
-  bindPaywallEvents();
   bindSelectionEvents();
   bindStudyEvents();
   bindTemporaryChatEvents();
@@ -9008,9 +8692,6 @@ export {
   applyComposerHeight,
   closeGuestContinue,
   handleSessionEnded,
-  loadPaymentRequests,
-  refreshAfterMamoReturn,
-  trackPaymentRequests,
   openRouteResearchReport,
   restorePendingDocuments,
   resumeGuestSend,
