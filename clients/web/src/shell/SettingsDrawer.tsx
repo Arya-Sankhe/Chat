@@ -310,8 +310,8 @@ export function SettingsDrawer() {
             </div>
           </section>
           <AccountPanel hidden={tab !== "account"} />
-          <MemoryPanel key={accountKey} hidden={tab !== "memory"} />
-          <AdminSettings key={accountKey} hidden={tab !== "general"} />
+          <MemoryPanel key={`memory:${accountKey}`} hidden={tab !== "memory"} />
+          <AdminSettings key={`admin:${accountKey}`} hidden={tab !== "general"} />
           <nav className="settings-legal" aria-label="Terms and policies">
             <a href="https://home.klui.ai/terms/" target="_blank" rel="noopener">Terms of use</a>
             {" "}
