@@ -12,7 +12,7 @@ import { chat, forgetChatList, showSavedChatList } from "./core/chat";
 import { checkForUpdate } from "./core/updates";
 import { hostedSessionState, loadConfig, session } from "./core/runtime";
 import { closeWebSurface, openWeb, useShell } from "./core/shell";
-import { deliverLink, emit, hasPendingLink, migrateLegacyStorage, pageGone, pageIsListening } from "./host/bridge";
+import { deliverLink, emit, hasPendingLink, migrateLegacyStorage, pageGone, pageIsListening, pageSystemBarDark } from "./host/bridge";
 import { WebClient } from "./host/WebClient";
 import { KluiHost } from "../modules/klui-host";
 import { useTheme } from "./theme";
@@ -111,10 +111,13 @@ export function App() {
   const generation = useShell((state) => state.webGeneration);
   const { dark } = useTheme();
 
-  // The native screens set the system bar icons for their own theme; the web page sets them
-  // while it is shown (chrome.configure).
+  // System bar icons follow what is on screen: the native screens' theme, or, while the web
+  // surface shows, the page's own (chrome.configure, reapplied here each time it opens).
   useEffect(() => {
-    if (!webVisible && Platform.OS === "android") KluiHost.setSystemBarStyle(dark);
+    if (Platform.OS !== "android") return;
+    const page = pageSystemBarDark();
+    if (!webVisible) KluiHost.setSystemBarStyle(dark);
+    else if (page !== null) KluiHost.setSystemBarStyle(page);
   }, [dark, webVisible]);
 
   useEffect(() => {

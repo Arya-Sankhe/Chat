@@ -13,6 +13,10 @@ import { prefs } from "../core/prefs";
 import { hostedSessionState, session } from "../core/runtime";
 import { closeWebSurface, useShell } from "../core/shell";
 
+// The system bar style the page last asked for, applied again each time its surface shows.
+let pageDark: boolean | null = null;
+export function pageSystemBarDark() { return pageDark; }
+
 /* The page's Capacitor plugins, re-implemented over the host bridge (see
    @klui/shared nativeHost.ts). Behaviour follows the old platform/index.js. */
 
@@ -150,7 +154,10 @@ const handlers: { [M in NativeHostMethod]: (args: any) => unknown } = {
     return toBase64(await response.arrayBuffer());
   },
   "chrome.configure": ({ dark }) => {
-    KluiHost.setSystemBarStyle(Boolean(dark));
+    pageDark = Boolean(dark);
+    // A hidden page (closed surface, late reply, theme change behind the native screens)
+    // must not restyle the bars the native screens are showing.
+    if (useShell.getState().webVisible) KluiHost.setSystemBarStyle(pageDark);
     KluiHost.syncSystemBarInsets();
   },
   "view.textZoom": ({ percent }) => KluiHost.setTextZoom(Math.round(Number(percent) || 100)),
