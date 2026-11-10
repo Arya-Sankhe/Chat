@@ -9,7 +9,8 @@ import { createComposerKlui } from "../islands/composerKlui.js";
 import { applyComposerHeight } from "../state/chat";
 import { homeModes } from "../state/homeModes";
 import { activateCompareMode, applySpectrumLevel, cancelCompareMode, closeActionMenu, enterCouncilMode, setResearchMode, closeModelDropdown, setWritingStyle, toggleActionMenu, toggleModelDropdown, updateSetting, useApp } from "../state/app";
-import { ActionMenu, DeckPickerPop, NativeModeWrap, WritingStyleMenu } from "./ComposerSheets";
+import { ActionMenu, NativeModeWrap, WritingStyleMenu } from "./ComposerSheets";
+import { ComposerDeckThumb, DeckPickerPop, HomeModesPanel } from "./HomeModes";
 import { cx } from "./cx";
 
 const CHIP_LABELS = { research: "Deep research", compare: "Compare", council: "Council" } as const;
@@ -213,7 +214,7 @@ export function Composer() {
               </div>
               {mobile && <ContextWrap />}
               <div className="composer-input">
-                <div className="composer-deck-thumb hidden" id="composerDeckThumb" aria-hidden="true" />
+                <ComposerDeckThumb />
                 <div id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
               </div>
               <div className="composer-bottom">
@@ -403,7 +404,7 @@ export function Composer() {
             <div className="skill-command-menu hidden" id="skillCommandMenu" role="listbox" aria-label="Skills" />
           </div>
         </div>
-        <div className="home-modes" id="homeModes" hidden />
+        <HomeModesPanel />
         <footer className="app-footer">
           <a className="accuracy-link" href="https://home.klui.ai/accuracy/" target="_blank" rel="noopener">Klui can make mistakes. Double-check important responses.</a>
         </footer>
