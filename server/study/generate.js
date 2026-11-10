@@ -5,7 +5,7 @@ import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { salvageJsonObjects } from "./jsonSalvage.js";
 import { enrichSourceWithSelectiveVision, pageKey } from "./vision.js";
-import { LECTURE_NOTE_MARK, LECTURE_NOTES_SYSTEM_PROMPT, buildLectureInput } from "./lectureNotes.js";
+import { LECTURE_NOTE_MARK, buildLectureInput, jotsFromNote, lectureNotesSystemPrompt, lectureStyle, lectureStyleMark } from "./lectureNotes.js";
 
 const GENERATE_MAX_MS = 10 * 60 * 1000;
 const INACTIVITY_MS = 30_000;
@@ -401,7 +401,7 @@ export function isDetailedNote(note) {
 
 export function noteBody(note) {
   const text = String(note?.content || "");
-  return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?/, "");
+  return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?(?:<!--klui:style:[a-z]+-->\n?)?/, "");
 }
 
 export function noteModesFromNotes(notes, documentFileId) {
@@ -725,14 +725,19 @@ export async function generateSummary({
 async function generateLectureNotes({ context, config, course, source, options = {}, signal, onStage }) {
   onStage?.("preparing");
   const documentFile = source.documentFile;
-  const user = buildLectureInput({ documentFile, jots: options.jots });
+  // A remake rewrites the saved notes in another style from the same transcript; the
+  // student's own lines come back out of the old notes (the device copy is gone by now).
+  const remake = options.restyleNote || null;
+  const style = lectureStyle(options.lectureStyle);
+  const jots = remake ? jotsFromNote(remake.content) : options.jots;
+  const user = buildLectureInput({ documentFile, jots });
   onStage?.("generating");
   const streamed = await streamComplete({
     context,
     config,
     signal,
     maxTokens: 12000,
-    system: LECTURE_NOTES_SYSTEM_PROMPT,
+    system: lectureNotesSystemPrompt(style),
     user,
     expect: "markdown",
     temperature: 0.2
@@ -744,14 +749,22 @@ async function generateLectureNotes({ context, config, course, source, options =
   if (!parsed?.content) throw new HttpError(502, GENERATION_FAILED);
   onStage?.("saving");
   throwIfAborted(signal);
+  const content = `${LECTURE_NOTE_MARK}\n${lectureStyleMark(style)}${parsed.content}`;
+  const partial = Boolean(streamed.partial || streamed.finishReason === "length");
+  // A remake keeps the lecture's title, so the list doesn't shuffle names under the student.
+  if (remake) {
+    const note = await context.db.updateStudyNote(context.user.id, remake.id, { content }, { signal });
+    if (!note) throw new HttpError(404, "These notes were removed.");
+    return { note, partial };
+  }
   const note = await context.db.createStudyNote(context.user.id, {
     project_id: course.id,
     document_file_id: documentFile.id,
     kind: "summary",
     title: shortLectureTitle(parsed.title) || fallbackTitle,
-    content: `${LECTURE_NOTE_MARK}\n${parsed.content}`
+    content
   }, { signal });
-  return { note, partial: Boolean(streamed.partial || streamed.finishReason === "length") };
+  return { note, partial };
 }
 
 // Keeps a model-written lecture title list-sized: plain text, at most 80 characters.

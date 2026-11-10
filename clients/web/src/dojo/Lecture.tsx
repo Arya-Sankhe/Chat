@@ -5,7 +5,7 @@ import { navigateTabs } from "./tabs";
 // Finish, then the notes (with Transcript and Ask on the same page).
 import { useLayoutEffect, useRef, useState } from "react";
 import { jotsFromText, loadJots } from "../islands/studyLectures.js";
-import { Icon, Klui } from "./brand";
+import { Buddy, Icon } from "./brand";
 import { clock, day, joinMeta, minutes } from "./fmt";
 import { Menu } from "./Menu";
 import type { DojoHub, DojoView, Jot, OpenLecture } from "./types";
@@ -50,9 +50,9 @@ function Recording({ view, jots, recordingId }: { view: DojoView; jots: Jot[]; r
     <div className="d3-stage">
       <div className="d3-paper is-recording" data-live>
         <div className={`d3-listen${paused ? " is-paused" : ""}${waiting ? " is-waiting" : ""}`}>
-          <Klui mood={paused ? "" : "listening"} size={44} />
+          <Buddy mood={paused || waiting ? "paused" : "listening"} />
           <div className="d3-listen-copy">
-            <strong>{waiting ? "waiting for the microphone…" : paused ? "paused — tap resume when you’re ready" : "klui is listening"}</strong>
+            <strong>{waiting ? "finding your mic…" : paused ? "taking a breather" : "locked in — i’ll take the notes"}</strong>
             <span>{joinMeta(view.course?.name)} · <span data-live-time>{clock(view.live.elapsed)}</span></span>
           </div>
           <span className="d3-levels" data-live-levels aria-hidden="true">{Array.from({ length: 22 }, (_, i) => <i key={i} />)}</span>
@@ -60,7 +60,8 @@ function Recording({ view, jots, recordingId }: { view: DojoView; jots: Jot[]; r
           <button type="button" className="d3-btn is-filled" data-rec-inline-finish="" disabled={waiting}><Icon name="check" size={15} />finish</button>
         </div>
         <div className="d3-pad">
-          <p className="d3-pad-title">new lecture · {day(new Date().toISOString())}</p>
+          <p className="d3-pad-title"><b>your jots</b> · {day(new Date().toISOString())}</p>
+          <p className="d3-pad-hint">anything you type lands in your notes, next to the moment it was said.</p>
           <div className="d3-pad-box">
             <div className="d3-pad-gutter" aria-hidden="true">
               {lines.map((line, index) => {
@@ -76,15 +77,15 @@ function Recording({ view, jots, recordingId }: { view: DojoView; jots: Jot[]; r
               className="d3-pad-text"
               data-jots=""
               spellCheck
-              aria-label="Your notes"
+              aria-label="Your jots"
               defaultValue={text}
               onInput={(event) => onInput(event.currentTarget.value)}
-              placeholder={"jot anything — a question, a “this’ll be on the exam”, or nothing at all."}
+              placeholder={"a question, a “this’ll be on the exam”, a thought… or nothing at all."}
             />
           </div>
         </div>
         <p className={`d3-paperfoot${view.live.quiet ? " is-warning" : ""}`} data-rec-quiet>
-          {view.live.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "Your recording is saved on this device as you go."}
+          {view.live.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : ""}
         </p>
       </div>
     </div>
@@ -120,10 +121,10 @@ function WritingBody({ lecture }: { lecture: Exclude<OpenLecture, { kind: "live"
   return (
     <>
         <div className="d3-listen is-writing">
-          <Klui mood={failed ? "" : "writing"} size={44} />
+          <Buddy mood={failed ? "sad" : "writing"} />
           <div className="d3-listen-copy">
-            <strong>{failed ? (step === 0 ? "we couldn’t save this recording yet" : step === 1 ? "we couldn’t transcribe this recording" : "we couldn’t write these notes") : step === 0 ? "saving your lecture…" : step === 1 ? "listening back to your lecture…" : "klui is writing your notes…"}</strong>
-            <span>{failed ? `your audio${jots.length ? ` and your ${jots.length} ${jots.length === 1 ? "jot" : "jots"}` : ""} are safe` : step === 0 ? "keep this tab open until it’s saved" : "you can leave this page — we’ll keep writing."}</span>
+            <strong>{failed ? (step === 0 ? "we couldn’t save this recording yet" : step === 1 ? "we couldn’t transcribe this recording" : "we couldn’t write these notes") : step === 0 ? "saving your lecture…" : step === 1 ? "on it — turning this into notes" : "almost there — writing it up"}</strong>
+            <span>{failed ? `your audio${jots.length ? ` and your ${jots.length} ${jots.length === 1 ? "jot" : "jots"}` : ""} are safe` : step === 0 ? "keep this tab open for a sec" : "feel free to leave — i’ll keep going"}</span>
           </div>
         </div>
         <div className="d3-paper-body">
@@ -159,6 +160,32 @@ function WritingBody({ lecture }: { lecture: Exclude<OpenLecture, { kind: "live"
 
 /* ---------- Finished notes ---------- */
 
+// The ways the same transcript can be written up; the server has the matching prompts.
+const NOTE_STYLES = [
+  ["lecture", "Class notes", "sections that follow the lecture"],
+  ["recap", "Quick recap", "the key points, two-minute read"],
+  ["cornell", "Cornell notes", "cues and answers to quiz yourself"],
+  ["guide", "Study guide", "terms, main ideas, check-yourself questions"],
+  ["minutes", "Meeting minutes", "discussion, decisions, action items"]
+] as const;
+
+const styleLabel = (key = "lecture") => NOTE_STYLES.find(([id]) => id === key)?.[1] || "Class notes";
+
+function NoteStyle({ hub, lecture }: { hub: DojoHub; lecture: NoteLecture }) {
+  const current = lecture.restyling || lecture.style || "lecture";
+  return (
+    <Menu label="Note style" className="d3-stylemenu" trigger={<span className="d3-stylebtn"><Icon name="notes" size={14} />{styleLabel(current)}<Icon name="chevD" size={13} /></span>}>
+      <p className="d3-menu-head">rewrite these notes as…</p>
+      {NOTE_STYLES.map(([key, label, hint]) => (
+        <button key={key} type="button" role="menuitemradio" aria-checked={current === key} disabled={Boolean(lecture.restyling)} className={`d3-mi d3-style-item${current === key ? " is-current" : ""}`} onClick={() => hub.actions.restyleLecture(key)}>
+          <span className="d3-style-copy"><b>{label}</b><small>{hint}</small></span>
+          {current === key && <Icon name="check" size={15} />}
+        </button>
+      ))}
+    </Menu>
+  );
+}
+
 type NoteLecture = Extract<OpenLecture, { html: string }>;
 
 function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lecture: NoteLecture }) {
@@ -181,6 +208,7 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
               <button key={key} type="button" role="tab" id={`d3-lecture-tab-${key}`} aria-controls="d3-lecture-panel" tabIndex={tab === key ? 0 : -1} aria-selected={tab === key} className={tab === key ? "is-on" : ""} data-lecture-tab={key}>{label}</button>
             ))}
           </div>
+          {tab === "notes" && lecture.html && <NoteStyle hub={hub} lecture={lecture} />}
           <span className="d3-paper-meta">{meta}</span>
           <LectureMenu hub={hub} view={view} id={lecture.id} title={lecture.title} />
         </div>
@@ -207,7 +235,10 @@ function NotePaper({ hub, view, lecture }: { hub: DojoHub; view: DojoView; lectu
                 {contents.map((item) => <button type="button" key={item.id} onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{item.text}</button>)}
               </nav>
             )}
-            <div className="d3-note dojo-lec-body" ref={body} dangerouslySetInnerHTML={{ __html: lecture.html }} />
+            {lecture.restyling && (
+              <div className="d3-restyle" role="status"><Buddy mood="writing" size={26} /><span>rewriting as {styleLabel(lecture.restyling).toLowerCase()}</span><span className="d3-dots" aria-hidden="true"><i /><i /><i /></span></div>
+            )}
+            <div className={`d3-note dojo-lec-body${lecture.restyling ? " is-restyling" : ""}`} ref={body} dangerouslySetInnerHTML={{ __html: lecture.html }} />
           </div>
         )}
         {tab === "transcript" && <div className="d3-paper-body is-transcript"><Slot className="dojo-lec-audio-slot" /></div>}

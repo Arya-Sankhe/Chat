@@ -20,7 +20,7 @@ import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup
 import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
-import { formatClock as lectureClock, isLectureNote, lectureNoteStaticHtml, jotsFromText, kluiMarkup, lectureNoteFor, lectureNoteHtml, loadJots, moveJots, forgetJots, saveJots } from "./studyLectures.js";
+import { formatClock as lectureClock, isLectureNote, lectureNoteStaticHtml, jotsFromText, kluiMarkup, lectureNoteFor, lectureNoteHtml, lectureStyleOf, loadJots, moveJots, forgetJots, saveJots } from "./studyLectures.js";
 
 // The tutor's icon is a tiny version of its call orb: grass green into sky blue with a soft highlight.
 let tutorOrbIconId = 0;
@@ -350,7 +350,7 @@ export function createStudyHubController({
 
   function noteBody(note) {
     const text = String(note?.content || "");
-    return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?/, "");
+    return text.replace(/^<!--klui:(?:detailed|mindmap|lecture)-->\n?(?:<!--klui:style:[a-z]+-->\n?)?/, "");
   }
 
   function noteKindLabel(note) {
@@ -650,6 +650,17 @@ export function createStudyHubController({
     startGeneration({ kind: "doc", id: doc.id, type: "notes", mode: "lecture", body, requestKey: requestKeyFor("doc", doc.id, "notes", { mode: "lecture" }), courseId: state.activeCourseId });
   }
 
+  // Rewrites a lecture's notes in another style from the same transcript. The old notes stay
+  // on screen until the new ones are saved over them.
+  function restyleLecture(style) {
+    const doc = lectureDocs().find((item) => item.id === activeLectureId);
+    const note = doc && lectureNoteOf(doc.id);
+    if (!doc || !note || !state.session || lectureNoteJob(doc.id) || lectureStyleOf(note) === style) return;
+    const body = { type: "notes", mode: "lecture", documentFileId: doc.id, restyle: true, lectureStyle: style };
+    startGeneration({ kind: "doc", id: doc.id, type: "notes", mode: "lecture", body, requestKey: requestKeyFor("doc", doc.id, "notes", { mode: "lecture" }), courseId: state.activeCourseId });
+    render();
+  }
+
   function lectureRowsMarkup() {
     const rows = [];
     if (liveHere()) {
@@ -705,7 +716,7 @@ export function createStudyHubController({
         <button class="dojo-live-btn dojo-live-btn--finish" type="button" data-rec-inline-finish${waiting ? " disabled" : ""}><span aria-hidden="true"></span>Finish</button>
       </div>
       <textarea class="dojo-live-pad" data-jots spellcheck="true" aria-label="Your notes" placeholder="Type anything you want to remember, or nothing at all.&#10;Klui writes the full notes when you finish, and keeps your lines in them.">${escapeHtml(text)}</textarea>
-      <p class="dojo-live-foot" data-rec-quiet>${rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "Your recording is saved on this device as you go."}</p>
+      <p class="dojo-live-foot" data-rec-quiet>${rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : ""}</p>
     </div>`;
   }
 
@@ -952,7 +963,7 @@ export function createStudyHubController({
     }
     const quiet = els.studyView?.querySelector("[data-rec-quiet]");
     if (quiet) {
-      const line = rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "Your recording is saved on this device as you go.";
+      const line = rec.quiet ? "Klui can barely hear anything. Move closer to the speaker if you can." : "";
       if (quiet.textContent !== line) { quiet.textContent = line; quiet.classList.toggle("is-warning", Boolean(rec.quiet)); }
     }
     lectureFrame = requestAnimationFrame(tickLecture);
@@ -2379,7 +2390,7 @@ export function createStudyHubController({
         createdAt: doc.created_at || "",
         duration: Number(doc.duration_seconds) || 0,
         ready: materialStatus(doc) === "ready" && !busyIds.has(doc.id),
-        writing: Boolean(job),
+        writing: Boolean(job) && !job.body?.restyle,
         noteError: lectureNoteErrors.get(doc.id) || "",
         noteId: note?.id || "",
         gist: note ? noteGist(noteBody(note)) : ""
@@ -2414,6 +2425,8 @@ export function createStudyHubController({
           entry: entry ? plainEntry(entry) : null,
           jots: loadJots(doc.id),
           html,
+          style: note ? lectureStyleOf(note) : "lecture",
+          restyling: lectureNoteJob(doc.id)?.body?.restyle ? lectureNoteJob(doc.id).body.lectureStyle : "",
           player: stripLectureId === doc.id || (status.id === doc.id && (status.playing || status.time > 0))
         };
       }
@@ -2705,6 +2718,12 @@ export function createStudyHubController({
         return;
       }
       if (!generations.has(job.id)) return;
+      if (job.mode === "lecture" && job.body?.restyle) {
+        // The old notes are still there, so a failed remake is only worth a toast.
+        generations.delete(job.id);
+        showToast(error?.message || "Couldn't rewrite the notes. Please try again.");
+        return;
+      }
       if (job.mode === "lecture") {
         generations.delete(job.id);
         if (/already created/i.test(error?.message || "")) {
@@ -6058,6 +6077,7 @@ export function createStudyHubController({
       closeLecture,
       askLecture,
       closeLecturePop() { setLecturePop(""); render(); },
+      restyleLecture,
       // The pop-up's full-screen button: the same chat, now as the lecture's Ask tab.
       expandLecturePop() {
         const id = activeLectureId;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildLectureInput, cleanJots, LECTURE_NOTE_MARK } from "../server/study/lectureNotes.js";
+import { buildLectureInput, cleanJots, jotsFromNote, LECTURE_NOTE_MARK, lectureNotesSystemPrompt, lectureStyleMark, lectureStyleOf } from "../server/study/lectureNotes.js";
 import { noteBody, noteModeAllowed, noteModesFromNotes, shortLectureTitle } from "../server/study/generate.js";
 import { jotsFromText, lectureNoteHtml, loadJots, moveJots, saveJots } from "../public/js/studyLectures.js";
 
@@ -60,4 +60,15 @@ test("a lecture's title is the notes' short heading, kept list-sized", () => {
   assert.equal(shortLectureTitle("**Cell Cycle** Checkpoints"), "Cell Cycle Checkpoints");
   const long = shortLectureTitle("An unusually long heading that keeps going about mitosis and checkpoints and regulation and more");
   assert.ok(long.length <= 81 && long.endsWith("…"));
+});
+
+test("notes can be rewritten in another style, keeping the student's own lines", () => {
+  const content = `${LECTURE_NOTE_MARK}\n${lectureStyleMark("minutes")}# Budget Review\n- ⟦who owns the launch?⟧ — Sam does. [1:02:05]\n- ⟦check⟧ and ⟦recheck⟧ [4:12]`;
+  assert.equal(lectureStyleOf(content), "minutes");
+  assert.equal(lectureStyleOf(`${LECTURE_NOTE_MARK}\n# Cells`), "lecture");
+  assert.equal(lectureStyleMark("nonsense"), "");
+  assert.equal(noteBody({ content }), "# Budget Review\n- ⟦who owns the launch?⟧ — Sam does. [1:02:05]\n- ⟦check⟧ and ⟦recheck⟧ [4:12]");
+  assert.deepEqual(jotsFromNote(content), [{ t: 3725, text: "who owns the launch?" }, { t: 252, text: "check" }, { t: 252, text: "recheck" }]);
+  assert.match(lectureNotesSystemPrompt("minutes"), /## Action items/);
+  assert.equal(lectureNotesSystemPrompt("nonsense"), lectureNotesSystemPrompt("lecture"));
 });

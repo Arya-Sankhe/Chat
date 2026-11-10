@@ -24,6 +24,7 @@ import { cancelCourseTranscription } from "../study/audio.js";
 import { gradeQuizAttempt, questionMarks } from "../study/grade.js";
 import { generatePodcast, normalizePodcastOptions } from "../study/podcast.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
+import { isLectureNote } from "../study/lectureNotes.js";
 
 // ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
 const activeStudyGenerations = new Set();
@@ -316,7 +317,12 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
     if (mode === "lecture" && source.documentFile?.kind !== "audio") throw new HttpError(400, "Lecture notes need a recorded lecture.");
     const listed = await context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal });
     const existing = noteModesFromNotes(listed, source.documentFile?.id);
-    if (!noteModeAllowed(existing, mode)) {
+    // Only the server decides which note a remake rewrites.
+    body.restyleNote = null;
+    if (mode === "lecture" && body.restyle === true) {
+      body.restyleNote = (listed || []).find((note) => note.document_file_id === source.documentFile.id && isLectureNote(note)) || null;
+      if (!body.restyleNote) throw new HttpError(409, "These notes aren't written yet.");
+    } else if (!noteModeAllowed(existing, mode)) {
       throw new HttpError(409, mode === "detailed"
         ? "Detailed review already created."
         : mode === "mindmap" ? "Mind map already created." : mode === "lecture" ? "Lecture notes already created." : "Summary already created.");

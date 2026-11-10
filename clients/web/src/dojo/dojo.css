@@ -201,24 +201,58 @@ body[data-mode="dark"] .d3 {
 .d3-paperfoot .d3-askbar { margin: 0; }
 .d3-paperfoot.is-ask .composer-area, .d3-composer .composer-area { margin: 0 auto; }
 
-/* recording */
-.d3-listen { flex: none; display: flex; align-items: center; gap: 12px; margin: 14px 16px 0; padding: 9px 12px; border-radius: 16px; background: var(--d3-skybg); border: 1px solid var(--d3-skyline); }
+/* recording: one quiet strip, then a blank page for jots, all on one left edge */
+.d3-listen { flex: none; display: flex; align-items: center; gap: 12px; margin: 14px 16px 0; padding: 8px 8px 8px 12px; border-radius: 18px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); }
 .d3-listen-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.d3-listen-copy strong { font-size: 14.5px; }
+.d3-listen-copy strong { font-size: 14.5px; font-weight: 700; }
 .d3-listen-copy span { font-size: 12.5px; color: var(--d3-tx2); font-variant-numeric: tabular-nums; }
-.d3-listen.is-writing { margin-bottom: 4px; }
-.d3-levels { flex: none; display: flex; align-items: center; gap: 3px; height: 26px; width: 150px; }
+.d3-listen.is-writing { margin: 14px 52px 4px; padding: 10px 14px 10px 12px; }
+.d3-levels { flex: none; display: flex; align-items: center; gap: 3px; height: 24px; width: 120px; }
 .d3-levels i { flex: 1; height: 100%; border-radius: 2px; background: var(--d3-sky); transform: scaleY(.1); transition: transform 90ms linear; }
 .d3-listen.is-paused .d3-levels i { transform: scaleY(.06) !important; opacity: .5; }
-.d3-pad { flex: 1; min-height: 0; overflow: auto; padding: 18px 42px 18px 20px; }
-.d3-pad-title { font-size: 13px; color: var(--d3-tx2); margin: 0 0 8px 76px; }
-.d3-pad-box { position: relative; padding-left: 76px; min-height: 100%; }
+.d3-pad { flex: 1; min-height: 0; overflow: auto; padding: 22px 16px 18px; display: flex; flex-direction: column; }
+.d3-pad-title { font-size: 13px; color: var(--d3-tx2); margin: 0; }
+.d3-pad-title b { color: var(--d3-tx); font-weight: 700; }
+.d3-pad-hint { font-size: 12.5px; color: var(--d3-tx2); opacity: .85; margin: 2px 0 14px; }
+.d3-pad-box { position: relative; flex: 1; }
 .d3-pad-text, .d3-pad-mirror { font: inherit; font-size: 16px; line-height: 1.75; letter-spacing: normal; white-space: pre-wrap; overflow-wrap: anywhere; }
-.d3-pad-text { display: block; width: 100%; min-height: 360px; height: 100%; resize: none; border: 0; outline: none; background: repeating-linear-gradient(180deg, transparent 0, transparent calc(1.75em - 1px), var(--d3-bd) calc(1.75em - 1px), var(--d3-bd) 1.75em); color: var(--d3-tx); padding: 0; }
-.d3-pad-text::placeholder { color: var(--d3-tx2); opacity: .8; }
-.d3-pad-mirror { position: absolute; left: 76px; right: 0; top: 0; visibility: hidden; pointer-events: none; }
-.d3-pad-gutter { position: absolute; left: 0; top: 0; width: 64px; }
-.d3-pad-gutter span { position: absolute; right: 0; font-size: 12px; line-height: 28px; font-weight: 750; color: var(--d3-sky); font-variant-numeric: tabular-nums; }
+.d3-pad-text { display: block; width: 100%; min-height: 360px; height: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--d3-tx); padding: 0 56px 0 0; }
+.d3 .d3-pad-text:focus-visible { outline: 0; }
+.d3-pad-text::placeholder { color: var(--d3-tx2); opacity: .7; }
+.d3-pad-mirror { position: absolute; left: 0; right: 56px; top: 0; visibility: hidden; pointer-events: none; }
+.d3-pad-gutter { position: absolute; right: 0; top: 0; width: 48px; }
+.d3-pad-gutter span { position: absolute; right: 0; font-size: 12px; line-height: 28px; font-weight: 700; color: var(--d3-sky); opacity: .85; font-variant-numeric: tabular-nums; }
+.d3-paperfoot[data-rec-quiet]:empty { display: none; }
+
+/* Buddy: the little notebook face */
+.d3-buddy { flex: none; display: inline-flex; color: var(--d3-sky-soft); }
+.d3-buddy svg { overflow: visible; }
+.d3-buddy-page { fill: var(--d3-skybg); stroke: currentColor; stroke-width: 1.6; }
+.d3-buddy-ring, .d3-buddy-line { stroke: currentColor; stroke-width: 1.6; }
+.d3-buddy-line { stroke: var(--d3-tx); stroke-width: 1.5; }
+.d3-buddy-eyes circle { fill: var(--d3-tx); }
+.d3-buddy-cheek { fill: #f59bb0; opacity: .55; }
+.d3-buddy-pen { fill: var(--d3-paper); stroke: currentColor; stroke-width: 1.3; transform-origin: 26px 26px; animation: d3-scribble .9s ease-in-out infinite; }
+.d3-buddy.is-listening .d3-buddy-eyes { transform-origin: 16px 16px; animation: d3-blink 4.2s ease-in-out infinite; }
+.d3-buddy.is-writing .d3-buddy-eyes { transform: translateY(1px); }
+.d3-buddy.is-sad { color: var(--d3-tx2); }
+@keyframes d3-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes d3-scribble { 0%, 100% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(-1.5px, .5px) rotate(-8deg); } }
+
+/* note style: a quiet pill in the lecture's top bar, and a status while the notes are rewritten */
+.d3-stylemenu { flex: none; }
+.d3-stylebtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--d3-bd); font-size: 12.5px; font-weight: 600; color: var(--d3-tx2); white-space: nowrap; }
+.d3-stylemenu .d3-menu-trigger:hover .d3-stylebtn, .d3-stylemenu .d3-menu-trigger[aria-expanded="true"] .d3-stylebtn { color: var(--d3-tx); background: var(--d3-paper2); }
+.d3-stylemenu .d3-menu { min-width: 260px; }
+.d3-menu-head { padding: 6px 10px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--d3-tx2); }
+.d3-style-item { justify-content: space-between; white-space: normal !important; }
+.d3-style-copy { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.d3-style-copy b { font-weight: 650; }
+.d3-style-copy small { font-size: 12px; font-weight: 500; color: var(--d3-tx2); }
+.d3-style-item:disabled { opacity: .55; cursor: default; }
+.d3-restyle { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; padding: 8px 14px 8px 10px; width: fit-content; border-radius: 999px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); font-size: 13px; font-weight: 600; color: var(--d3-tx2); }
+.d3-note.is-restyling { opacity: .4; pointer-events: none; transition: opacity 200ms ease; }
+@media (prefers-reduced-motion: reduce) { .d3-buddy * { animation: none !important; } }
 
 /* writing */
 .d3-steps { list-style: none; margin: 14px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -228,8 +262,8 @@ body[data-mode="dark"] .d3 {
 .d3-steps small { flex-basis: 100%; padding-left: 37px; font-size: 12.5px; color: var(--d3-tx2); }
 .d3-step-dot { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--d3-bd2); color: var(--d3-sky); }
 .d3-steps li.is-done .d3-step-dot, .d3-steps li.is-now .d3-step-dot { background: var(--d3-skybg); border-color: var(--d3-skyline); }
-.d3-kept { margin: 16px 0; padding: 12px 16px; border-radius: 14px; background: var(--d3-skybg); border: 1px solid var(--d3-skyline); }
-.d3-kept-title { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--d3-sky); }
+.d3-kept { margin: 16px 0; padding: 12px 16px; border-radius: 14px; background: var(--d3-paper2); border: 1px solid var(--d3-bd); }
+.d3-kept-title { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--d3-tx2); }
 .d3-kept p { font-size: 14px; line-height: 1.55; margin: 7px 0 0; display: flex; gap: 10px; align-items: baseline; }
 .d3-skeleton { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .d3-skeleton span.is-short { width: 55%; }
@@ -337,6 +371,7 @@ body[data-mode="dark"] .d3 {
 @media (max-width: 900px) {
   .d3-scroll { padding: 18px 18px 40px; }
   .d3-paper-body { padding: 16px 22px 30px; }
+  .d3-listen.is-writing { margin-left: 22px; margin-right: 22px; }
   .d3-stage { padding: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -409,6 +444,9 @@ body[data-mode="dark"] .d3 {
 .d3-pop { position: absolute; right: 18px; bottom: 16px; z-index: 6; width: min(440px, calc(100% - 36px)); height: min(580px, calc(100% - 84px)); display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd2); border-radius: 20px; box-shadow: 0 24px 60px rgba(12, 30, 60, .22); overflow: hidden; }
 .d3-pop[hidden] { display: flex !important; visibility: hidden; pointer-events: none; opacity: 0; clip-path: inset(50%); }
 .d3-pop[hidden] * { visibility: hidden !important; animation: none !important; }
+/* The pop-up is narrow and already names its lecture: the context pill keeps only its icon. */
+.d3-pop .composer-context-btn > span:not(.composer-context-chevron) { display: none; }
+.d3-pop .composer-actions, .d3-pop .composer-bottom { min-width: 0; }
 .d3-pop.is-open { animation: d3-pop-in 260ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: bottom center; }
 @keyframes d3-pop-in { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
 .d3-pop-head { flex: none; display: flex; align-items: center; gap: 9px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--d3-bd); }

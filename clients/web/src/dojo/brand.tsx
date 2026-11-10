@@ -81,6 +81,27 @@ export function Klui({ mood = "", size = 32 }: { mood?: string; size?: number })
   return <span className="d3-klui" dangerouslySetInnerHTML={{ __html: kluiMarkup(mood, size) }} />;
 }
 
+// A tiny notebook with a face: the recording and note-writing companion.
+// mood: "listening" blinks, "paused" sleeps, "writing" scribbles, "sad" when something failed.
+export function Buddy({ mood = "listening", size = 34 }: { mood?: "listening" | "paused" | "writing" | "sad"; size?: number }) {
+  const closed = mood === "paused";
+  return (
+    <span className={`d3-buddy is-${mood}`} aria-hidden="true">
+      <svg viewBox="0 0 32 32" width={size} height={size} fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <rect className="d3-buddy-page" x="5" y="6.5" width="22" height="21" rx="7" />
+        <path className="d3-buddy-ring" d="M11.5 4.5v4M20.5 4.5v4" />
+        {closed
+          ? <path className="d3-buddy-line" d="M10.6 16.6q1.4 1.1 2.8 0M18.6 16.6q1.4 1.1 2.8 0" />
+          : <g className="d3-buddy-eyes"><circle cx="12" cy="16" r="1.7" /><circle cx="20" cy="16" r="1.7" /></g>}
+        <path className="d3-buddy-line" d={mood === "sad" ? "M13.6 22q2.4-1.4 4.8 0" : closed ? "M14.8 21.4h2.4" : "M13.4 20.6q2.6 2.2 5.2 0"} />
+        <circle className="d3-buddy-cheek" cx="9" cy="19.6" r="1.5" />
+        <circle className="d3-buddy-cheek" cx="23" cy="19.6" r="1.5" />
+        {mood === "writing" && <path className="d3-buddy-pen" d="M24.5 29.5 30 24l-1.6-1.6-5.5 5.5-.6 2.2Z" />}
+      </svg>
+    </span>
+  );
+}
+
 const PATHS: Record<string, string> = {
   play: '<path d="m7 4 13 8-13 8Z" fill="currentColor" stroke="none"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',

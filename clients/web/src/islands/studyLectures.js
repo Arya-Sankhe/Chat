@@ -15,6 +15,12 @@ export function isLectureNote(note) {
   return String(note?.content || "").startsWith(LECTURE_NOTE_MARK);
 }
 
+// Which way the notes are written (class notes unless remade): <!--klui:style:minutes-->.
+export function lectureStyleOf(note) {
+  const match = /^<!--klui:lecture-->\n?<!--klui:style:([a-z]+)-->/.exec(String(note?.content || ""));
+  return match?.[1] || "lecture";
+}
+
 export function lectureNoteFor(notes, docId) {
   return (notes || []).find((note) => note.document_file_id === docId && isLectureNote(note)) || null;
 }
