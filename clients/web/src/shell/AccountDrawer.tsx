@@ -3,15 +3,11 @@ import { session } from "../app/runtime";
 import { approveAdminPayment, fetchAdminSummary, rejectAdminPayment, resolveAdminReport } from "../islands/api.js";
 import { closeAccount, showToast, useApp } from "../state/app";
 import { signOutAndReset } from "../state/chat";
+import { billingDay } from "./SettingsPanels";
 import { AccountUsage } from "./Sidebar";
 
 /* The account drawer: who's signed in, their plan and usage, and for admins the
    dashboard (totals, plans, the payment and report queues, top users). */
-
-// Ziina periods end the day before the stored date; Stripe's end on it.
-function billingDay(periodEnd: string, provider?: string) {
-  return new Date(Date.parse(periodEnd) - (provider === "stripe" ? 0 : 1)).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
-}
 
 function AccountInfo() {
   const me = useApp((s) => s.me);

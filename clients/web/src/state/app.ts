@@ -593,7 +593,7 @@ export function openSettings() {
   set({ settingsOpen: true, overlay: "settings" });
 }
 
-/** setSettingsTab(): the chat core loads the tab's data, every time it is picked. */
+/** setSettingsTab(): the tab's data loads every time it is picked (chatHooks.settingsTabSelected). */
 export function setSettingsTab(tab: string) {
   const selected = (["general", "voice", "memory", "storage", "account"] as const).find((t) => t === tab) || "general";
   const main = document.querySelector("#settingsDrawer .settings-main");
