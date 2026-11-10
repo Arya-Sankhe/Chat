@@ -327,6 +327,9 @@ body[data-mode="dark"] .d3 {
 .d3-ws { background: var(--d3-wash), var(--d3-bg); }
 .d3-ws .d3-top { border-bottom: 0; height: 60px; padding: 0 24px; }
 .d3-crumb-back.is-course { color: var(--d3-tx); font-weight: 650; padding-left: 8px; }
+/* A long course name shortens with "…"; "dojo" and the chevron keep their size. */
+.d3-crumb > svg, .d3-crumb > .d3-crumb-back:not(.is-course) { flex: none; }
+.d3-crumb > b, .d3-crumb > .d3-crumb-back.is-course { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .d3-ws-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 0 24px 20px; }
 .d3-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--d3-paper); border: 1px solid var(--d3-bd); border-radius: 22px; box-shadow: var(--d3-shadow); overflow: hidden; }

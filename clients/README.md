@@ -117,10 +117,11 @@ with host GPU rendering and 4 GB of RAM, run `parity/native/build-refapp.sh` and
   The page's localStorage carries over by itself (same `https://localhost` origin).
   A parity build with `KLUI_PARITY_APP_ID=tech.klui.app.ref` installs over the
   Capacitor test build to exercise this.
-- **System bar icons** keep the Capacitor app's on-device result: light status
-  icons in light mode, dark in dark mode (its `StatusBar.setStyle` call was
-  inverted), and a dark gesture handle in both (its navigation bar call never
-  took effect).
+- **System bar icons** follow the theme behind them: dark status icons and
+  gesture handle in light mode, light ones in dark mode. The Capacitor app had
+  them inverted (its `StatusBar.setStyle` call), which hid the clock and
+  battery; the new app doesn't copy that. Native screens set them for their own
+  theme, the web page while it is shown.
 - **Launch insets.** The Capacitor app sometimes misses the system bar insets at
   launch (its first pass lands before the page listens), leaving its top bar
   under the status bar until something resends them. The host sends them once

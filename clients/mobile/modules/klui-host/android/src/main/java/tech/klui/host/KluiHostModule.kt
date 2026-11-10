@@ -49,18 +49,15 @@ class KluiHostModule : Module() {
       host.post { promise.resolve(host.setTextZoom(percent)) }
     }
 
-    // The StatusBar plugin only styled the status bar; keep the gesture handle
-    // and nav buttons readable on light and dark surfaces too.
+    // Status bar icons and the gesture handle follow the screen behind them: dark on the
+    // light theme, light on the dark one. (The Capacitor app had these inverted, which left
+    // the clock and battery invisible; this host no longer copies that.)
     Function("setSystemBarStyle") { dark: Boolean ->
       val activity = appContext.currentActivity ?: return@Function
       activity.runOnUiThread {
         WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-          // As the Capacitor app measured on device: its StatusBar.setStyle got
-          // Style.Light in dark mode (dark icons) and Style.Dark in light mode
-          // (light icons), and the navigation bar stayed light in both (its
-          // TextZoom.setNavigationBarStyle never took effect).
-          isAppearanceLightStatusBars = dark
-          isAppearanceLightNavigationBars = true
+          isAppearanceLightStatusBars = !dark
+          isAppearanceLightNavigationBars = !dark
         }
       }
     }
