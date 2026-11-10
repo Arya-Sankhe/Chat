@@ -1,9 +1,66 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { session } from "../app/runtime";
+import { updateAdminSettings } from "../islands/api.js";
 import { COLOR_PRESETS } from "@klui/shared";
-import { NATIVE_APP, chatHooks, closeSettings, setSettingsTab, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
+import { NATIVE_APP, chatHooks, closeSettings, setSettingsTab, showMobileSettingsOverview, showToast, updateSetting, useApp } from "../state/app";
 import { signOutAndReset } from "../state/chat";
 import { cx } from "./cx";
 import { AccountUsage } from "./Sidebar";
+
+/** Admins only: the reasoning display, and the global system prompt every chat starts from. */
+function AdminSettings({ hidden }: { hidden: boolean }) {
+  const admin = useApp((s) => s.me?.profile?.role === "admin");
+  const showReasoning = useApp((s) => s.settings.showModelReasoning !== false);
+  const systemPrompt = useApp((s) => s.settings.systemPrompt);
+  const [saving, setSaving] = useState(false);
+  if (!admin) return null;
+  const save = async () => {
+    const prompt = String(systemPrompt || "").trim();
+    if (!prompt) {
+      showToast("System prompt cannot be empty.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = await updateAdminSettings(session.current(), { systemPrompt: prompt });
+      const saved = payload.settings?.systemPrompt || prompt;
+      updateSetting("systemPrompt", saved);
+      const me = useApp.getState().me;
+      if (me) useApp.setState({ me: { ...me, settings: { ...(me.settings || {}), systemPrompt: saved } } });
+      showToast("Global system prompt saved.");
+    } catch (error: any) {
+      showToast(error?.message || "Could not save the prompt.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <>
+      <section className="settings-section" id="settingsReasoningSection" data-settings-panel="general" hidden={hidden}>
+        <h2>Reasoning display</h2>
+        {" "}
+        <label className="settings-switch-row" htmlFor="showModelReasoningInput">
+          <span>
+            <strong>Show model reasoning</strong>
+            {" "}
+            <small>Turn off to use the simpler animated thinking bar.</small>
+          </span>
+          {" "}
+          <input id="showModelReasoningInput" type="checkbox" role="switch" checked={showReasoning} onChange={(event) => { updateSetting("showModelReasoning", event.target.checked); chatHooks.renderMessages(); }} />
+        </label>
+      </section>
+      <section className="settings-section" id="settingsSystemPromptSection" data-settings-panel="general" hidden={hidden}>
+        <h2>System prompt</h2>
+        {" "}
+        <div className="field-group">
+          <textarea id="systemPromptInput" rows={4} spellCheck="true" value={systemPrompt || ""} onChange={(event) => useApp.setState((s) => ({ settings: { ...s.settings, systemPrompt: event.target.value } }))} />
+        </div>
+        {" "}
+        <button className="admin-load settings-save-btn" id="saveSystemPromptButton" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving..." : "Save global prompt"}</button>
+      </section>
+    </>
+  );
+}
 
 /** The title row; phones lift it above the tab list (setupMobileLayout). */
 function SettingsHeader() {
@@ -314,28 +371,7 @@ export function SettingsDrawer() {
             <div className="memory-empty" id="memoryEmpty">Turn memory on to start building a private, editable summary from your future messages.</div>
             <p className="settings-notice" id="memoryNotice" role="status" aria-live="polite" />
           </section>
-          <section className="settings-section hidden" id="settingsReasoningSection" data-settings-panel="general" hidden={tab !== "general"}>
-            <h2>Reasoning display</h2>
-            {" "}
-            <label className="settings-switch-row" htmlFor="showModelReasoningInput">
-              <span>
-                <strong>Show model reasoning</strong>
-                {" "}
-                <small>Turn off to use the simpler animated thinking bar.</small>
-              </span>
-              {" "}
-              <input id="showModelReasoningInput" type="checkbox" role="switch" />
-            </label>
-          </section>
-          <section className="settings-section hidden" id="settingsSystemPromptSection" data-settings-panel="general" hidden={tab !== "general"}>
-            <h2>System prompt</h2>
-            {" "}
-            <div className="field-group">
-              <textarea id="systemPromptInput" rows={4} spellCheck="true" />
-            </div>
-            {" "}
-            <button className="admin-load settings-save-btn" id="saveSystemPromptButton" type="button">Save global prompt</button>
-          </section>
+          <AdminSettings hidden={tab !== "general"} />
           <nav className="settings-legal" aria-label="Terms and policies">
             <a href="https://home.klui.ai/terms/" target="_blank" rel="noopener">Terms of use</a>
             {" "}
