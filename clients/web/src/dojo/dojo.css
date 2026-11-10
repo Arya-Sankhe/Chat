@@ -18,6 +18,7 @@
   --d3-skybg: rgba(62, 155, 225, .16);
   --d3-skyline: rgba(8, 78, 133, .5);
   --d3-sky-soft: #3d9be3;
+  --d3-skyline-soft: rgba(61, 155, 227, .45);
   --d3-ts-bg: #eaf4fc;
   --d3-pill: #0c1624;
   --d3-pilltx: #ffffff;
@@ -54,6 +55,7 @@ body[data-mode="dark"] .d3 {
   --d3-skybg: rgba(88, 174, 240, .17);
   --d3-skyline: rgba(140, 205, 250, .48);
   --d3-sky-soft: #9ad7fc;
+  --d3-skyline-soft: rgba(140, 205, 250, .48);
   --d3-ts-bg: rgba(88, 174, 240, .17);
   --d3-pill: #f5f8ff;
   --d3-pilltx: #0a0e15;
@@ -268,6 +270,8 @@ body[data-mode="dark"] .d3 {
 /* transcript + ask on the paper */
 .d3-paper-body.is-transcript { padding: 12px 18px; }
 .d3-paper-body.is-transcript .dojo-lec-audio-slot { height: 100%; }
+/* lecture-recording elements use the lighter sky blue: timestamps, ▶ buttons, the lecture list, the live notepad */
+.d3-ts, .d3 .dojo-cite, .d3-playbtn, .d3-li[data-lecture], .d3-listen, .d3-pad-gutter, .d3-steps { --d3-sky: var(--d3-sky-soft); --d3-skyline: var(--d3-skyline-soft); }
 /* the transcript's player: the notes' slim blue player, in two short rows */
 .d3 .dojo-lecture { --pod: var(--d3-sky-soft); }
 .d3 .dojo-lecture .dojo-view-head { padding: 4px 4px 2px; }
