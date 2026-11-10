@@ -2818,8 +2818,7 @@ body[data-mode="dark"] .dojo-rec-pill-btn.is-stop { color: #2a1511; }
 .dojo-lecture .dojo-view-head { padding-left: 12px; }
 .dojo-lecture-badge { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px; background: color-mix(in srgb, var(--dojo-audio) 12%, transparent); color: var(--dojo-audio); }
 .dojo-lecture-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.dojo-lecture .dojo-pod-play { color: #fff; }
-body[data-mode="dark"] .dojo-lecture .dojo-pod-play { color: #2a1511; }
+.dojo-lecture .dojo-pod-play { color: var(--study-ink); }
 .dojo-lecture-line { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; }
 .dojo-lecture-line time { padding-top: 2px; color: var(--study-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .dojo-lecture-line.is-active time { color: var(--dojo-audio); font-weight: 650; }
