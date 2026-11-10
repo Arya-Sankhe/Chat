@@ -5,6 +5,9 @@ import { applyApiCors } from "./http/cors.js";
 import { appShellHtml } from "./appShell.js";
 
 const publicDir = path.resolve(process.cwd(), "public");
+// The rebuilt web app (built by clients/web, copied here by the Dockerfile). public/ still
+// serves what the app doesn't ship: downloads, sign-in return pages, email images, home.
+const webDir = path.resolve(process.cwd(), "clients/web/dist");
 const homeDir = path.join(publicDir, "home");
 const legacyWebHosts = new Set(["klui.tech", "www.klui.tech"]);
 const marketingWebHosts = new Set(["home.klui.ai", "www.home.klui.ai"]);
@@ -195,7 +198,7 @@ function isSharedMarketingAsset(filePath) {
     || relative.startsWith(`icons${path.sep}`);
 }
 
-async function resolvePublicFile(pathname) {
+async function resolveFileIn(dir, pathname) {
   const mapped = directoryIndexes.get(pathname);
   const candidates = mapped
     ? [mapped]
@@ -204,8 +207,8 @@ async function resolvePublicFile(pathname) {
       : [pathname, `${pathname}/index.html`];
 
   for (const candidate of candidates) {
-    const filePath = path.resolve(publicDir, `.${candidate}`);
-    if (!isInside(publicDir, filePath)) continue;
+    const filePath = path.resolve(dir, `.${candidate}`);
+    if (!isInside(dir, filePath)) continue;
     try {
       const stat = await fs.promises.stat(filePath);
       if (stat.isFile()) return filePath;
@@ -214,6 +217,24 @@ async function resolvePublicFile(pathname) {
     }
   }
   return null;
+}
+
+function resolvePublicFile(pathname) {
+  return resolveFileIn(publicDir, pathname);
+}
+
+// The rebuilt app's own files first (never a sub-folder's index.html, so "/" stays the app),
+// then public/.
+async function resolveWebFile(webRoot, pathname) {
+  const own = await resolveFileIn(webRoot, pathname);
+  if (own && (own === path.join(webRoot, "index.html") || path.basename(own) !== "index.html")) return own;
+  return resolvePublicFile(pathname);
+}
+
+const webRootReady = new Map();
+function webClientReady(webRoot) {
+  if (!webRootReady.has(webRoot)) webRootReady.set(webRoot, fs.existsSync(path.join(webRoot, "index.html")));
+  return webRootReady.get(webRoot);
 }
 
 async function resolveMarketingFile(pathname) {
@@ -349,7 +370,7 @@ function isHomePreviewPath(pathname) {
   return pathname === "/home" || pathname.startsWith("/home/");
 }
 
-export async function serveStatic(req, res, url, { allowedOrigins = [], supabaseUrl = "" } = {}) {
+export async function serveStatic(req, res, url, { allowedOrigins = [], supabaseUrl = "", webClient = "legacy", webRoot = webDir } = {}) {
   const redirectTo = hostRedirectLocation(req, url);
   if (redirectTo) {
     sendRedirect(res, redirectTo);
@@ -366,9 +387,12 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
     applyApiCors(req, res, allowedOrigins);
   }
 
+  const rebuilt = !marketing && webClient === "new" && webClientReady(webRoot);
   const filePath = marketing
     ? await resolveMarketingFile(pathname)
-    : await resolvePublicFile(pathname);
+    : rebuilt
+      ? await resolveWebFile(webRoot, pathname)
+      : await resolvePublicFile(pathname);
 
   if (!filePath) {
     if (marketing || isHomePreviewPath(requestedPath)) {
@@ -379,17 +403,27 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
       sendMissingAsset(res);
       return;
     }
+    // Any other path is a page of the app.
+    if (rebuilt) {
+      await sendFile(req, res, url, path.join(webRoot, "index.html"), "/index.html", { supabaseUrl, webRoot });
+      return;
+    }
     await sendAppShell(req, res);
     return;
   }
 
-  if (!marketing && filePath === path.join(publicDir, "index.html")) {
+  if (!rebuilt && !marketing && filePath === path.join(publicDir, "index.html")) {
     await sendAppShell(req, res);
     return;
   }
 
+  await sendFile(req, res, url, filePath, pathname, { supabaseUrl, webRoot });
+}
+
+async function sendFile(req, res, url, filePath, pathname, { supabaseUrl = "", webRoot = webDir } = {}) {
   const type = contentTypes.get(path.extname(filePath)) || "application/octet-stream";
-  const versioned = url.searchParams.has("v");
+  // Vite's /assets/ files carry a content hash in their names.
+  const versioned = url.searchParams.has("v") || (isInside(webRoot, filePath) && pathname.startsWith("/assets/"));
   const cacheControl = type.includes("text/html")
     ? "no-cache"
     : versioned

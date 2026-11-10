@@ -30,7 +30,8 @@ const server = http.createServer(async (req, res) => {
 
     await serveStatic(req, res, url, {
       allowedOrigins: config.mobile?.allowedOrigins || [],
-      supabaseUrl: config.supabase.url
+      supabaseUrl: config.supabase.url,
+      webClient: config.webClient
     });
   } catch (error) {
     console.error(error);
