@@ -48,6 +48,7 @@ import {
 } from "../state/app";
 import { homeModes as homeModesController } from "../state/homeModes";
 import { loadMe } from "../state/boot";
+import { closeSideChat, openSideChat, selectionActionsEnabled, sideChatHooks } from "../state/sideChat";
 import { loadAccountStorage, loadSettingsTab, resetAccountData } from "../state/account";
 import { applyCouponFromUrl, resetBilling } from "../state/billing";
 import { setCameraPhotoHandler } from "../state/camera";
@@ -6187,26 +6188,6 @@ function loadGoogleFonts() {
 
 let selectedTextContext = null;
 
-const sideChatState = {
-  context: "",
-  messages: [],
-  running: false,
-  abortController: null,
-  autoScroll: true,
-  touchY: 0,
-  flashcard: false,
-  role: "",
-  onAddToCard: null,
-  added: new Set(),
-  docked: false,
-  suggestions: [],
-  onClose: null
-};
-
-function selectionActionsEnabled() {
-  return !isNative() && window.matchMedia("(pointer: fine)").matches;
-}
-
 function hideSelectionActions() {
   els.selectionActions?.classList.add("hidden");
 }
@@ -6244,180 +6225,6 @@ function showSelectionActionsFromCurrentSelection() {
   });
 }
 
-function renderSideChat() {
-  if (!els.sideChatMessages) return;
-  const beforePinned = sideChatState.autoScroll && isNearBottom(els.sideChatMessages, 60);
-  const beforeScrollTop = els.sideChatMessages.scrollTop;
-  els.sideChatMessages.innerHTML = sideChatState.messages.map((message, index) => {
-    const text = rawTextContent(message.content);
-    const body = message.role === "assistant" ? renderContent(text) : renderPlainText(text);
-    const streaming = message.role === "assistant"
-      && sideChatState.running
-      && index === sideChatState.messages.length - 1;
-    const activity = message.role === "assistant"
-      ? renderAssistantActivity(message, { streaming })
-      : "";
-    const add = message.role === "assistant"
-      && sideChatState.onAddToCard
-      && !streaming
-      && !message.error
-      && text.trim()
-      ? `<button class="side-chat-add-card" type="button" data-add-to-card="${index}"${sideChatState.added.has(index) ? " disabled" : ""}>${sideChatState.added.has(index) ? "Added" : "Add to this card"}</button>`
-      : "";
-    return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}${add}</div>`;
-  }).join("");
-  hydrateKluiBars(els.sideChatMessages);
-  renderSideChatSuggestions();
-  // Context is always attached — empty prompt is still sendable.
-  els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
-  if (beforePinned) {
-    els.sideChatMessages.scrollTop = els.sideChatMessages.scrollHeight;
-  } else {
-    els.sideChatMessages.scrollTop = beforeScrollTop;
-  }
-}
-
-// One-tap prompts: stacked while the chat is empty, then a single scrolling row.
-function renderSideChatSuggestions() {
-  const box = els.sideChatSuggest;
-  if (!box) return;
-  const list = sideChatState.suggestions;
-  box.classList.toggle("hidden", !list.length);
-  box.classList.toggle("is-row", sideChatState.messages.length > 0);
-  const markup = list.map(([label], index) => `<button type="button" data-side-chat-suggest="${index}"${sideChatState.running ? " disabled" : ""}>${escapeHtml(label)}</button>`).join("");
-  if (box.innerHTML !== markup) box.innerHTML = markup;
-}
-
-function setSideChatDocked(docked) {
-  sideChatState.docked = docked;
-  els.sideChatPanel?.classList.toggle("is-docked", docked);
-  document.body.classList.toggle("side-chat-docked", docked);
-  if (docked && els.sideChatPanel) {
-    els.sideChatPanel.style.left = "";
-    els.sideChatPanel.style.top = "";
-  }
-}
-
-function closeSideChat() {
-  const onClose = sideChatState.onClose;
-  sideChatState.onClose = null;
-  sideChatState.suggestions = [];
-  setSideChatDocked(false);
-  if (els.sideChatTitle) els.sideChatTitle.textContent = "Side chat";
-  sideChatState.abortController?.abort();
-  sideChatState.abortController = null;
-  sideChatState.running = false;
-  sideChatState.context = "";
-  sideChatState.messages = [];
-  sideChatState.autoScroll = true;
-  sideChatState.flashcard = false;
-  sideChatState.role = "";
-  sideChatState.onAddToCard = null;
-  sideChatState.added = new Set();
-  els.sideChatPanel?.classList.add("hidden");
-  if (els.sideChatInput) {
-    els.sideChatInput.value = "";
-    els.sideChatInput.placeholder = "Ask about this";
-  }
-  onClose?.();
-}
-
-function openSideChat(context, anchorRect, options = {}) {
-  if (!selectionActionsEnabled() || !els.sideChatPanel) return;
-  sideChatState.abortController?.abort();
-  sideChatState.context = String(context || "").trim();
-  sideChatState.messages = [];
-  sideChatState.running = false;
-  sideChatState.abortController = null;
-  sideChatState.autoScroll = true;
-  sideChatState.flashcard = Boolean(options.flashcard);
-  sideChatState.role = options.role || "";
-  sideChatState.onAddToCard = typeof options.onAddToCard === "function" ? options.onAddToCard : null;
-  sideChatState.added = new Set();
-  sideChatState.suggestions = Array.isArray(options.suggestions) ? options.suggestions : [];
-  sideChatState.onClose = typeof options.onClose === "function" ? options.onClose : null;
-  if (els.sideChatTitle) els.sideChatTitle.textContent = options.title || "Side chat";
-  els.sideChatContext.textContent = sideChatState.context.replace(/\s+/g, " ").slice(0, 180);
-  if (els.sideChatInput) {
-    els.sideChatInput.value = options.initialText || "";
-    els.sideChatInput.placeholder = sideChatState.flashcard ? "Ask any doubts." : "Ask about this";
-  }
-  els.sideChatPanel.classList.remove("hidden");
-  setSideChatDocked(Boolean(options.docked));
-  if (sideChatState.docked) {
-    renderSideChat();
-    if (options.focus) els.sideChatInput?.focus();
-    if (options.send && els.sideChatInput?.value.trim()) void sendSideChatMessage();
-    return;
-  }
-  const panelWidth = els.sideChatPanel.offsetWidth || 380;
-  const panelHeight = els.sideChatPanel.offsetHeight || 480;
-  const preferredLeft = (anchorRect?.right || 12) + 14;
-  const left = preferredLeft + panelWidth <= window.innerWidth - 12
-    ? preferredLeft
-    : Math.max(12, (anchorRect?.left || 12) - panelWidth - 14);
-  const top = Math.min(Math.max(12, anchorRect?.top || 12), window.innerHeight - panelHeight - 12);
-  els.sideChatPanel.style.left = `${left}px`;
-  els.sideChatPanel.style.top = `${Math.max(12, top)}px`;
-  renderSideChat();
-  els.sideChatInput?.focus();
-  if (options.send && els.sideChatInput?.value.trim()) void sendSideChatMessage();
-}
-
-async function sendSideChatMessage() {
-  if (sideChatState.running || !sideChatState.context) return;
-  // Highlighted context is enough — empty input still asks about the selection.
-  const text = els.sideChatInput?.value.trim() || (sideChatState.flashcard ? "" : "Explain this.");
-  if (!text) return;
-
-  const lead = sideChatState.flashcard
-    ? "Use this flashcard as context for my questions:\n\n"
-    : "Use this selected excerpt from the main chat as context for my questions:\n\n";
-  const history = [
-    { role: "user", content: `${lead}${sideChatState.context}` },
-    ...sideChatState.messages.slice(-18).map((message) => ({
-      role: message.role,
-      content: rawTextContent(message.content)
-    }))
-  ];
-  const userMessage = { role: "user", content: text };
-  const assistantMessage = { role: "assistant", content: "", reasoning: "", toolCalls: [] };
-  sideChatState.messages.push(userMessage, assistantMessage);
-  els.sideChatInput.value = "";
-  sideChatState.running = true;
-  sideChatState.autoScroll = true;
-  const controller = new AbortController();
-  sideChatState.abortController = controller;
-  renderSideChat();
-
-  try {
-    await streamTemporaryChat(state.session, {
-      text,
-      messages: history,
-      role: sideChatState.role || selectedSingleRole(),
-      settings: chatRequestSettings(),
-      writingStyle: "concise",
-      agentMode: !sideChatState.flashcard,
-      webSearch: sideChatState.flashcard ? "off" : (state.settings.webSearchMode !== "off" ? "auto" : "off")
-    }, {
-      signal: controller.signal,
-      onEvent: (event) => {
-        applyStreamEvent(assistantMessage, event);
-        renderSideChat();
-      }
-    });
-    loadMe().catch(() => {});
-  } catch (error) {
-    if (error.name !== "AbortError") assistantMessage.error = error.message || "Side chat failed.";
-  } finally {
-    if (sideChatState.abortController === controller) {
-      sideChatState.abortController = null;
-      sideChatState.running = false;
-      renderSideChat();
-      els.sideChatInput?.focus();
-    }
-  }
-}
 
 let studyHub = {
   closeSession() {},
@@ -7727,7 +7534,7 @@ function settingsTabSelected(selected) {
   loadSettingsTab(selected);
 }
 
-/* ─── Events: text selection and the side chat (bindEvents) ─── */
+/* ─── Events: text selection (bindEvents); the side chat is React's ─── */
 
 function bindSelectionEvents() {
   document.addEventListener("pointerup", (event) => {
@@ -7750,73 +7557,6 @@ function bindSelectionEvents() {
     window.getSelection()?.removeAllRanges();
     selectedTextContext = null;
   });
-  els.sideChatClose?.addEventListener("click", closeSideChat);
-  els.sideChatContext?.addEventListener("click", () => openPastedTextDialog(sideChatState.context));
-  els.sideChatMessages?.addEventListener("click", async (event) => {
-    const btn = event.target.closest("[data-add-to-card]");
-    if (!btn || btn.disabled || !sideChatState.onAddToCard) return;
-    const index = Number(btn.dataset.addToCard);
-    const message = sideChatState.messages[index];
-    const text = message?.role === "assistant" ? rawTextContent(message.content).trim() : "";
-    if (!text) return;
-    btn.disabled = true;
-    btn.textContent = "Adding…";
-    if (await sideChatState.onAddToCard(text)) {
-      sideChatState.added.add(index);
-      btn.textContent = "Added";
-    } else {
-      btn.disabled = false;
-      btn.textContent = "Add to this card";
-    }
-  });
-  els.sideChatSend?.addEventListener("click", () => { void sendSideChatMessage(); });
-  els.sideChatSuggest?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-side-chat-suggest]");
-    const prompt = sideChatState.suggestions[Number(button?.dataset.sideChatSuggest)]?.[1];
-    if (!prompt || sideChatState.running || !els.sideChatInput) return;
-    els.sideChatInput.value = prompt;
-    void sendSideChatMessage();
-  });
-  els.sideChatInput?.addEventListener("input", () => {
-    els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
-  });
-  els.sideChatInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void sendSideChatMessage();
-    }
-  });
-  els.sideChatMessages?.addEventListener("wheel", (event) => {
-    if (event.deltaY < 0) sideChatState.autoScroll = false;
-    else if (event.deltaY > 0 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
-  }, { passive: true });
-  els.sideChatMessages?.addEventListener("touchstart", (event) => {
-    sideChatState.touchY = event.touches?.[0]?.clientY ?? 0;
-  }, { passive: true });
-  els.sideChatMessages?.addEventListener("touchmove", (event) => {
-    const y = event.touches?.[0]?.clientY ?? sideChatState.touchY;
-    if (y > sideChatState.touchY + 2) sideChatState.autoScroll = false;
-    else if (y < sideChatState.touchY - 2 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
-    sideChatState.touchY = y;
-  }, { passive: true });
-  let sideChatDrag = null;
-  els.sideChatHeader?.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest("button") || sideChatState.docked) return;
-    const rect = els.sideChatPanel.getBoundingClientRect();
-    sideChatDrag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
-    els.sideChatHeader.setPointerCapture(event.pointerId);
-  });
-  els.sideChatHeader?.addEventListener("pointermove", (event) => {
-    if (!sideChatDrag) return;
-    const panel = els.sideChatPanel;
-    const left = Math.min(Math.max(8, sideChatDrag.left + event.clientX - sideChatDrag.x), window.innerWidth - panel.offsetWidth - 8);
-    const top = Math.min(Math.max(8, sideChatDrag.top + event.clientY - sideChatDrag.y), window.innerHeight - panel.offsetHeight - 8);
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
-  });
-  const stopSideChatDrag = () => { sideChatDrag = null; };
-  els.sideChatHeader?.addEventListener("pointerup", stopSideChatDrag);
-  els.sideChatHeader?.addEventListener("pointercancel", stopSideChatDrag);
   document.addEventListener("pointerdown", (event) => {
     if (!event.target.closest("#selectionActions")) hideSelectionActions();
   });
@@ -8413,6 +8153,13 @@ export function mountChat() {
   bindTemporaryChatEvents();
   bindChatDismissEvents();
   bindHistoryEvents();
+  Object.assign(sideChatHooks, {
+    request: () => ({ role: selectedSingleRole(), settings: chatRequestSettings(), webSearchMode: state.settings.webSearchMode }),
+    applyStreamEvent,
+    rawText: rawTextContent,
+    activityHtml: (message, streaming) => renderAssistantActivity(message, { streaming }),
+    openPastedText: openPastedTextDialog
+  });
   Object.assign(chatHooks, {
     openUpgradePlans,
     closeResearchReport: () => researchController.closeResearchReport(),
