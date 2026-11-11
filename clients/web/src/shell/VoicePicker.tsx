@@ -32,6 +32,8 @@ export type VoicePickerApi = {
   preview(): Promise<void>;
   stopPreview(): void;
   refresh(): void;
+  /** Stops the orb and audio for good and ignores input (a closing dialog). */
+  destroy(): void;
 };
 
 const rgb = (color: number[]) => `rgb(${color.join(" ")})`;
@@ -179,6 +181,7 @@ function createPreviewPlayer({
     playing: () => flags.playing,
     recolor: (palette: Palette) => orb.setPalette(palette),
     destroy() {
+      if (destroyed) return;
       stopPreview();
       destroyed = true;
       orb.stop();
@@ -218,6 +221,7 @@ export function VoicePicker({
   const speedGroup = useRef<HTMLDivElement>(null);
   const player = useRef<Player | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  const done = useRef(false);
 
   const paintSpeedThumb = () => {
     const picked = speedGroup.current?.querySelector<HTMLElement>("[data-voice-speed].is-picked");
@@ -228,6 +232,7 @@ export function VoicePicker({
   };
 
   function select(next: Partial<VoiceChoice>, direction = 0) {
+    if (done.current) return;
     const previous = valueRef.current;
     const changedVoice = Boolean(next.voice && next.voice !== previous.voice);
     const state = { ...previous, ...next };
@@ -241,6 +246,7 @@ export function VoicePicker({
     callbacks.current.onChange?.({ ...state });
   }
   function step(delta: number) {
+    if (done.current) return;
     const index = VOICE_OPTIONS.findIndex((item) => item.id === valueRef.current.voice);
     select({ voice: voiceAt((index + delta + VOICE_OPTIONS.length) % VOICE_OPTIONS.length).id }, delta);
     player.current?.queuePreview();
@@ -275,7 +281,12 @@ export function VoicePicker({
       step,
       preview: () => player.current?.preview() ?? Promise.resolve(),
       stopPreview: () => player.current?.stopPreview(),
-      refresh: paintSpeedThumb
+      refresh: paintSpeedThumb,
+      destroy: () => {
+        done.current = true;
+        player.current?.destroy();
+        player.current = null;
+      }
     };
   }
 
@@ -399,7 +410,7 @@ function VoicePickerModal({ dialog }: { dialog: VoicePickerRequest }) {
   const close = (saved: boolean) => {
     if (useVoicePicker.getState().dialog?.closing) return;
     const value = api.current?.value ?? { voice: normalizeVoiceId(dialog.voice), speed: normalizeVoiceSpeed(dialog.speed) };
-    api.current?.stopPreview();
+    api.current?.destroy();
     finishVoicePicker(dialog.id, saved ? value : null);
   };
 
