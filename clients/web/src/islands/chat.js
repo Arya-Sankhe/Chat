@@ -49,6 +49,7 @@ import {
 import { homeModes as homeModesController } from "../state/homeModes";
 import { loadMe } from "../state/boot";
 import { closeSideChat, openSideChat, selectionActionsEnabled, sideChatHooks } from "../state/sideChat";
+import { closeLightbox, closePastedText as closePastedTextDialog, openLightbox, openPastedText as openPastedTextDialog } from "../state/viewers";
 import { loadAccountStorage, loadSettingsTab, resetAccountData } from "../state/account";
 import { applyCouponFromUrl, resetBilling } from "../state/billing";
 import { setCameraPhotoHandler } from "../state/camera";
@@ -6881,12 +6882,6 @@ function bindMessageEvents() {
   }, { passive: true });
 
   els.guestContinueSignup?.addEventListener("click", startSidebarLogin);
-  els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
-  els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
-  els.pastedTextDialogClose?.addEventListener("click", closePastedTextDialog);
-  els.pastedTextDialog?.addEventListener("click", (e) => {
-    if (e.target === els.pastedTextDialog) closePastedTextDialog();
-  });
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
   els.messages.addEventListener("click", async (e) => {
@@ -7422,42 +7417,6 @@ function stepEmailHistory(card, delta) {
   card.querySelector('[data-email-field="subject"]').innerHTML = next.subject;
   card.querySelector('[data-email-field="body"]').innerHTML = next.body;
   syncEmailHistoryButtons(card, history);
-}
-
-function openPastedTextDialog(text) {
-  if (!els.pastedTextDialog || !els.pastedTextDialogBody) return;
-  const value = String(text || "");
-  els.pastedTextDialogBody.textContent = value;
-  if (els.pastedTextDialogMeta) {
-    const bytes = new TextEncoder().encode(value).length;
-    const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-    els.pastedTextDialogMeta.textContent = `${size} · ${Math.max(1, value.split("\n").length)} lines`;
-  }
-  els.pastedTextDialog.classList.remove("hidden");
-}
-
-function closePastedTextDialog() {
-  els.pastedTextDialog?.classList.add("hidden");
-  if (els.pastedTextDialogBody) els.pastedTextDialogBody.textContent = "";
-}
-
-function openLightbox(src, caption = "") {
-  els.lightboxImg.src = src;
-  const text = String(caption || "").trim();
-  if (els.lightboxCaption) {
-    els.lightboxCaption.textContent = text;
-    els.lightboxCaption.hidden = !text;
-  }
-  els.lightbox.classList.remove("hidden");
-}
-
-function closeLightbox() {
-  els.lightbox.classList.add("hidden");
-  els.lightboxImg.src = "";
-  if (els.lightboxCaption) {
-    els.lightboxCaption.textContent = "";
-    els.lightboxCaption.hidden = true;
-  }
 }
 
 function autoSizeEditInput(input) {
@@ -8218,11 +8177,7 @@ export function mountChat() {
       compareController.closeCompareDropdown();
       return true;
     },
-    lightbox: () => {
-      if (els.lightbox.classList.contains("hidden")) return false;
-      closeLightbox();
-      return true;
-    },
+    lightbox: closeLightbox,
     viewer: () => {
       if (!state.viewer.open) return false;
       closeDocumentViewer();
