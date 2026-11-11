@@ -93,7 +93,6 @@ function useHomeModes() {
 }
 
 export function AppRoot() {
-  // After BodySheets' backdrop has been appended.
   useLayoutEffect(mountCameraSheet, []);
   useLayoutEffect(installGlobalEvents, []);
   useLayoutEffect(mountChat, []);

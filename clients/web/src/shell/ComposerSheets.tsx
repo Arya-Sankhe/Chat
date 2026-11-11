@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_LABELS } from "@klui/shared";
 import { applyNativeTopBarMode, blockedOnFree, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, dismissComposerKeyboard, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
+import { CameraSheet } from "./CameraSheet";
 import { homeModes } from "../state/homeModes";
 import { DeckPickerPop } from "./HomeModes";
 import { cx } from "./cx";
@@ -266,7 +267,7 @@ export function WritingStyleMenu() {
   );
 }
 
-/** The end of <body>: the phone sheets, their shared backdrop and (from an island) the camera sheet. */
+/** The end of <body>: the phone sheets, their shared backdrop and the camera sheet. */
 export function BodySheets() {
   const mobile = useApp((s) => s.mobile);
   return createPortal(
@@ -280,6 +281,7 @@ export function BodySheets() {
         </>
       )}
       <button id="mobileSheetBackdrop" type="button" aria-label="Close sheet" onClick={() => closeTopNativeSurface()} />
+      <CameraSheet />
     </>,
     document.body
   );
