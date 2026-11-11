@@ -16,6 +16,7 @@ import { AuthDialog } from "./AuthDialog";
 import { BetaWelcome } from "./BetaWelcome";
 import { ChatPanel } from "./ChatPanel";
 import { BodySheets } from "./ComposerSheets";
+import { VoicePickerDialog } from "./VoicePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CourseCreateDialog } from "./CourseCreateDialog";
 import { CourseRenameDialog } from "./CourseRenameDialog";
@@ -146,6 +147,7 @@ export function AppRoot() {
       <AppUpdateDialog />
       <Lightbox />
       <PastedTextDialog />
+      <VoicePickerDialog />
       <BodySheets />
     </>
   );

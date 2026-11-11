@@ -7,6 +7,7 @@ import { signOutAndReset } from "../state/chat";
 import { cx } from "./cx";
 import { AccountUsage } from "./Sidebar";
 import { AccountPanel, MemoryPanel, StorageList, formatStorageBytes } from "./SettingsPanels";
+import { SettingsVoicePicker } from "./VoicePicker";
 
 /** Admins only: the reasoning display, and the global system prompt every chat starts from. */
 function AdminSettings({ hidden }: { hidden: boolean }) {
@@ -278,7 +279,7 @@ export function SettingsDrawer() {
           <section className="settings-section settings-voice" data-settings-panel="voice" hidden={tab !== "voice"}>
             <h2>Voice mode</h2>
             <p className="settings-voice-lead">How Klui sounds when you talk to it. Use the arrows to hear each voice.</p>
-            <div id="voiceSettingsPicker" />
+            <div id="voiceSettingsPicker">{tab === "voice" && <SettingsVoicePicker />}</div>
           </section>
           <section className="settings-section" id="settingsStorageSection" data-settings-panel="storage" hidden={tab !== "storage"}>
             <h2>Your storage</h2>
