@@ -142,9 +142,12 @@ export function HomeModesPanel() {
   const panel = slides ? "slides" : explainerOpen && mode ? "explainer" : "";
   const active = slides ? "slides" : mode;
   useLayoutEffect(() => { if (shown) syncScroll(); });
+  // Built on first show and kept, so covers don't reload when the home screen returns.
+  const built = useRef(false);
+  if (shown) built.current = true;
   return (
     <div className="home-modes" id="homeModes" hidden={!shown}>
-      {shown && (
+      {built.current && (
         <>
           <div className="home-modes-pills" role="group" aria-label="Modes" hidden={Boolean(panel)}>
             {PILLS.map((pill) => (
