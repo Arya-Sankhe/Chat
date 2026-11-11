@@ -164,14 +164,13 @@ import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import {
-  bindVoicePicker,
   createVoiceSession,
   normalizeVoiceId,
   normalizeVoiceSpeed,
-  openVoicePicker,
-  voiceModeSupported,
-  voicePickerMarkup
+  voiceModeSupported
 } from "./voiceMode.js";
+import { openVoicePicker } from "../state/voicePicker";
+import { saveVoicePrefs } from "../shell/VoicePicker";
 import {
   composeEmailNatively,
   copyText,
@@ -6015,17 +6014,11 @@ async function submitEmailRevise(form) {
   }
 }
 
-// Voice mode: the live session and the Settings picker (declared early: settings code runs at load).
+// Voice mode: the live session (the pickers are React's: shell/VoicePicker.tsx).
 let voiceSession = null;
 
 function voicePrefs() {
   return { voice: normalizeVoiceId(state.settings.voiceId), speed: normalizeVoiceSpeed(state.settings.voiceSpeed) };
-}
-
-function saveVoicePrefs({ voice, speed }) {
-  updateSetting("voiceId", normalizeVoiceId(voice));
-  updateSetting("voiceSpeed", normalizeVoiceSpeed(speed));
-  updateSetting("voiceChosen", true);
 }
 
 function pickVoiceMode({ first = false, engine } = {}) {
@@ -6118,8 +6111,6 @@ function keepVoiceRunning(session) {
   };
 }
 
-let voiceSettingsPicker = null;
-
 // After a delete: the usage meter, the profile menu and Settings' file list.
 function refreshAccountStorage() {
   return loadMe()
@@ -6144,21 +6135,6 @@ function openStorageDrawer() {
 function openAdminDrawer() {
   set({ sidebarOpen: false });
   openStorageDrawer();
-}
-
-function renderVoiceSettings() {
-  const host = els.voiceSettingsPicker;
-  if (!host) return;
-  voiceSettingsPicker?.destroy();
-  const { voice, speed } = voicePrefs();
-  host.innerHTML = voicePickerMarkup({ voice, speed });
-  voiceSettingsPicker = bindVoicePicker(host.querySelector(".voice-picker"), {
-    voice,
-    speed,
-    onChange: saveVoicePrefs,
-    onError: showToast,
-    reducedMotion: prefersReducedMotion()
-  });
 }
 
 // The pricing screen is React's (PaywallView); a ?coupon= link is applied as it opens.
@@ -7488,8 +7464,6 @@ function bindSettingsEvents() {
 
 /** The data half of setSettingsTab(); React marks the tab and shows its panel. */
 function settingsTabSelected(selected) {
-  if (selected !== "voice") voiceSettingsPicker?.stopPreview();
-  if (selected === "voice") renderVoiceSettings();
   loadSettingsTab(selected);
 }
 
