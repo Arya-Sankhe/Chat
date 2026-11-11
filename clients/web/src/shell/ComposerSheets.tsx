@@ -7,6 +7,7 @@ import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_L
 import { applyNativeTopBarMode, blockedOnFree, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, dismissComposerKeyboard, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, updateSetting, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
 import { homeModes } from "../state/homeModes";
+import { DeckPickerPop } from "./HomeModes";
 import { cx } from "./cx";
 
 function SheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
@@ -263,11 +264,6 @@ export function WritingStyleMenu() {
           </button>
         </div>
   );
-}
-
-/** Filled and shown by the home modes island. */
-export function DeckPickerPop() {
-  return <div className="deck-picker-pop" id="deckPickerPop" role="dialog" aria-label="Slide themes" hidden onClick={(event) => homeModes.handleGalleryClick(event.nativeEvent)} />;
 }
 
 /** The end of <body>: the phone sheets, their shared backdrop and (from an island) the camera sheet. */

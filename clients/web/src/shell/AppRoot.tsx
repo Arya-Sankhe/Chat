@@ -19,7 +19,7 @@ import { BodySheets } from "./ComposerSheets";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CourseCreateDialog } from "./CourseCreateDialog";
 import { CourseRenameDialog } from "./CourseRenameDialog";
-import { DeckPresetDialog } from "./DeckPresetDialog";
+import { DeckPresetDialog } from "./HomeModes";
 import { DocumentViewer } from "./DocumentViewer";
 import { Lightbox } from "./Lightbox";
 import { MovedNotice } from "./MovedNotice";
