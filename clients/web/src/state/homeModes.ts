@@ -258,6 +258,8 @@ export function togglePresetFromPreview() {
   const { catalog, modalPresetId, selectedPresetId } = get();
   const preset = catalog && presetById(catalog.presets, modalPresetId);
   if (!preset) return;
+  // Closed right away (not on the next render), so the composer can take focus.
+  (document.getElementById("deckPresetDialog") as HTMLDialogElement | null)?.close();
   set({ modalPresetId: "" });
   selectPreset(selectedPresetId === preset.id ? "auto" : preset.id);
 }

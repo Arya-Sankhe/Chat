@@ -192,9 +192,12 @@ export function ComposerDeckThumb() {
 /** The gallery as a popover above the composer (in a chat, or on a phone). */
 export function DeckPickerPop() {
   const shown = useHomeModes((s) => s.pickerShown);
+  // Kept once opened, so a reopened picker holds its scroll and covers.
+  const opened = useRef(false);
+  if (shown) opened.current = true;
   return (
     <div className="deck-picker-pop" id="deckPickerPop" role="dialog" aria-label="Slide themes" hidden={!shown}>
-      {shown && (
+      {opened.current && (
         <>
           <div className="deck-picker-top">
             <strong>Slide theme</strong>
