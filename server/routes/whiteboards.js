@@ -1,4 +1,4 @@
-import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorCode, publicErrorMessage, readRawBody, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { startSse, writeSse } from "../chat/shared.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
@@ -277,8 +277,8 @@ export async function handleWhiteboardAsk(req, res, config, boardId) {
     if (!controller.signal.aborted) {
       writeSse(res, {
         type: "error",
-        code: error?.details?.code || (error instanceof HttpError ? `http_${error.status}` : "failed"),
-        error: error instanceof HttpError ? error.message : "Klui could not answer. Try again."
+        code: publicErrorCode(error) || (error instanceof HttpError ? `http_${error.status}` : "failed"),
+        error: error instanceof HttpError ? publicErrorMessage(error) : "Klui could not answer. Try again."
       });
     }
   } finally {

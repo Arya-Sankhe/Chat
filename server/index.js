@@ -1,5 +1,6 @@
 import http from "node:http";
 import { loadConfig, validateRuntimeConfig } from "./config.js";
+import { applySecurityHeaders } from "./http/securityHeaders.js";
 import { handleApiRequest } from "./routes.js";
 import { handleDesktopOAuthFacade } from "./routes/desktopOAuth.js";
 import { serveStatic } from "./static.js";
@@ -14,7 +15,10 @@ startMamoReconciler(config);
 startBillingEmailDelivery(config);
 startStripeReconciler(config);
 
+const https = config.appUrl.startsWith("https://");
+
 const server = http.createServer(async (req, res) => {
+  applySecurityHeaders(res, { https });
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 

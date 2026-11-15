@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../http/responses.js";
 import crypto from "node:crypto";
 import { loadConfig, validateRuntimeConfig } from "../config.js";
 import { SupabaseRest } from "../db/supabaseRest.js";
@@ -158,7 +159,7 @@ async function processRun(run) {
     const cancelled = Boolean(current?.cancel_requested);
     const elapsedMs = Date.now() - new Date(run.started_at || run.created_at).getTime();
     const report = snapshot.findings
-      ? partialReport(run.query, snapshot.findings, snapshot.sources, error?.message || "Research stopped before completion.")
+      ? partialReport(run.query, snapshot.findings, snapshot.sources, publicErrorMessage(error, "Research stopped before completion."))
       : "";
     await db.updateResearchRun(run.id, {
       status: cancelled ? "cancelled" : "failed",
@@ -166,14 +167,14 @@ async function processRun(run) {
       progress: { label: cancelled ? "Research cancelled" : "Research stopped", percent: 100 },
       report_markdown: report || null,
       sources: (snapshot.sources || []).map(({ text, ...source }) => source),
-      error: cancelled ? null : { reason: error?.status === 429 ? "budget_exhausted" : "research_failed", message: error?.message || "Research failed." },
+      error: cancelled ? null : { reason: error?.status === 429 ? "budget_exhausted" : "research_failed", message: publicErrorMessage(error, "Research failed.") },
       elapsed_ms: elapsedMs,
       finished_at: new Date().toISOString(),
       lease_until: null
     }, { workerId, status: "running" }).catch(console.error);
     await db.updateMessage(run.user_id, run.assistant_message_id, {
       content: report ? "A partial research report is available." : "",
-      error: cancelled ? "Research cancelled." : (error?.message || "Research failed."),
+      error: cancelled ? "Research cancelled." : publicErrorMessage(error, "Research failed."),
       finish_reason: cancelled ? "cancelled" : "error",
       metadata: {
         research: {

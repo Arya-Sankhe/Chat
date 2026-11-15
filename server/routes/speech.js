@@ -152,6 +152,7 @@ export async function handleSpeechToText(req, res, config) {
   enforceRateLimit(req, "web-stt", 30);
 
   const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "web-stt-account", 30, 60_000, context.user.id);
   const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
   if (!contentType.startsWith("audio/")) throw new HttpError(415, "An audio recording is required.");
 

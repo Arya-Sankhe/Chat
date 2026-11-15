@@ -1,4 +1,5 @@
 /* Document tool schemas and executor. */
+import { publicErrorMessage } from "../http/responses.js";
 import { THEME_NAMES } from "../../worker/deck/themes.js";
 import { STYLE_NAMES } from "../../worker/doc/themes.js";
 
@@ -409,9 +410,9 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
       ok: false,
       name,
       provider: "documents",
-      toolResultJson: capJson({ error: error?.message || "Document tool failed." }, maxToolResultChars),
+      toolResultJson: capJson({ error: publicErrorMessage(error, "Document tool failed.") }, maxToolResultChars),
       citations: [],
-      error: { message: error?.message || "Document tool failed.", status: error?.status || 500 }
+      error: { message: publicErrorMessage(error, "Document tool failed."), status: error?.status || 500 }
     };
   }
 }

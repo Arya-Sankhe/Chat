@@ -6,7 +6,7 @@
 // which the browser applies as an undoable edit. Other diagrams wait for the student to apply them. Turns are stored apart from the drawing so a drawing save never loses an answer.
 import { seenColor } from "../../public/js/whiteboard/colors.js";
 import { VOICE_EDITS, describeForCommand, salvageVoiceProposal } from "../../public/js/whiteboard/voice-command.js";
-import { HttpError } from "../http/responses.js";
+import { HttpError, publicErrorCode } from "../http/responses.js";
 import { OPENROUTER_VISION_MODEL, resolveProvider } from "../providers.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
@@ -563,7 +563,7 @@ export async function runWhiteboardAsk({ context, config, course, board, request
     return publicTurn(saved);
   } catch (error) {
     const aborted = signal?.aborted || error?.name === "AbortError";
-    await finish({ status: aborted ? "interrupted" : "failed", error_code: aborted ? "interrupted" : (error?.details?.code || "failed"), answer }).catch(() => {});
+    await finish({ status: aborted ? "interrupted" : "failed", error_code: aborted ? "interrupted" : (publicErrorCode(error) || "failed"), answer }).catch(() => {});
     if (aborted) return null;
     throw error;
   }

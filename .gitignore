@@ -19,3 +19,6 @@ public/one-month/
 klui-duolingo/
 .cursor/rules/klui-month-sites.mdc
 supabase/.temp/
+
+# Local SearXNG settings hold a secret_key; never commit them.
+ops/searxng/

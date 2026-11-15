@@ -2,7 +2,6 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { applyActivityEvent } from "./activityFeed.js";
 
 export function createStreamReducer({
-  isAdminUser,
   mergeArtifacts,
   markActivityStarted,
   markActivityEnded,
@@ -135,10 +134,7 @@ export function createStreamReducer({
     const delta = choice?.delta || {};
 
     const reasoningDelta = extractReasoningDelta(delta);
-    if (reasoningDelta) {
-      markReasoningStarted(message);
-      if (isAdminUser()) message.reasoning += reasoningDelta;
-    }
+    if (reasoningDelta) markReasoningStarted(message);
     if (typeof delta.content === "string" && delta.content) {
       if (message.resetContentOnNextTextDelta) {
         // Final answer started — drop provisional tool-loop prose + stale finish state.

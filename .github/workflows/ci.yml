@@ -27,6 +27,7 @@ jobs:
           psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f test/sql/bootstrap.sql
           psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f supabase/schema.sql
           psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f test/sql/actual-usage-budget.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f test/sql/client-roles-locked.sql
 
   test:
     runs-on: ubuntu-latest

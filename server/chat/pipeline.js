@@ -1,8 +1,9 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { randomUUID } from "node:crypto";
 import { chatCompletion, listModels, streamChatCompletion } from "../model-api/client.js";
 import { normalizeChatRequest } from "../model-api/normalize.js";
 import { configuredServices } from "../config.js";
-import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorMessage, sendJson } from "../http/responses.js";
 import { withCouncilSystemPrompt } from "../saas/council.js";
 import {
   applyImageDescriptionsToContent,
@@ -720,7 +721,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
   turnRun = null,
   persistedUserMessage = null
 } = {}) {
-  const includeReasoning = context.profile?.role === "admin";
   const project = conversation.project_id
     ? await context.db.getProject(context.user.id, conversation.project_id, { signal: req.signal })
     : null;
@@ -1446,7 +1446,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           visualDocuments: selectedModelSupportsVision,
           artifactRequested: Boolean(documentSkills?.artifactRequested),
           onUpstreamEvent: (event) => {
-            writeSse(res, sanitizeProviderEvent(event, { includeReasoning }));
+            writeSse(res, sanitizeProviderEvent(event));
             thought(event);
           },
           onToolEvent: (event) => { writeSse(res, event); }
@@ -1456,8 +1456,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           modelClient,
           provider,
           signal: controller.signal,
-          res,
-          includeReasoning
+          res
         });
     response = await ensureVisualizeResponse({
       required: skillIds.includes("visualize"),
@@ -1467,7 +1466,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
       provider,
       signal: controller.signal,
       res,
-      includeReasoning,
       onReset: () => writeSse(res, { type: "response:reset" })
     });
     const { accumulated, citations, artifacts, providers, toolCallCount } = response;
@@ -1539,7 +1537,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
     const finalMetadata = reasoningDurationMetadata(metadataPatch, accumulated);
     await updateAssistantOutputMessage(context, assistantMessage.id, {
       content: accumulated.content,
-      reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
       error: null,
@@ -1560,7 +1557,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   } catch (error) {
     await updateConversationIdentity().catch(() => {});
     const aborted = error?.name === "AbortError";
-    const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
+    const message = aborted ? "Stopped by user." : publicErrorMessage(error, "Model request failed.");
     const partial = aborted ? error.partial : null;
     /* Drop req.signal on abort: installStableRequestSignal aborts it on
        client disconnect, and updateMessage would otherwise reject before
@@ -1575,8 +1572,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     } else {
       await updateAssistantOutputMessage(context, assistantMessage.id, {
         ...(aborted ? {
-          content: partial?.content || "",
-          reasoning: partial?.reasoning || ""
+          content: partial?.content || ""
         } : {}),
         error: message,
         finish_reason: "error"
@@ -1806,7 +1802,7 @@ async function settleInterruptedTurn(context, run, error, { failed = false } = {
     return finishClaimedTurn(context, run, "cancelled", "Stopped by user.");
   }
   if (failed || latest?.provider_started_at) {
-    return finishClaimedTurn(context, run, "failed", error?.message || "Generation was interrupted.");
+    return finishClaimedTurn(context, run, "failed", publicErrorMessage(error, "Generation was interrupted."));
   }
   return releaseClaimedTurn(context, run);
 }
@@ -1912,12 +1908,12 @@ async function runPersistedDocumentTurn({ req, res, config, context, conversatio
       throw error;
     }
     const claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
-    if (claim.owned) await finishClaimedTurn(context, claim.run, "failed", error?.message);
+    if (claim.owned) await finishClaimedTurn(context, claim.run, "failed", publicErrorMessage(error, "Document processing failed."));
     startSse(res, {
       "x-klui-user-message-id": userMessage.id,
       "x-klui-turn-run-id": run.id
     });
-    writeSse(res, { type: "error", error: error?.message || "Document processing failed." });
+    writeSse(res, { type: "error", error: publicErrorMessage(error, "Document processing failed.") });
     res.end();
     clearController();
     return;
@@ -1994,7 +1990,7 @@ async function runPersistedDocumentTurn({ req, res, config, context, conversatio
       "x-klui-turn-run-id": run.id
     });
     if (!res.writableEnded) {
-      writeSse(res, { type: "error", error: error?.message || "Model request failed." });
+      writeSse(res, { type: "error", error: publicErrorMessage(error, "Model request failed.") });
     }
   } finally {
     stopHeartbeat();
@@ -2007,6 +2003,7 @@ async function runPersistedDocumentTurn({ req, res, config, context, conversatio
 export async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config, { allowFree: true });
+  enforceRateLimit(req, "chat-turn", 60, 60_000, context.user.id);
   const body = await parseJsonBody(req, 2 * 1024 * 1024);
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");

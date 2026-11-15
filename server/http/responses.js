@@ -12,6 +12,24 @@ export function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
+/**
+ * The text of an error that may reach a client, directly or through a stored message.
+ * Database errors name tables, constraints and SQL states, so only the messages our own
+ * functions raise on purpose (P0001) pass; the rest are logged here instead.
+ */
+export function publicErrorMessage(error, fallback = "Unexpected server error") {
+  if (error?.database && error.details?.code !== "P0001") {
+    console.error("Database request failed:", error.details);
+    return "Database request failed.";
+  }
+  return error?.message || fallback;
+}
+
+/** A machine-readable error code for clients; SQL state codes stay on the server. */
+export function publicErrorCode(error) {
+  return error?.database ? undefined : error?.details?.code;
+}
+
 export function sendProblem(res, error) {
   if (res.headersSent) {
     res.end();
@@ -19,6 +37,10 @@ export function sendProblem(res, error) {
   }
 
   const status = Number.isInteger(error?.status) ? error.status : 500;
+  if (error?.database) {
+    sendJson(res, status, { error: publicErrorMessage(error) });
+    return;
+  }
   sendJson(res, status, {
     error: error?.message || "Unexpected server error",
     details: error?.details

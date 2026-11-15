@@ -2,7 +2,7 @@ import { HttpError } from "../http/responses.js";
 import { pipeProviderStreamAndAccumulate } from "../saas/messages.js";
 import { createThoughtTicker } from "./thoughtTicker.js";
 
-export async function streamSingleChat({ chatRequest, modelClient, provider, signal, res, includeReasoning = false }) {
+export async function streamSingleChat({ chatRequest, modelClient, provider, signal, res }) {
   const upstream = await modelClient.streamChatCompletion({
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
@@ -14,6 +14,6 @@ export async function streamSingleChat({ chatRequest, modelClient, provider, sig
   const onEvent = createThoughtTicker((event) => {
     if (!res.destroyed && !res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
   });
-  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning, onEvent });
+  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { onEvent });
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }

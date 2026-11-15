@@ -22,9 +22,21 @@ const contextCache = new Map();
 
 const speechSessions = createSessionStore();
 
+// Accounts deleted within the cache lifetime. A context looked up just before the deletion
+// must not keep serving voice requests from the cache.
+const deletedAccounts = new Map();
+
 export function clearVoiceContextCache() {
   contextCache.clear();
   speechSessions.clear();
+  deletedAccounts.clear();
+}
+
+export function forgetVoiceAccount(userId) {
+  const now = Date.now();
+  for (const [id, until] of deletedAccounts) if (until <= now) deletedAccounts.delete(id);
+  deletedAccounts.set(userId, now + CONTEXT_TTL_MS);
+  for (const [key, entry] of contextCache) if (entry.userId === userId) contextCache.delete(key);
 }
 
 // The browser hanging up (the user interrupted) cancels the synthesis, including a queued one.
@@ -44,8 +56,14 @@ function voiceContext(req, config) {
   const hit = contextCache.get(key);
   if (hit && Date.now() - hit.at < CONTEXT_TTL_MS) return hit.promise;
   // Not tied to this request's signal: other requests may share the lookup.
-  const promise = requireChatContext({ headers: req.headers }, config);
-  contextCache.set(key, { at: Date.now(), promise });
+  const entry = { at: Date.now(), userId: "", promise: null };
+  const promise = requireChatContext({ headers: req.headers }, config).then((context) => {
+    if (deletedAccounts.get(context.user.id) > Date.now()) throw new HttpError(401, "This account has been deleted.");
+    entry.userId = context.user.id;
+    return context;
+  });
+  entry.promise = promise;
+  contextCache.set(key, entry);
   promise.catch(() => { if (contextCache.get(key)?.promise === promise) contextCache.delete(key); });
   while (contextCache.size > CONTEXT_CACHE_MAX) contextCache.delete(contextCache.keys().next().value);
   return promise;

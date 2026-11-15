@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
-import { memo, useState } from "react";
+import { memo } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { textFromMessageContent, type DisplayItem, type LiveAssistant, type StoredMessage } from "@klui/shared";
@@ -62,20 +62,6 @@ function UserRow({ message }: { message: StoredMessage }) {
   );
 }
 
-function Reasoning({ text, working }: { text: string; working: boolean }) {
-  const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
-  return (
-    <View style={styles.reasoning}>
-      <Pressable accessibilityRole="button" onPress={() => setOpen(!open)} style={styles.reasoningHead}>
-        <Text style={[styles.meta, { color: colors.textSecondary }]}>{working ? "Thinking…" : "Thought process"}</Text>
-        <Icon name="chevron" size={16} color={colors.textSecondary} />
-      </Pressable>
-      {open ? <Text selectable style={[styles.meta, { color: colors.textSecondary }]}>{text}</Text> : null}
-    </View>
-  );
-}
-
 type AssistantProps = {
   message: StoredMessage | LiveAssistant;
   live: boolean;
@@ -87,7 +73,6 @@ type AssistantProps = {
 function AssistantRow({ message, live, canRetry, onRetry, onOpenFull }: AssistantProps) {
   const { colors } = useTheme();
   const text = textFromMessageContent(message.content as StoredMessage["content"]);
-  const reasoning = String(message.reasoning ?? "");
   const activity = ("activity" in message ? message.activity : []) as LiveAssistant["activity"];
   const stored = message.metadata as { citations?: unknown; documents?: { citations?: unknown } } | null | undefined;
   const citations = (("citations" in message ? message.citations : stored?.documents?.citations ?? stored?.citations) ?? []) as LiveAssistant["citations"];
@@ -99,9 +84,8 @@ function AssistantRow({ message, live, canRetry, onRetry, onOpenFull }: Assistan
   const error = String(message.error ?? "");
   return (
     <View testID="assistantMessage" style={styles.assistant}>
-      {reasoning ? <Reasoning text={reasoning} working={live && !text} /> : null}
       {live && lastStep && !text ? <Text style={[styles.meta, { color: colors.textSecondary }]}>{lastStep}</Text> : null}
-      {live && !text && !reasoning && !lastStep ? <ActivityIndicator testID="replyStarting" style={styles.spinner} color={colors.textSecondary} /> : null}
+      {live && !text && !lastStep ? <ActivityIndicator testID="replyStarting" style={styles.spinner} color={colors.textSecondary} /> : null}
       {text ? <OpenFullView.Provider value={live ? undefined : onOpenFull}><Markdown text={text} streaming={live} /></OpenFullView.Provider> : null}
       {images.map((url) => <Image key={url} source={{ uri: url }} style={styles.replyImage} contentFit="contain" accessibilityLabel="Image from the reply" />)}
       {needsFullView(message) && !live && onOpenFull ? (
@@ -164,8 +148,6 @@ const styles = StyleSheet.create({
   assistant: { gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
   spinner: { alignSelf: "flex-start" },
   meta: { fontSize: 14, lineHeight: 20 },
-  reasoning: { gap: 6 },
-  reasoningHead: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 28 },
   fullView: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, paddingHorizontal: 12, minHeight: 36 },
   citations: { gap: 4 },
   citation: { color: "#2563eb" },

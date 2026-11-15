@@ -1,5 +1,6 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { normalizeChatRequest } from "../model-api/normalize.js";
-import { HttpError, parseJsonBody } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorMessage } from "../http/responses.js";
 import {
   buildProviderMessages,
   buildStoredUserContent,
@@ -53,7 +54,7 @@ export async function handleTemporaryChat(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
 
   const context = await requireChatContext(req, config);
-  const includeReasoning = context.profile?.role === "admin";
+  enforceRateLimit(req, "chat-turn", 60, 60_000, context.user.id);
   const body = await parseJsonBody(req, 1024 * 1024);
   const requested = resolveChatRole({
     role: body.role,
@@ -188,7 +189,7 @@ export async function handleTemporaryChat(req, res, config) {
           documents: null,
           visualDocuments: false,
           onUpstreamEvent: (event) => {
-            res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+            res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event))}\n\n`);
             thought(event);
           },
           onToolEvent: (event) => { writeSse(res, event); }
@@ -198,8 +199,7 @@ export async function handleTemporaryChat(req, res, config) {
           modelClient,
           provider,
           signal: controller.signal,
-          res,
-          includeReasoning
+          res
         });
     response = await ensureVisualizeResponse({
       required: visualizing,
@@ -209,7 +209,6 @@ export async function handleTemporaryChat(req, res, config) {
       provider,
       signal: controller.signal,
       res,
-      includeReasoning,
       onReset: () => writeSse(res, { type: "response:reset" })
     });
     const { accumulated, artifacts = [] } = response;
@@ -222,7 +221,7 @@ export async function handleTemporaryChat(req, res, config) {
     writeSse(res, { type: "done", temporary: true });
     res.end();
   } catch (error) {
-    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+    const message = error?.name === "AbortError" ? "Stopped by user." : publicErrorMessage(error, "Model request failed.");
     if (res.headersSent) {
       writeSse(res, { type: "error", error: message });
       res.end();

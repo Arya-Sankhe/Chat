@@ -4,13 +4,13 @@ const REVISE_PENDING_KEY = "kluiRevisePending";
 function loadDependencies() {
   if (!dependenciesPromise) {
     dependenciesPromise = Promise.all([
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/core@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/starter-kit@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-table@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/markdown@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-mathematics@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/pm@3.27.3/state"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/pm@3.27.3/view")
+      import("@tiptap/core"),
+      import("@tiptap/starter-kit"),
+      import("@tiptap/extension-table"),
+      import("@tiptap/markdown"),
+      import("@tiptap/extension-mathematics"),
+      import("@tiptap/pm/state"),
+      import("@tiptap/pm/view")
     ]).then(([core, starter, table, markdown, mathematics, pmState, pmView]) => ({
       Editor: core.Editor,
       Extension: core.Extension,

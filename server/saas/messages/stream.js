@@ -96,8 +96,9 @@ function stripReasoningFields(target) {
   return stripped;
 }
 
-export function sanitizeProviderEvent(event, { includeReasoning = false } = {}) {
-  if (includeReasoning || !event || typeof event !== "object") return event;
+// Reasoning traces are retired: no client, admin or not, receives them.
+export function sanitizeProviderEvent(event) {
+  if (!event || typeof event !== "object") return event;
   const sanitized = stripReasoningFields(event);
   if (Array.isArray(event.choices)) {
     sanitized.choices = event.choices.map((choice) => {
@@ -112,9 +113,9 @@ export function sanitizeProviderEvent(event, { includeReasoning = false } = {}) 
   return sanitized;
 }
 
-export function writeProviderEvent(res, event, { includeReasoning = false } = {}) {
+export function writeProviderEvent(res, event) {
   if (res.destroyed || res.writableEnded) return;
-  res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+  res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event))}\n\n`);
 }
 
 function parseSseEvents(buffer, onEvent) {
@@ -145,7 +146,7 @@ function attachPartialOnAbort(error, assistant) {
   error.partial = assistant;
 }
 
-export async function pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning = false, onEvent = null } = {}) {
+export async function pipeProviderStreamAndAccumulate(upstream, res, { onEvent = null } = {}) {
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
   const assistant = {
@@ -164,12 +165,9 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
       if (done) break;
 
       buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
-      // Forward whole frames only, so events written by onEvent never land inside a half frame.
-      const frameEnd = buffer.lastIndexOf("\n\n");
-      if (includeReasoning && frameEnd >= 0 && !res.destroyed && !res.writableEnded) res.write(buffer.slice(0, frameEnd + 2));
       buffer = parseSseEvents(buffer, (event) => {
         applyStreamEvent(assistant, event);
-        if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
+        writeProviderEvent(res, event);
         onEvent?.(event);
       });
     }

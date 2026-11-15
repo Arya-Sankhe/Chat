@@ -85,13 +85,11 @@ export async function handleConversationById(req, res, config, conversationId) {
   const context = await requireChatContext(req, config, { allowFree: true });
 
   if (req.method === "GET") {
-    const includeReasoning = context.profile?.role === "admin";
     const params = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams;
     const [conversation, page, pendingTurns] = await Promise.all([
       context.db.getConversation(context.user.id, conversationId, { signal: req.signal }),
       context.db.listMessagesPage(context.user.id, conversationId, {
         signal: req.signal,
-        includeReasoning,
         limit: params.get("limit"),
         cursor: parseMessageCursor(params.get("cursor"))
       }),
@@ -100,7 +98,7 @@ export async function handleConversationById(req, res, config, conversationId) {
     if (!conversation) throw new HttpError(404, "Conversation not found.");
     sendJson(res, 200, {
       conversation,
-      messages: await hydrateMessagesForClient(page.messages, context.r2, { includeReasoning }),
+      messages: await hydrateMessagesForClient(page.messages, context.r2),
       pendingTurns,
       page: { hasMore: page.hasMore, cursor: formatMessageCursor(page.cursor) }
     });

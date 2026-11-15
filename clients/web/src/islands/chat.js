@@ -8,6 +8,9 @@
 // - writes to store-owned values replace them (`state.conversations = [...]`)
 //   instead of mutating, and body classes the store owns are set through it;
 // - native-only pieces (app update, keyboard, text zoom) join with the Expo slice.
+import katexCssUrl from "katex/dist/katex.min.css?url";
+import hljsLightCssUrl from "highlight.js/styles/github.min.css?url";
+import hljsDarkCssUrl from "highlight.js/styles/github-dark.min.css?url";
 import { session } from "../app/runtime";
 import { state, els } from "../state/legacy";
 import {
@@ -514,7 +517,6 @@ let renderQueued = false;
 
 let renderedChatPromptSignature = "";
 
-let reasoningOpenIds = new Set();
 
 let pendingGuestSend = null;
 
@@ -926,10 +928,6 @@ function messageViews(messages) {
 }
 
 function captureReasoningOpenState() {
-  reasoningOpenIds = new Set();
-  for (const el of els.messages.querySelectorAll("details.reasoning[open][data-message-id]")) {
-    reasoningOpenIds.add(el.dataset.messageId);
-  }
   councilController.captureCouncilDetailsOpenState();
 }
 
@@ -1038,28 +1036,8 @@ function renderThinkingStatus(message, { streaming = false } = {}) {
   return renderKluiThinkingStatus(message, { label, active, feed: thinkingFeed(message), startedAt: message?.activityStartedAt });
 }
 
-function renderReasoning(message, { streaming = false } = {}) {
-  const text = String(message?.reasoning || "");
-  const hasReasoning = text.trim().length > 0;
-  if (!hasReasoning && !streaming) return "";
-
-  const messageId = message?.id ? String(message.id) : "";
-  const shouldOpen = messageId && reasoningOpenIds.has(messageId);
-  const openAttr = shouldOpen ? " open" : "";
-  const idAttr = messageId ? ` data-message-id="${escapeHtml(messageId)}"` : "";
-  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
-  const streamingClass = stillThinking ? " is-streaming" : "";
-  const doneClass = !stillThinking && (hasReasoning || message?.reasoningEndedAt) ? " is-done" : "";
-  const body = hasReasoning ? renderContent(text) : "";
-  const summary = reasoningSummaryLabel(message, { streaming });
-
-  return `<details class="reasoning${streamingClass}${doneClass}"${openAttr}${idAttr}><summary>${escapeHtml(summary)}</summary><div>${body}</div></details>`;
-}
-
 function renderAssistantActivity(message, { streaming = false } = {}) {
-  return isAdminUser() && state.settings.showModelReasoning
-    ? renderReasoning(message, { streaming })
-    : renderThinkingStatus(message, { streaming });
+  return renderThinkingStatus(message, { streaming });
 }
 
 const RELOADABLE_MESSAGE_ERRORS = new Set([
@@ -2278,8 +2256,6 @@ function patchStandardArticle(article, msg) {
   article.dataset.rawText = role === "assistant"
     ? stripRedundantSourcesFooter(rawTextContent(msg.content), citationListFromMessage(msg))
     : rawTextContent(msg.content);
-  const reasoning = article.querySelector("details.reasoning");
-  if (reasoning && msg.id) reasoning.dataset.messageId = String(msg.id);
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
@@ -2761,23 +2737,17 @@ let richTextAssetsPromise;
 
 function loadRichTextAssets() {
   if (richTextAssetsPromise) return richTextAssetsPromise;
+  // Bundled with the app (not a CDN), so third-party hosts cannot change the code we run.
   document.head.insertAdjacentHTML("beforeend", `
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
-    <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
-    <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
+    <link rel="stylesheet" href="${katexCssUrl}">
+    <link rel="stylesheet" id="hljsLight" href="${hljsLightCssUrl}">
+    <link rel="stylesheet" id="hljsDark" href="${hljsDarkCssUrl}" disabled>
   `);
   applyCodeHighlightTheme(resolvedAppearance());
   richTextAssetsPromise = Promise.allSettled([
-    "https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.js",
-    "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"
-  ].map((src) => new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  }))).then((results) => {
+    import("katex").then((module) => { globalThis.katex = module.default; }),
+    import("highlight.js/lib/common").then((module) => { globalThis.hljs = module.default; })
+  ]).then((results) => {
     // Markdown is loaded in the document head; only the heavier math and
     // highlighting tools upgrade an already-visible conversation later.
     if (state.messages.length) queueRenderMessages();
@@ -3996,7 +3966,6 @@ function renderStreamingMessageSurface(message) {
     if (stripOpenEmailFence(rawText) === stripOpenEmailFence(previousRawText) && addedCharacters > 0) {
       return;
     }
-    const reasoningEl = contentEl.querySelector("details.reasoning");
     const statusEl = message.error || isStoppedMessage(message) ? null : contentEl.querySelector(".thinking-status");
     const hasContent = rawText.trim().length > 0;
     const provisional = isProvisionalToolProse(message);
@@ -4055,16 +4024,7 @@ function renderStreamingMessageSurface(message) {
       const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
       if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
         if (!keptFrame) collapseExpandedVisualize();
-        if (reasoningEl && tmp.querySelector("details.reasoning")) {
-          patchReasoningInPlace(reasoningEl, message);
-          tmp.querySelector("details.reasoning").remove();
-          for (const node of [...contentEl.childNodes]) {
-            if (node !== reasoningEl) node.remove();
-          }
-          contentEl.append(...tmp.childNodes);
-        } else {
-          contentEl.replaceChildren(...tmp.childNodes);
-        }
+        contentEl.replaceChildren(...tmp.childNodes);
         hydrateKluiBars(contentEl);
       }
     }
@@ -4776,19 +4736,6 @@ function isStreamDeltaEvent(event) {
   );
 }
 
-function patchReasoningInPlace(reasoning, message) {
-  const streaming = isAssistantMessageStreaming(message);
-  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
-  reasoning.classList.toggle("is-streaming", stillThinking);
-  reasoning.classList.toggle("is-done", !stillThinking && Boolean(message?.reasoning?.trim() || message?.reasoningEndedAt));
-  const summary = reasoning.querySelector("summary");
-  const label = reasoningSummaryLabel(message, { streaming });
-  if (summary.textContent !== label) summary.textContent = label;
-  const body = reasoning.querySelector("div");
-  const html = message?.reasoning?.trim() ? renderContent(message.reasoning) : "";
-  if (body.innerHTML !== html) body.innerHTML = html;
-}
-
 function patchKluiThinkingInPlace(message) {
   const id = message?.id ? String(message.id) : "";
   if (!id || message.error || isStoppedMessage(message) || isVisualizeRepairing(message)) return false;
@@ -4796,12 +4743,6 @@ function patchKluiThinkingInPlace(message) {
   const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
   const contentEl = surface?.querySelector(".message-content");
   if (!contentEl) return false;
-  if (isAdminUser() && state.settings.showModelReasoning) {
-    const reasoning = contentEl.querySelector("details.reasoning");
-    if (!reasoning) return false;
-    patchReasoningInPlace(reasoning, message);
-    return true;
-  }
   const label = currentThinkingStatus(message, { streaming: true });
   if (!label) return false;
   const active = !isFinalFinishReason(message?.finishReason);
@@ -4851,8 +4792,6 @@ function applyLaneStreamEvent(group, event, council, runKey) {
   const article = surface?.closest("article.message");
   if (previousId && target && surface) {
     surface.dataset.messageId = String(target.id);
-    const reasoning = surface.querySelector("details.reasoning");
-    if (reasoning) reasoning.dataset.messageId = String(target.id);
   }
   if (target && /(^|:)delta$/.test(event.type)) {
     queueLaneStreamRender(target, event);

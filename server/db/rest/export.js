@@ -39,7 +39,7 @@ export async function exportAccountData(client, userId, { signal } = {}) {
     }, signal),
     pages(client, "messages", {
       ...scoped,
-      select: "id,conversation_id,role,content,model,reasoning,tool_calls,finish_reason,error,created_at",
+      select: "id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at",
       order: "created_at.asc"
     }, signal),
     pages(client, "attachments", {

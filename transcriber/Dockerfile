@@ -29,6 +29,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --from=models /models /models
 COPY transcriber ./transcriber
-RUN mkdir -p /work
+# ffmpeg decodes uploaded audio, so the service runs unprivileged. /work is its scratch
+# space; a fresh volume mounted there takes this ownership.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin transcriber \
+  && mkdir -p /work && chown transcriber:transcriber /work
+USER transcriber
 
 CMD ["python", "-m", "transcriber.service"]

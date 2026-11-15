@@ -5,6 +5,7 @@
  * (or the per-turn iteration cap is hit).
  */
 
+import { publicErrorMessage } from "../../http/responses.js";
 import { citationsFromResults, filterCitationsForAnswer } from "../index.js";
 import { executeDocumentToolCall, isDocumentToolName } from "../../documents/tool.js";
 import { executeStudyPreviewTool } from "../../study/chatTool.js";
@@ -216,7 +217,7 @@ export async function executeToolCall({ toolCall, websearch, weather, documents,
       if (!study || !documents) throw new Error("Study previews are available only in course chat.");
       return await executeStudyPreviewTool({ toolCall, study, documents, signal });
     } catch (error) {
-      return { ok: false, name, provider: "study", citations: [], toolResultJson: JSON.stringify({ error: error.message || "Could not create study preview." }), error: { message: error.message || "Could not create study preview." } };
+      return { ok: false, name, provider: "study", citations: [], toolResultJson: JSON.stringify({ error: publicErrorMessage(error, "Could not create study preview.") }), error: { message: publicErrorMessage(error, "Could not create study preview.") } };
     }
   }
 

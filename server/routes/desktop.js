@@ -2,7 +2,7 @@ import { extractBearerToken } from "../auth/supabase.js";
 import { desktopAuthProvider } from "../auth/desktopProvider.js";
 import { requireDesktopFeature } from "../auth/desktop.js";
 import { streamChatCompletion } from "../model-api/client.js";
-import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorCode, publicErrorMessage, readRawBody, sendJson } from "../http/responses.js";
 import { resolveProvider } from "../providers.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
@@ -40,8 +40,8 @@ export function sendDesktopProblem(res, error, config) {
   const details = error?.details && typeof error.details === "object" ? error.details : {};
   sendJson(res, status, {
     error: {
-      code: details.code || errorCode(status),
-      message: error?.message || "Unexpected server error.",
+      code: publicErrorCode(error) || errorCode(status),
+      message: publicErrorMessage(error, "Unexpected server error."),
       retryable: details.retryable ?? status === 503
     },
     ...(status === 426 ? {
@@ -311,6 +311,7 @@ export async function handleDesktopChat(req, res, config) {
   enforceRateLimit(req, "desktop-chat", 60);
   const { requestId } = requireClientHeaders(req, config, { requestId: true });
   const context = await requireDesktopContext(req, config);
+  enforceRateLimit(req, "desktop-chat-account", 60, 60_000, context.user.id);
   requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const chatConfig = desktopChatConfig(context, req, config);
@@ -345,8 +346,9 @@ export async function handleDesktopChat(req, res, config) {
     connection: "keep-alive",
     "x-accel-buffering": "no"
   });
-  await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning: true });
-  if (!res.destroyed && !res.writableEnded) res.end();
+  // Events are re-sent without reasoning, so the stream's own end marker is sent here.
+  await pipeProviderStreamAndAccumulate(upstream, res);
+  if (!res.destroyed && !res.writableEnded) res.end("data: [DONE]\n\n");
 }
 
 export async function handleDesktopSpeech(req, res, config) {
@@ -355,6 +357,7 @@ export async function handleDesktopSpeech(req, res, config) {
   enforceRateLimit(req, "desktop-stt", 30);
   const { requestId } = requireClientHeaders(req, config, { requestId: true });
   const context = await requireDesktopContext(req, config);
+  enforceRateLimit(req, "desktop-stt-account", 30, 60_000, context.user.id);
   requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].toLowerCase();

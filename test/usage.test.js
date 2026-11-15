@@ -93,7 +93,7 @@ test("pipeProviderStreamAndAccumulate forwards whole frames so extra events neve
   const res = { destroyed: false, writableEnded: false, write(text) { written += String(text); } };
   const onEvent = () => res.write('data: {"type":"status:thought"}\n\n');
 
-  const result = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning: true, onEvent });
+  const result = await pipeProviderStreamAndAccumulate(upstream, res, { onEvent });
 
   assert.equal(result.content, "Hi");
   for (const frame of written.split("\n\n").filter(Boolean)) JSON.parse(frame.slice("data: ".length));
@@ -112,8 +112,32 @@ test("pipeProviderStreamAndAccumulate handles CRLF split across chunks", async (
   let written = "";
   const res = { destroyed: false, writableEnded: false, write(text) { written += String(text); } };
 
-  const result = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning: true });
+  const result = await pipeProviderStreamAndAccumulate(upstream, res);
 
   assert.equal(result.content, "Hi");
-  assert.match(written, /"content":"Hi"[\s\S]*\[DONE\]/);
+  assert.match(written, /"content":"Hi"/);
+});
+
+test("streamed provider events reach the client without reasoning traces", async () => {
+  const frames = [
+    { choices: [{ delta: { reasoning: "secret plan", reasoning_details: [{ type: "reasoning.text", text: "more" }] } }] },
+    { choices: [{ delta: { reasoning_content: "deepseek style", content: "Hi" } }] },
+    { choices: [{ message: { reasoning: "final", content: "Hi" } }] }
+  ];
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+        controller.close();
+      }
+    })
+  };
+  let written = "";
+  const res = { destroyed: false, writableEnded: false, write(text) { written += String(text); } };
+
+  const result = await pipeProviderStreamAndAccumulate(upstream, res);
+
+  assert.equal(result.content, "Hi");
+  assert.match(written, /"content":"Hi"/);
+  assert.doesNotMatch(written, /reasoning|secret plan|deepseek style/);
 });

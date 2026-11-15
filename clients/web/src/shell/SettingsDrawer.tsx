@@ -9,10 +9,9 @@ import { AccountUsage } from "./Sidebar";
 import { AccountPanel, MemoryPanel, StorageList, formatStorageBytes } from "./SettingsPanels";
 import { SettingsVoicePicker } from "./VoicePicker";
 
-/** Admins only: the reasoning display, and the global system prompt every chat starts from. */
+/** Admins only: the global system prompt every chat starts from. */
 function AdminSettings({ hidden }: { hidden: boolean }) {
   const admin = useApp((s) => s.me?.profile?.role === "admin");
-  const showReasoning = useApp((s) => s.settings.showModelReasoning !== false);
   const savedPrompt = useApp((s) => s.settings.systemPrompt);
   // The draft stays local until Save, so an account refresh mid-edit keeps it.
   const [draft, setDraft] = useState<string | null>(null);
@@ -42,19 +41,6 @@ function AdminSettings({ hidden }: { hidden: boolean }) {
   };
   return (
     <>
-      <section className="settings-section" id="settingsReasoningSection" data-settings-panel="general" hidden={hidden}>
-        <h2>Reasoning display</h2>
-        {" "}
-        <label className="settings-switch-row" htmlFor="showModelReasoningInput">
-          <span>
-            <strong>Show model reasoning</strong>
-            {" "}
-            <small>Turn off to use the simpler animated thinking bar.</small>
-          </span>
-          {" "}
-          <input id="showModelReasoningInput" type="checkbox" role="switch" checked={showReasoning} onChange={(event) => { updateSetting("showModelReasoning", event.target.checked); chatHooks.renderMessages(); }} />
-        </label>
-      </section>
       <section className="settings-section" id="settingsSystemPromptSection" data-settings-panel="general" hidden={hidden}>
         <h2>System prompt</h2>
         {" "}

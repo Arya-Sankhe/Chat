@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
+import { HttpError } from "../server/http/responses.js";
 import { createApiHandler } from "../server/routes.js";
 import { filterCurrentTurnMessages, normalizeSourceScope } from "../server/chat/pipeline.js";
 
@@ -1680,6 +1681,32 @@ test("edit saves the new source selection so a later retry searches the same sou
 
 /* ── (e) errors, aborts, usage/cost ── */
 
+test("a database failure after headers reaches the stream and the saved message without its details", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({ streamFor: () => [contentDelta("Hello"), usageChunk()] });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const updateMessage = db.updateMessage;
+  db.updateMessage = async (userId, id, patch, options) => {
+    if (patch.content && !patch.error) {
+      const error = new HttpError(409, 'duplicate key value violates unique constraint "messages_pkey"', { code: "23505" });
+      error.database = true;
+      throw error;
+    }
+    return updateMessage(userId, id, patch, options);
+  };
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Hi", model: TEXT_MODEL }
+  });
+
+  assert.deepEqual(transcript(res).at(-1), { type: "error", error: "Database request failed." });
+  const errorUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
+  assert.equal(errorUpdate.patch.error, "Database request failed.");
+  assert.doesNotMatch(res.body, /messages_pkey|23505/);
+});
+
 test("empty provider response after headers surfaces as an SSE error event and error persistence", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({
@@ -1738,7 +1765,7 @@ test("client disconnect aborts the stream and persists 'Stopped by user.'", asyn
   assert.equal(errorUpdate.patch.error, "Stopped by user.");
   assert.equal(errorUpdate.patch.finish_reason, "error");
   assert.equal(errorUpdate.patch.content, "partial");
-  assert.equal(errorUpdate.patch.reasoning, "");
+  assert.equal("reasoning" in errorUpdate.patch, false);
 });
 
 test("compare: provider requests include prior conversation history", async (t) => {

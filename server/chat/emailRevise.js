@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
@@ -22,6 +23,7 @@ function emailSourceFromModel(text) {
 export async function handleEmailRevise(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "email-revise", 30, 60_000, context.user.id);
   const body = await parseJsonBody(req, 64 * 1024);
   const draft = String(body.draft || "").trim();
   const instruction = String(body.instruction || "").trim();

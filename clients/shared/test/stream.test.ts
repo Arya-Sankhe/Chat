@@ -53,11 +53,11 @@ describe("stream reducer", () => {
     expect(message.activityEndedAt).toBeGreaterThan(0);
   });
 
-  it("keeps reasoning only when asked and records server errors", () => {
+  it("never keeps reasoning text and records server errors", () => {
     const message = createLiveAssistant("a");
-    applyStreamEvent(message, { choices: [{ delta: { reasoning_content: "why" } }] }, { keepReasoning: true });
+    applyStreamEvent(message, { choices: [{ delta: { reasoning_content: "why" } }] });
     applyStreamEvent(message, { type: "error", error: "Out of credits." });
-    expect(message.reasoning).toBe("why");
+    expect(message.reasoning).toBe("");
     expect(message.error).toBe("Out of credits.");
     expect(message.finishReason).toBe("error");
   });
