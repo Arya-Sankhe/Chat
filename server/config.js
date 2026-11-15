@@ -445,6 +445,15 @@ export function validateRuntimeConfig(config) {
       throw new Error("Stripe sandbox requires a test key and an isolated local Supabase database.");
     }
   }
+  // Anyone who knows the OnlyOffice secret can sign editor configs that make the Document
+  // Server fetch any URL it can reach, so a public Document Server needs a real secret.
+  const officeUrl = config.onlyoffice?.publicUrl;
+  if (officeUrl && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(officeUrl).hostname)) {
+    const secret = config.onlyoffice.jwtSecret || "";
+    if (secret.length < 32 || secret === "klui-local-onlyoffice-change-me") {
+      throw new Error("ONLYOFFICE_JWT_SECRET must be a random secret of at least 32 characters when ONLYOFFICE_PUBLIC_URL is public.");
+    }
+  }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && config.desktop?.meteringMode !== "enforce") {
     throw new Error("API_USAGE_METERING_MODE must be enforce before enabling desktop chat or STT.");
   }

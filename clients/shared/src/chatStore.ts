@@ -91,7 +91,6 @@ export interface ChatPreferences {
 export interface ChatControllerOptions {
   api: ApiClient;
   preferences?: () => Partial<ChatPreferences>;
-  keepReasoning?: () => boolean;
   randomId?: () => string;
   /** How often a streaming reply re-renders. */
   publishIntervalMs?: number;
@@ -387,7 +386,7 @@ export function createChatController(options: ChatControllerOptions) {
         handle.rejoinFailures = 0;
       }
       if (event.type === "turn:claimed" && typeof event.turnRunId === "string") handle.turnRunId = event.turnRunId;
-      applyStreamEvent(handle.assistant, event, { keepReasoning: options.keepReasoning?.() ?? false });
+      applyStreamEvent(handle.assistant, event);
       publish(conversationId);
     };
 

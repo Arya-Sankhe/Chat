@@ -1,4 +1,4 @@
-import { HttpError } from "../http/responses.js";
+import { HttpError, publicErrorMessage } from "../http/responses.js";
 import {
   COUNCIL_JUDGE_MODEL,
   generateNonce,
@@ -37,7 +37,6 @@ export async function handleCouncilConversationMessage({
   documentSearch,
   turnRun = null
 }) {
-  const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
     ? webSearch
     : { contextMessage: "", citations: [], providers: [], detection: null };
@@ -122,7 +121,7 @@ export async function handleCouncilConversationMessage({
           type: "delta",
           index,
           model: entry.chatRequest.model,
-          event: sanitizeProviderEvent(event, { includeReasoning })
+          event: sanitizeProviderEvent(event)
         });
       });
 
@@ -132,7 +131,6 @@ export async function handleCouncilConversationMessage({
       const durationMeta = reasoningDurationMetadata(entry.message.metadata, accumulated);
       await updateAssistantOutputMessage(context, entry.message.id, {
         content: accumulated.content,
-        reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
         error: null,
@@ -142,14 +140,13 @@ export async function handleCouncilConversationMessage({
       writeSse(res, { type: "done", index, model: entry.chatRequest.model });
     } catch (error) {
       const aborted = error?.name === "AbortError";
-      const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
+      const message = aborted ? "Stopped by user." : publicErrorMessage(error, "Model request failed.");
       const partial = aborted ? error.partial : null;
       entry.error = message;
       if (aborted && partial) entry.accumulated = partial;
       await updateAssistantOutputMessage(context, entry.message.id, {
         ...(aborted ? {
-          content: partial?.content || "",
-          reasoning: partial?.reasoning || ""
+          content: partial?.content || ""
         } : {}),
         error: message,
         finish_reason: "error"
@@ -277,7 +274,7 @@ export async function handleCouncilConversationMessage({
       streamChatCompletionFn: modelClient.streamChatCompletion,
       onRanking: rankingDone,
       onEvent: (event) => {
-        writeSse(res, { type: "council:chairman:delta", event: sanitizeProviderEvent(event, { includeReasoning }) });
+        writeSse(res, { type: "council:chairman:delta", event: sanitizeProviderEvent(event) });
       }
     });
     await rankingSaved;
@@ -289,7 +286,6 @@ export async function handleCouncilConversationMessage({
     const chairmanDurationMeta = reasoningDurationMetadata(chairmanMessage.metadata, accumulated);
     await updateAssistantOutputMessage(context, chairmanMessage.id, {
       content: accumulated.content,
-      reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
       error: null,
@@ -299,7 +295,7 @@ export async function handleCouncilConversationMessage({
     writeSse(res, { type: "council:chairman:done", chairmanModel: COUNCIL_JUDGE_MODEL });
   } catch (error) {
     const aborted = error?.name === "AbortError";
-    const message = aborted ? "Stopped by user." : error?.message || "The council judge failed.";
+    const message = aborted ? "Stopped by user." : publicErrorMessage(error, "The council judge failed.");
     const partial = aborted ? error.partial : null;
     if (!rankingSaved) {
       writeSse(res, { type: "council:peer:error", error: message });
@@ -309,8 +305,7 @@ export async function handleCouncilConversationMessage({
     }
     await updateAssistantOutputMessage(context, chairmanMessage.id, {
       ...(aborted ? {
-        content: judgeAnswerText(partial?.content),
-        reasoning: partial?.reasoning || ""
+        content: judgeAnswerText(partial?.content)
       } : {}),
       error: message,
       finish_reason: "error"

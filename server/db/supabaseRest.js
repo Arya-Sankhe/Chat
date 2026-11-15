@@ -63,7 +63,9 @@ export class SupabaseRest {
         details = await response.text();
       }
 
-      throw new HttpError(response.status, details?.message || "Database request failed.", details);
+      const error = new HttpError(response.status, details?.message || "Database request failed.", details);
+      error.database = true; // server code reads details.code; sendProblem keeps it from clients
+      throw error;
     }
 
     if (response.status === 204) return null;

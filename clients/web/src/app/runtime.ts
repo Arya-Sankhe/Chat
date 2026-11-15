@@ -32,7 +32,4 @@ export const api = createApiClient({
     return pending;
   }
 });
-export const chat = createChatController({
-  api,
-  keepReasoning: () => false
-});
+export const chat = createChatController({ api });

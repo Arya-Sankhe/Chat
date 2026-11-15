@@ -612,6 +612,15 @@ test("desktop usage exhaustion is friendly and non-retryable", () => {
   });
 });
 
+test("desktop database failures carry neither the database message nor its SQL state", () => {
+  let payload;
+  const res = { headersSent: false, writeHead() {}, end(value) { payload = JSON.parse(value); } };
+  const error = new HttpError(409, 'duplicate key value violates unique constraint "usage_api_events_pkey"', { code: "23505" });
+  error.database = true;
+  sendDesktopProblem(res, error, loadConfig({}));
+  assert.deepEqual(payload.error, { code: "request_conflict", message: "Database request failed.", retryable: false });
+});
+
 test("the soft cap ignores temporary reservations and checks settled usage only", async () => {
   const source = await readFile(new URL("../supabase/migrations/20260813104924_make_usage_reservations_invisible_soft_cap.sql", import.meta.url), "utf8");
   assert.match(source, /v_week\.api_credit_used >= v_limit/);

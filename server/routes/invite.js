@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { hasActiveSubscription } from "../saas/entitlements.js";
 import { authContext } from "./context.js";
@@ -5,6 +6,7 @@ import { authContext } from "./context.js";
 export async function handleRedeemInvite(req, res, config) {
   if (config.access.mode !== "testing") throw new HttpError(403, "Invite access is not available.");
   const { db, user } = await authContext(req, config);
+  enforceRateLimit(req, "invite-redeem", 5, 15 * 60_000, user.id);
   const body = await parseJsonBody(req, 16 * 1024);
   if (String(body.coupon || "").trim().toUpperCase() !== "TRYKLUI") {
     throw new HttpError(400, "That invite code isn't valid.");

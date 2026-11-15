@@ -26,13 +26,13 @@ function replaceDocument(content, doc) {
   return String(content || "").replace(FENCE, () => `\`\`\`visualize\n${doc}\n\`\`\``);
 }
 
-function finishVisualizeBlock(result, res, includeReasoning) {
+function finishVisualizeBlock(result, res) {
   const content = String(result?.accumulated?.content || "");
   if (hasCompletedVisualizeBlock(content)) return true;
   if (!/```visualize[ \t]*\r?\n[\s\S]*<\/html\s*>\s*$/i.test(content)) return false;
   const suffix = "\n```";
   result.accumulated.content += suffix;
-  writeProviderEvent(res, { choices: [{ delta: { content: suffix } }] }, { includeReasoning });
+  writeProviderEvent(res, { choices: [{ delta: { content: suffix } }] });
   return true;
 }
 
@@ -199,15 +199,15 @@ export async function patchVisualize({ content, error, modelClient, provider, si
   return problem ? "" : current;
 }
 
-function replaceStreamed(result, content, { res, includeReasoning, onReset }) {
+function replaceStreamed(result, content, { res, onReset }) {
   onReset();
-  writeProviderEvent(res, { choices: [{ delta: { content } }] }, { includeReasoning });
+  writeProviderEvent(res, { choices: [{ delta: { content } }] });
   return { ...result, accumulated: { ...result.accumulated, content } };
 }
 
-export async function ensureVisualizeResponse({ required, result, chatRequest, modelClient, provider, signal, res, includeReasoning = false, onReset }) {
+export async function ensureVisualizeResponse({ required, result, chatRequest, modelClient, provider, signal, res, onReset }) {
   if (!required) return result;
-  const completed = finishVisualizeBlock(result, res, includeReasoning);
+  const completed = finishVisualizeBlock(result, res);
   if (completed) {
     const content = result.accumulated.content;
     const doc = visualizeDocument(content);
@@ -215,11 +215,11 @@ export async function ensureVisualizeResponse({ required, result, chatRequest, m
     const normalized = hoisted === doc ? content : replaceDocument(content, hoisted);
     const visualizeError = findVisualizeError(normalized);
     if (!visualizeError) {
-      return normalized === content ? result : replaceStreamed(result, normalized, { res, includeReasoning, onReset });
+      return normalized === content ? result : replaceStreamed(result, normalized, { res, onReset });
     }
     const fixed = await patchVisualize({ content: normalized, error: visualizeError, modelClient, provider, signal });
     signal?.throwIfAborted();
-    if (fixed) return replaceStreamed(result, fixed, { res, includeReasoning, onReset });
+    if (fixed) return replaceStreamed(result, fixed, { res, onReset });
   }
   signal?.throwIfAborted();
   onReset();
@@ -237,8 +237,8 @@ export async function ensureVisualizeResponse({ required, result, chatRequest, m
   };
   delete retryRequest.tools;
   delete retryRequest.tool_choice;
-  const repaired = await streamSingleChat({ chatRequest: retryRequest, modelClient, provider, signal, res, includeReasoning });
-  if (!finishVisualizeBlock(repaired, res, includeReasoning) || findVisualizeError(repaired.accumulated.content)) {
+  const repaired = await streamSingleChat({ chatRequest: retryRequest, modelClient, provider, signal, res });
+  if (!finishVisualizeBlock(repaired, res) || findVisualizeError(repaired.accumulated.content)) {
     throw new HttpError(502, "Klui could not generate the interactive visualization. Try again.");
   }
   return { ...result, accumulated: repaired.accumulated };

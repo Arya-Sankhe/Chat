@@ -130,22 +130,20 @@ export async function deleteMessage(client, userId, messageId, { signal } = {}) 
 const MESSAGE_PAGE_SIZE = 24;
 const MESSAGE_PAGE_MAX = 60;
 
-function messageSelect(includeReasoning) {
-  return `id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot${includeReasoning ? ",reasoning" : ""}`;
-}
+const MESSAGE_SELECT = "id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot";
 
 // PostgREST returns at most its max-rows per request (1,000 by default), so a long
 // conversation is read in pages; one request would silently drop the newest messages.
 const MESSAGE_LIST_BATCH = 1000;
 
-export async function listMessages(client, userId, conversationId, { signal, includeReasoning = false } = {}) {
+export async function listMessages(client, userId, conversationId, { signal } = {}) {
   const messages = [];
   for (let offset = 0; ; offset += MESSAGE_LIST_BATCH) {
     const rows = await client.request("messages", {
       query: {
         user_id: `eq.${userId}`,
         conversation_id: `eq.${conversationId}`,
-        select: messageSelect(includeReasoning),
+        select: MESSAGE_SELECT,
         order: "created_at.asc,id.asc",
         limit: String(MESSAGE_LIST_BATCH),
         ...(offset ? { offset: String(offset) } : {})
@@ -165,7 +163,7 @@ export async function listMessages(client, userId, conversationId, { signal, inc
  * straddle a boundary; trimmed rows are older than the returned cursor, so the next
  * page picks them up. The last page is never trimmed, since nothing follows it.
  */
-export async function listMessagesPage(client, userId, conversationId, { signal, includeReasoning = false, limit = MESSAGE_PAGE_SIZE, cursor = null } = {}) {
+export async function listMessagesPage(client, userId, conversationId, { signal, limit = MESSAGE_PAGE_SIZE, cursor = null } = {}) {
   const requested = Number(limit);
   const size = limit == null || limit === "" || !Number.isFinite(requested)
     ? MESSAGE_PAGE_SIZE
@@ -174,7 +172,7 @@ export async function listMessagesPage(client, userId, conversationId, { signal,
     query: {
       user_id: `eq.${userId}`,
       conversation_id: `eq.${conversationId}`,
-      select: messageSelect(includeReasoning),
+      select: MESSAGE_SELECT,
       order: "created_at.desc,id.desc",
       limit: String(size + 1), // one spare row is what tells us older messages exist
       ...(cursor?.createdAt && cursor?.id

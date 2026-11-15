@@ -37,8 +37,6 @@ export function createLiveAssistant(id = `local_assistant_${Date.now()}`): LiveA
 }
 
 export interface ReducerOptions {
-  /** Reasoning text is only kept for admins, matching the server's own filter. */
-  keepReasoning?: boolean;
   now?: () => number;
 }
 
@@ -136,10 +134,7 @@ export function applyStreamEvent(message: LiveAssistant, event: StreamEvent, opt
   const delta: Record<string, any> = choice?.delta ?? {};
 
   const reasoningDelta = extractReasoningDelta(delta);
-  if (reasoningDelta) {
-    reasoningStarted();
-    if (options.keepReasoning) message.reasoning += reasoningDelta;
-  }
+  if (reasoningDelta) reasoningStarted();
   if (typeof delta.content === "string" && delta.content) {
     if (message.resetContentOnNextTextDelta) {
       message.content = "";

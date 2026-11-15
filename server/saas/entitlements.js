@@ -23,7 +23,11 @@ export function hasActiveSubscription(subscription, now = new Date()) {
 
 export async function getCurrentEntitlement({ db, userId, plans, access, signal }) {
   const subscription = await db.getLatestSubscription(userId, { signal });
-  if (!hasActiveSubscription(subscription) || (subscription?.provider === "invite" && access?.mode !== "testing")) {
+  // Invite access ends with the testing period; the row is then just history, not a plan.
+  if (subscription?.provider === "invite" && access?.mode !== "testing") {
+    return { active: false, subscription: null, plan: null };
+  }
+  if (!hasActiveSubscription(subscription)) {
     return { active: false, subscription, plan: null };
   }
 

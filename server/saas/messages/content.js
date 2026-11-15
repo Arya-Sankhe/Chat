@@ -284,12 +284,11 @@ async function hydrateContent(content, r2, mode, { imageDescriptions = null } = 
   return hydrated;
 }
 
-export async function hydrateMessagesForClient(messages, r2, { includeReasoning = false } = {}) {
+export async function hydrateMessagesForClient(messages, r2) {
   const result = [];
   for (const message of messages) {
     result.push({
       ...message,
-      reasoning: includeReasoning ? message.reasoning : "",
       content: await hydrateContent(message.content, r2, "client")
     });
   }

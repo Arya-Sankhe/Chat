@@ -1,4 +1,4 @@
-import { single } from "./helpers.js";
+import { pgIn, pgValue, single } from "./helpers.js";
 import { assertDocumentVersions } from "../../documents/library.js";
 
 // Shared by chat, Study Hub and editor reads. A re-ingest clears readiness before
@@ -8,7 +8,7 @@ async function readDocumentContent(client, userId, ids, read, signal) {
   const versions = () => client.request("document_files", {
     query: {
       user_id: `eq.${userId}`,
-      id: `in.(${ids.join(",")})`,
+      id: pgIn(ids),
       select: "id,text_ready_at,visual_ready_at"
     },
     signal
@@ -130,8 +130,8 @@ export async function listUsableProjectDocumentFiles(client, userId, projectId, 
 /** Documents of a chat or project that are still processing or failed, so a turn can name them. */
 export async function listUnreadyDocumentFiles(client, userId, { conversationId = null, projectId = null } = {}, { signal } = {}) {
   const owners = [
-    conversationId ? `conversation_id.eq.${conversationId}` : "",
-    projectId ? `project_id.eq.${projectId}` : ""
+    conversationId ? `conversation_id.eq.${pgValue(conversationId)}` : "",
+    projectId ? `project_id.eq.${pgValue(projectId)}` : ""
   ].filter(Boolean);
   if (!owners.length) return [];
   return client.request("document_files", {
@@ -156,7 +156,7 @@ export async function listProjectDocumentFilesByIds(client, userId, projectId, d
     query: {
       user_id: `eq.${userId}`,
       project_id: `eq.${projectId}`,
-      id: `in.(${ids.join(",")})`,
+      id: pgIn(ids),
       select: "id,attachment_id,processing_status,text_ready_at,visual_ready_at,error,metadata"
     },
     signal
@@ -169,7 +169,7 @@ export async function listDocumentChunksForFiles(client, userId, documentFileIds
   return readDocumentContent(client, userId, ids, () => client.request("document_chunks", {
     query: {
       user_id: `eq.${userId}`,
-      document_file_id: `in.(${ids.join(",")})`,
+      document_file_id: pgIn(ids),
       select: "document_file_id,chunk_index,source_type,source_label,text,token_estimate,metadata",
       order: "document_file_id.asc,chunk_index.asc",
       limit: String(limit),
@@ -185,7 +185,7 @@ export async function listDocumentFilesByAttachments(client, userId, attachmentI
   return client.request("document_files", {
     query: {
       user_id: `eq.${userId}`,
-      attachment_id: `in.(${ids.join(",")})`,
+      attachment_id: pgIn(ids),
       select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)"
     },
     signal

@@ -1,5 +1,5 @@
 import { imageGeneration } from "../model-api/client.js";
-import { HttpError } from "../http/responses.js";
+import { HttpError, publicErrorMessage } from "../http/responses.js";
 import { usageCostCredits } from "./billing.js";
 import { contentText, hydrateMessagesForClient } from "./messages.js";
 import { substituteImagesWithDescriptions } from "./images.js";
@@ -537,7 +537,7 @@ export async function runIllustrationTurn({
   } catch (error) {
     await updateConversationIdentity().catch(() => {});
     const aborted = error?.name === "AbortError";
-    const message = aborted ? "Stopped by user." : error?.message || "The illustration could not be generated.";
+    const message = aborted ? "Stopped by user." : publicErrorMessage(error, "The illustration could not be generated.");
     const partialContent = error.partial?.content || (plan
       ? formatIllustrationContent({
           mode: plan.mode,

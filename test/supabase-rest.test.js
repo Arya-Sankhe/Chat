@@ -243,22 +243,6 @@ test("listMessages scopes messages to the user and conversation", async () => {
   });
 });
 
-test("listMessages appends reasoning when includeReasoning is true", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    assert.equal(options.method, "GET");
-    const parsed = new URL(url);
-    assert.equal(
-      parsed.searchParams.get("select"),
-      "id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot,reasoning"
-    );
-    expectServiceHeaders(options.headers);
-    return jsonResponse([]);
-  }, async () => {
-    const db = new SupabaseRest(FAKE_CONFIG);
-    await db.listMessages("user_1", "conv_1", { includeReasoning: true });
-  });
-});
-
 test("listRecentAssistantMessages selects newest assistant content with a bound and offset", async () => {
   let request = 0;
   await withStubbedFetch(async (url, options = {}) => {

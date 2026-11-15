@@ -1,3 +1,4 @@
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { mountDocumentEditor } from "./documentEditor.js";
 import { rangePlainText } from "./documentSelection.js";
 import { fetchNativeBytes, isNative } from "./platform/index.js";
@@ -822,8 +823,8 @@ export function createDocumentViewer({
 
   async function loadPdfJs() {
     if (!pdfJsPromise) {
-      pdfJsPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.mjs").then((pdfjs) => {
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.worker.mjs";
+      pdfJsPromise = import("pdfjs-dist/build/pdf.mjs").then((pdfjs) => {
+        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         return pdfjs;
       });
     }

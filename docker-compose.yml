@@ -1,8 +1,10 @@
 services:
   klui-chat:
     build: .
+    # Loopback only: Caddy on the host is the public entry point. A port open to the
+    # internet would skip TLS and the proxy. Set KLUI_BIND_IP=0.0.0.0 to reach it from a LAN.
     ports:
-      - "3000:3000"
+      - "${KLUI_BIND_IP:-127.0.0.1}:3000:3000"
     volumes:
       - ${WINDOWS_DOWNLOADS_DIR:-./public/downloads/windows}:/app/public/downloads/windows:ro
       - ${MACOS_DOWNLOADS_DIR:-./public/downloads/macos}:/app/public/downloads/macos:ro
@@ -21,6 +23,9 @@ services:
       RESEARCH_QUEUE: ${RESEARCH_QUEUE:-local}
       TRANSCRIBE_QUEUE: ${TRANSCRIBE_QUEUE:-local}
       DOCUMENT_QUEUE: ${DOCUMENT_QUEUE:-local}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   # Self-hosted Jina Reader for read_url. Private-only: no published ports;
@@ -71,7 +76,7 @@ services:
   onlyoffice:
     image: onlyoffice/documentserver:9.3.1
     ports:
-      - "${ONLYOFFICE_PORT:-8082}:80"
+      - "${KLUI_BIND_IP:-127.0.0.1}:${ONLYOFFICE_PORT:-8082}:80"
     environment:
       JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
       JWT_ENABLED: "true"
@@ -92,6 +97,9 @@ services:
       DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
       DOCUMENT_WORKER_MAX_IDLE_SECONDS: ${DOCUMENT_WORKER_MAX_IDLE_SECONDS:-10}
     mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-6g}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "python", "-m", "worker.healthcheck"]
       interval: 30s
@@ -123,8 +131,13 @@ services:
     memswap_limit: 3g
     pids_limit: 256
     stop_grace_period: 30s
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - transcriber-work:/work
+      # Scratch only (wiped at start). Renamed from transcriber-work when the service
+      # stopped running as root, so the volume starts empty and owned by its user.
+      - transcriber-scratch:/work
     healthcheck:
       test: ["CMD", "python", "-m", "transcriber.healthcheck"]
       interval: 30s
@@ -163,5 +176,5 @@ services:
     restart: "no"
 
 volumes:
-  transcriber-work:
+  transcriber-scratch:
   pocket-tts-cache:

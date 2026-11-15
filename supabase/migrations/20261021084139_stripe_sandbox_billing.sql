@@ -51,7 +51,7 @@ begin
     or c.expires_at <= now() or c.expires_at > now()+interval '1 hour 5 minutes' then
     raise exception 'Invalid checkout binding';
   end if;
-  if exists(select 1 from public.subscriptions where user_id=c.user_id
+  if exists(select 1 from public.subscriptions where user_id=c.user_id and provider<>'invite'
     and status in ('active','trialing','past_due','incomplete')
     and (current_period_end>now() or not cancel_at_period_end))
     or exists(select 1 from public.stripe_checkouts where user_id=c.user_id and not completed and expires_at>now()) then
@@ -67,7 +67,7 @@ begin
     if cardinality(c.account_hashes)<2 or exists(select 1 from unnest(c.account_hashes) h where h !~ '^[a-f0-9]{64}$') then
       raise exception 'Verified coupon identity is required';
     end if;
-    if exists(select 1 from public.subscriptions where user_id=c.user_id
+    if exists(select 1 from public.subscriptions where user_id=c.user_id and provider<>'invite'
       and not (provider='ziina' and raw->>'beta_retired'='true'))
       or exists(select 1 from public.mamo_coupon_ledger where kind='account' and key_hash=any(c.account_hashes))
       or exists(select 1 from public.stripe_coupon_ledger where kind='account' and key_hash=any(c.account_hashes)

@@ -59,7 +59,6 @@ export interface ChatSettings {
   colorPreset: string;
   colorChosen: boolean;
   wallpaper: string;
-  showModelReasoning: boolean;
   weatherUnits: string;
   uiTextScale: number;
   voiceId: string;
@@ -85,7 +84,6 @@ export const defaultSettings: ChatSettings = {
   colorPreset: "ocean",
   colorChosen: false,
   wallpaper: "clouds",
-  showModelReasoning: true,
   weatherUnits: "metric",
   uiTextScale: 100,
   voiceId: DEFAULT_VOICE,
@@ -148,7 +146,6 @@ export function parseSettings(raw: string | null): { settings: ChatSettings; mig
     loaded.colorChosen = loaded.colorChosen === true || (COLOR_PRESETS.has(loaded.colorPreset) && loaded.colorPreset !== "default");
     loaded.colorPreset = loaded.colorChosen && COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "ocean";
     loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
-    loaded.showModelReasoning = loaded.showModelReasoning !== false;
     loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
     loaded.voiceId = normalizeVoiceId(loaded.voiceId);
     loaded.voiceSpeed = normalizeVoiceSpeed(loaded.voiceSpeed);

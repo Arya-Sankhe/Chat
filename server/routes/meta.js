@@ -11,6 +11,7 @@ import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { publicChatRoles } from "../models.js";
 import { listComposerSkills } from "../saas/composerSkills.js";
 import { authContext, requireChatContext } from "./context.js";
+import { forgetVoiceAccount } from "./voice.js";
 
 function accountName(user) {
   const meta = user?.raw?.user_metadata || {};
@@ -123,6 +124,7 @@ export async function handleMe(req, res, config) {
       if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
     }
     await context.db.deleteAuthUser(context.user.id, { signal: req.signal });
+    forgetVoiceAccount(context.user.id);
     sendJson(res, 200, { deleted: true });
     return;
   }

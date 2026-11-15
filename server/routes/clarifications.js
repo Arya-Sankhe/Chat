@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { researchConversationContext } from "../research/context.js";
 import { generateClarifications } from "../saas/clarifications.js";
@@ -6,6 +7,7 @@ import { requireChatContext } from "./context.js";
 
 export async function handleClarifications(req, res, config) {
   const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "clarifications", 30, 60_000, context.user.id);
   const body = await parseJsonBody(req, 16 * 1024);
   const query = String(body.query || "").trim();
   if (!query) throw new HttpError(400, "Enter a question.");

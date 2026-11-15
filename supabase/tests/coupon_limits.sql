@@ -13,7 +13,8 @@ insert into public.mamo_payment_links(id,user_id,plan_id,amount_aed,coupon_code,
 ('LIMIT-5','55555555-5555-4555-8555-000000000005','pro',32.19,'FIRSTFREE',0,'2099-11-04',array[repeat('e',64)]),
 ('LIMIT-6','55555555-5555-4555-8555-000000000006','pro',32.19,'FIRST50',16.65,'2099-11-04',array[repeat('f',64)]);
 insert into public.subscriptions(user_id,provider,provider_subscription_id,plan_id,status,raw)
-values ('55555555-5555-4555-8555-000000000006','ziina','beta-retired','pro','expired','{"beta_retired":true}');
+values ('55555555-5555-4555-8555-000000000006','ziina','beta-retired','pro','expired','{"beta_retired":true}'),
+('55555555-5555-4555-8555-000000000006','invite','invite:55555555-5555-4555-8555-000000000006','pro','active','{}');
 do $$
 declare r jsonb;
 begin
@@ -58,7 +59,7 @@ begin
   r := public.klui_claim_mamo_coupon('LIMIT-5','CARD-5','VERIFY-5',repeat('5',64));
   assert (r->>'conflict')::boolean, 'identity-less trial accepted';
   r := public.klui_claim_mamo_coupon('LIMIT-6','CARD-6','VERIFY-6',repeat('6',64));
-  assert not (r->>'conflict')::boolean, 'beta retirement blocked first paid coupon';
+  assert not (r->>'conflict')::boolean, 'beta retirement or invite access blocked first paid coupon';
 end;
 $$;
 rollback;

@@ -1,3 +1,4 @@
+import { enforceRateLimit } from "../http/rateLimit.js";
 import crypto from "node:crypto";
 import { configuredServices } from "../config.js";
 import { DocumentService } from "../documents/index.js";
@@ -34,6 +35,7 @@ function publicResearchRun(run, config) {
 export async function handleCreateResearch(req, res, config) {
   if (!config.research?.enabled) throw new HttpError(503, "Deep Research is not enabled.");
   const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "research-create", 10, 60 * 60_000, context.user.id);
   const body = await parseJsonBody(req, 64 * 1024);
   const query = String(body.query || "").trim();
   const displayQuery = String(body.displayQuery || query).trim();

@@ -1,4 +1,4 @@
-import { HttpError } from "../http/responses.js";
+import { HttpError, publicErrorMessage } from "../http/responses.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
 import {
   reasoningDurationMetadata,
@@ -34,7 +34,6 @@ export async function handleCompareConversationMessage({
   webSearchMode = "off",
   turnRun = null
 }) {
-  const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
     ? webSearch
     : { contextMessage: "", citations: [], providers: [], detection: null };
@@ -105,7 +104,7 @@ export async function handleCompareConversationMessage({
           websearch,
           weather: config?.weather,
           documents: null,
-          onUpstreamEvent: (event) => writeDelta(sanitizeProviderEvent(event, { includeReasoning })),
+          onUpstreamEvent: (event) => writeDelta(sanitizeProviderEvent(event)),
           onToolEvent: writeDelta
         });
         accumulated = result.accumulated;
@@ -144,7 +143,7 @@ export async function handleCompareConversationMessage({
         if (!upstream.body) throw new HttpError(502, `${provider.label} returned an empty response stream.`);
 
         accumulated = await streamProviderAndAccumulate(upstream, (event) => {
-          writeDelta(sanitizeProviderEvent(event, { includeReasoning }));
+          writeDelta(sanitizeProviderEvent(event));
         });
       }
       if (!hasAssistantOutput(accumulated, artifacts)) {
@@ -154,7 +153,6 @@ export async function handleCompareConversationMessage({
       const compareDurationMeta = reasoningDurationMetadata({ ...assistantMessage.metadata, ...toolMeta }, accumulated);
       await updateAssistantOutputMessage(context, assistantMessage.id, {
         content: accumulated.content,
-        reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
         error: null,
@@ -164,14 +162,13 @@ export async function handleCompareConversationMessage({
       writeSse(res, { type: "done", index, model: chatRequest.model });
     } catch (error) {
       const aborted = error?.name === "AbortError";
-      const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
+      const message = aborted ? "Stopped by user." : publicErrorMessage(error, "Model request failed.");
       const partial = aborted ? error.partial : null;
       /* Drop req.signal on abort so the partial write is not cancelled by
          the already-aborted client request signal. */
       await updateAssistantOutputMessage(context, assistantMessage.id, {
         ...(aborted ? {
-          content: partial?.content || "",
-          reasoning: partial?.reasoning || ""
+          content: partial?.content || ""
         } : {}),
         error: message,
         finish_reason: "error"

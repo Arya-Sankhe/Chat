@@ -1,3 +1,4 @@
+import { enforceAccountRateLimit } from "../http/rateLimit.js";
 import { timingSafeEqual } from "node:crypto";
 import { generateNonce } from "../saas/council.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
@@ -177,6 +178,8 @@ function publicMamoSubscription(row) {
 
 // First-month coupons are for a user's first Klui subscription, once per account.
 export async function eligibleCoupon(context, config, code, signal) {
+  // Coupon codes are short and guessable, so each account gets a handful of tries.
+  enforceAccountRateLimit("coupon-check", 10, 10 * 60_000, context.user.id);
   const normalized = String(code || "").trim().toUpperCase();
   if (!/^[A-Z0-9_-]{3,32}$/.test(normalized)) throw new HttpError(400, "That coupon code isn't valid.");
   let coupon = (config.paymentProvider === "stripe" ? config.stripe?.coupons : config.mamo?.coupons)?.get(normalized);
@@ -195,8 +198,9 @@ export async function eligibleCoupon(context, config, code, signal) {
   const stripeUsed = config.paymentProvider === "stripe" && (await context.db.request("stripe_coupon_ledger", {
     query: { kind: "eq.account", key_hash: `in.(${accountHashes.join(",")})`, or: `(redeemed.eq.true,expires_at.gt.${new Date().toISOString()})`, limit: 1 }, signal
   })).length > 0;
-  const retiredBeta = current?.provider === "ziina" && current.raw?.beta_retired === true;
-  if ((current && !retiredBeta) || used || stripeUsed) {
+  // Beta access (retired Ziina, invite codes) was never a paid subscription.
+  const betaOnly = current?.provider === "invite" || (current?.provider === "ziina" && current.raw?.beta_retired === true);
+  if ((current && !betaOnly) || used || stripeUsed) {
     throw new HttpError(409, "This coupon is only for your first Klui subscription.");
   }
   return { ...coupon, accountHashes };

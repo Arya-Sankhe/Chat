@@ -1,4 +1,4 @@
-import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorMessage, sendJson } from "../http/responses.js";
 import { DocumentService } from "../documents/index.js";
 import { startSse, writeSse } from "../chat/shared.js";
 import {
@@ -504,7 +504,7 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
       const aborted = signal.aborted || error?.name === "AbortError";
       const message = aborted
         ? "Generation cancelled."
-        : (error instanceof HttpError ? error.message : (error?.message || "Generation failed, try again."));
+        : publicErrorMessage(error, "Generation failed, try again.");
       writeSse(res, { type: "error", error: message });
       endStudySse(res);
       return;

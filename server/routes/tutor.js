@@ -1,4 +1,4 @@
-import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, publicErrorCode, publicErrorMessage, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { startSse, writeSse } from "../chat/shared.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
@@ -91,7 +91,7 @@ export async function handleStudyCourseTutor(req, res, config, courseId) {
     writeSse(res, { type: "complete", result: { type: "tutor", session: publicTutorSession(session), ...(warning ? { warning } : {}) } });
   } catch (error) {
     const aborted = run.signal.aborted || error?.name === "AbortError";
-    writeSse(res, { type: "error", error: aborted ? "Preparation cancelled." : (error instanceof HttpError ? error.message : "Could not prepare the lesson. Try again.") });
+    writeSse(res, { type: "error", error: aborted ? "Preparation cancelled." : (error instanceof HttpError ? publicErrorMessage(error) : "Could not prepare the lesson. Try again.") });
   } finally {
     clearInterval(heartbeat);
     run.stop();
@@ -151,8 +151,8 @@ export async function handleStudyTutorTurn(req, res, config, sessionId) {
     if (!run.signal.aborted) {
       writeSse(res, {
         type: "error",
-        error: error instanceof HttpError ? error.message : "The tutor could not answer. Try again.",
-        ...(error?.details?.code ? { code: error.details.code } : {})
+        error: error instanceof HttpError ? publicErrorMessage(error) : "The tutor could not answer. Try again.",
+        ...(publicErrorCode(error) ? { code: publicErrorCode(error) } : {})
       });
     }
   } finally {

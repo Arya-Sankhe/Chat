@@ -3,6 +3,8 @@ begin;
 insert into auth.users(id) values('66666666-6666-4666-8666-000000000001'),('66666666-6666-4666-8666-000000000002'),('66666666-6666-4666-8666-000000000003');
 insert into public.profiles(id) select id from auth.users where id::text like '66666666-%';
 insert into public.stripe_customers(user_id,customer_id) values('66666666-6666-4666-8666-000000000001','cus_sql_1'),('66666666-6666-4666-8666-000000000002','cus_sql_2'),('66666666-6666-4666-8666-000000000003','cus_sql_3');
+-- Invited beta testers keep an active invite row; it must not block their first paid checkout.
+insert into public.subscriptions(user_id,provider,provider_subscription_id,plan_id,status) values('66666666-6666-4666-8666-000000000003','invite','invite:66666666-6666-4666-8666-000000000003','pro','active');
 insert into public.affiliate_creators(id,display_name) values('66666666-6666-4666-8666-000000000010','Stripe creator');
 insert into public.affiliate_coupons(id,creator_id,code,percent_off,enabled) values('66666666-6666-4666-8666-000000000011','66666666-6666-4666-8666-000000000010','STRIPESQL',100,true);
 do $$

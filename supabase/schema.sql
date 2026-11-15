@@ -1078,6 +1078,7 @@ grant execute on function public.klui_mark_api_usage_submitted(uuid, uuid, text)
 grant execute on function public.klui_settle_api_usage(uuid, uuid, numeric, text, jsonb, text, boolean) to service_role;
 grant execute on function public.klui_release_api_usage(uuid, uuid) to service_role;
 grant execute on function public.klui_reconcile_api_usage() to service_role;
+revoke all on function public.klui_record_api_usage(uuid, uuid, text, text, text, text, date, date, date, date, integer, numeric, numeric, text, jsonb, text) from public, anon, authenticated;
 grant execute on function public.klui_record_api_usage(uuid, uuid, text, text, text, text, date, date, date, date, integer, numeric, numeric, text, jsonb, text) to service_role;
 
 create or replace function public.klui_cleanup_storage_and_cache(
@@ -1314,6 +1315,7 @@ begin
 end;
 $$;
 
+revoke all on function public.klui_search_document_chunks(uuid, uuid[], text, integer) from public, anon, authenticated;
 grant execute on function public.klui_search_document_chunks(uuid, uuid[], text, integer) to service_role;
 
 create or replace function public.klui_search_document_pages(
@@ -1388,6 +1390,7 @@ begin
 end;
 $$;
 
+revoke all on function public.klui_search_document_pages(uuid, uuid[], text, integer) from public, anon, authenticated;
 grant execute on function public.klui_search_document_pages(uuid, uuid[], text, integer) to service_role;
 
 -- Rev 3 document capability pipeline and durable pending turns.
@@ -2929,6 +2932,7 @@ begin
 end;
 $$;
 
+revoke all on function public.klui_search_document_chunks(uuid, uuid[], text, integer) from public, anon, authenticated;
 grant execute on function public.klui_search_document_chunks(uuid, uuid[], text, integer) to service_role;
 
 create or replace function public.klui_search_document_chunks_semantic(
@@ -3051,6 +3055,7 @@ begin
 end;
 $$;
 
+revoke all on function public.klui_search_document_pages(uuid, uuid[], text, integer) from public, anon, authenticated;
 grant execute on function public.klui_search_document_pages(uuid, uuid[], text, integer) to service_role;
 
 -- Rolling conversation summaries. One row per conversation holds the summary
@@ -3523,6 +3528,7 @@ begin
     return jsonb_build_object('status', 'unverified', 'conflict', true);
   end if;
   if exists (select 1 from public.subscriptions s where s.user_id = link.user_id
+    and s.provider <> 'invite'
     and not (s.provider = 'ziina' and coalesce(s.raw->>'beta_retired', '') = 'true')
     and coalesce(s.raw->>'payment_link_id', '') <> link.id)
     or exists (select 1 from public.mamo_coupon_ledger l where l.payment_link_id <> link.id
@@ -3801,7 +3807,7 @@ begin
     or c.expires_at <= now() or c.expires_at > now()+interval '1 hour 5 minutes' then
     raise exception 'Invalid checkout binding';
   end if;
-  if exists(select 1 from public.subscriptions where user_id=c.user_id
+  if exists(select 1 from public.subscriptions where user_id=c.user_id and provider<>'invite'
     and status in ('active','trialing','past_due','incomplete')
     and (current_period_end>now() or not cancel_at_period_end))
     or exists(select 1 from public.stripe_checkouts where user_id=c.user_id and not completed and expires_at>now()) then
@@ -3817,7 +3823,7 @@ begin
     if cardinality(c.account_hashes)<2 or exists(select 1 from unnest(c.account_hashes) h where h !~ '^[a-f0-9]{64}$') then
       raise exception 'Verified coupon identity is required';
     end if;
-    if exists(select 1 from public.subscriptions where user_id=c.user_id
+    if exists(select 1 from public.subscriptions where user_id=c.user_id and provider<>'invite'
       and not (provider='ziina' and raw->>'beta_retired'='true'))
       or exists(select 1 from public.mamo_coupon_ledger where kind='account' and key_hash=any(c.account_hashes))
       or exists(select 1 from public.stripe_coupon_ledger where kind='account' and key_hash=any(c.account_hashes)
@@ -3915,4 +3921,41 @@ begin
 end; $$;
 revoke all on function public.klui_expire_stripe_checkout(uuid) from public,anon,authenticated;
 grant execute on function public.klui_expire_stripe_checkout(uuid) to service_role;
+
+-- Client roles reach nothing in public: only the server (service_role) uses the database.
+-- 1a. Functions we own (extension members such as pgvector's are left alone, since
+--     service_role reaches them through PUBLIC).
+do $$
+declare fn regprocedure;
+begin
+  for fn in
+    select p.oid::regprocedure
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prokind in ('f', 'p')
+      and not exists (
+        select 1 from pg_depend d
+        where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e'
+      )
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', fn);
+    execute format('grant execute on function %s to service_role', fn);
+  end loop;
+end
+$$;
+
+-- 1b. Tables, views and sequences.
+revoke all on all tables in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+
+-- 1c. Objects created later by this role (migrations run as postgres on Supabase) no
+--     longer reach the client roles by default. PUBLIC's EXECUTE on new functions is a
+--     global default that a per-schema rule cannot remove, so every new function still
+--     needs its own `revoke all ... from public, anon, authenticated`;
+--     test/sql/client-roles-locked.sql fails CI when one is missing.
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+
 notify pgrst,'reload schema';

@@ -55,4 +55,10 @@ RUN mkdir -p /usr/share/fonts/truetype/klui \
   && cp worker/fonts/61-klui-deck-fonts.conf /etc/fonts/conf.d/ \
   && fc-cache -f
 
+# Office, PDF and OCR parsers read untrusted uploads, so they run as an unprivileged user.
+# LibreOffice, fontconfig and Chromium keep their profiles and caches under HOME.
+RUN useradd --uid 10001 --create-home --home-dir /home/worker --shell /usr/sbin/nologin worker
+ENV HOME=/home/worker
+USER worker
+
 CMD ["python", "-m", "worker.worker"]
