@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { session } from "../app/runtime";
 import { checkMamoCoupon, createMamoCheckout, createZiinaPaymentRequest, fetchZiinaPaymentRequests, redeemInvite } from "../islands/api.js";
+import { clearPendingCoupon, pendingCoupon, savePendingCoupon, takeCouponFromUrl } from "../islands/inviteLink.js";
 import { isNative, openExternal } from "../islands/platform/index.js";
 import { renderShell, showToast, useApp } from "./app";
 import { loadMe } from "./boot";
@@ -169,26 +170,58 @@ export function applyCoupon() {
   return check;
 }
 
-// klui.ai/?coupon=CODE applies a shared code the first time the paywall opens.
-// Read at load, before any route sync can rewrite the address.
-let couponFromUrl = (() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const code = String(params.get("coupon") || "").trim().toUpperCase().slice(0, 32);
-    if (!code) return "";
-    params.delete("coupon");
-    const query = params.toString();
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-    return code;
-  } catch {
-    return "";
-  }
-})();
+// klui.ai/?coupon=CODE (see islands/inviteLink.js). Read at load, before any route sync
+// can rewrite the address. Saved for sign-up; also kept here for browsers that block storage.
+let linkCoupon = takeCouponFromUrl();
+if (linkCoupon) savePendingCoupon(linkCoupon);
+
+const savedLinkCoupon = () => pendingCoupon() || linkCoupon;
+
+function forgetLinkCoupon() {
+  linkCoupon = "";
+  clearPendingCoupon();
+}
+
+/** The code this page was opened with, for asking a guest to sign up. */
+export const couponLinkOnLoad = linkCoupon;
 
 /** showPaywall(): a code from the link fills the field and is checked once. */
 export function applyCouponFromUrl() {
-  if (!couponFromUrl || get().mamoCoupon || isNative()) return;
-  set({ couponCode: couponFromUrl, couponOpen: true });
-  couponFromUrl = "";
+  const code = savedLinkCoupon();
+  if (!code || get().mamoCoupon || isNative()) return;
+  forgetLinkCoupon();
+  set({ couponCode: code, couponOpen: true });
   void applyCoupon();
+}
+
+let inviteRedeem: Promise<void> | null = null;
+
+/** Signed in with a code from the link while Klui is invite-only: Pro is applied
+    straight away, without the pricing screen. Paid plans wait for applyCouponFromUrl(). */
+export function redeemPendingInvite() {
+  inviteRedeem ||= (async () => {
+    const current = session.current();
+    const code = savedLinkCoupon();
+    if (!current || !code || isNative() || !inviteOnly()) return;
+    const me = useApp.getState().me as any;
+    if (me?.subscription?.provider === "invite" && me?.access?.active) {
+      forgetLinkCoupon();
+      return;
+    }
+    try {
+      await redeemInvite(current, code);
+    } catch (error: any) {
+      // A refused code or an active paid plan is final; anything else tries again on the next visit.
+      if ([400, 403, 409].includes(error?.status)) forgetLinkCoupon();
+      showToast(error?.message || "The invite code couldn't be applied.");
+      return;
+    }
+    forgetLinkCoupon();
+    showToast("Invite accepted. You now have Pro for free.");
+    await loadMe().catch(() => {});
+    renderShell();
+  })().finally(() => {
+    inviteRedeem = null;
+  });
+  return inviteRedeem;
 }

@@ -5,9 +5,9 @@ import type { HostedSession } from "@klui/shared";
 import { api, session, webBuild } from "../app/runtime";
 import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { isEmbedded, isNative, nativeInfoTarget, onEmbeddedEvents } from "../islands/platform/index.js";
-import { chatHooks, closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, openSettings, renderShell, showToast, useApp } from "./app";
+import { chatHooks, closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, openAuthDialog, openSettings, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
-import { loadPaymentRequests, refreshAfterMamoReturn, trackPaymentRequests } from "./billing";
+import { couponLinkOnLoad, loadPaymentRequests, redeemPendingInvite, refreshAfterMamoReturn, trackPaymentRequests } from "./billing";
 import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, openNativeConversation, rejoinTurnsAfterResume, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 import { checkAndShowAppUpdate, hideLaunchScreenWaiting, showLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
 
@@ -214,6 +214,12 @@ export async function bootstrap() {
       if (!get().signedIn) set({ authArtLoaded: true });
     });
     if (signedIn) trackPaymentRequests();
+    if (signedIn) await redeemPendingInvite();
+    else if (couponLinkOnLoad && !isNative()) {
+      // Opened from a code link (the campus QR code): sign up first, then the code applies.
+      openAuthDialog();
+      showToast(`Code ${couponLinkOnLoad} is saved. Sign up and it's applied to your account.`);
+    }
     await refreshAfterMamoReturn();
     if (signedIn && hasChatAccess()) {
       await loadChatApp();
@@ -300,6 +306,7 @@ async function afterSignIn() {
     await withTimeout(loadMe(), 8000, "Account load");
     await loadPaymentRequests();
     renderShell();
+    await redeemPendingInvite();
     if (hasChatAccess()) {
       await loadChatApp();
       await restorePendingDocuments();
