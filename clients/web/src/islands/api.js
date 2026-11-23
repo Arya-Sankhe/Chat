@@ -1312,7 +1312,7 @@ export async function redeemInvite(session, coupon) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ coupon })
   });
-  if (!response.ok) throw new Error(await readProblem(response));
+  if (!response.ok) throw Object.assign(new Error(await readProblem(response)), { status: response.status });
   return response.json();
 }
 
