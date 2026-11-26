@@ -7,7 +7,7 @@ import { authContext } from "./context.js";
 // a number is a pass that ends that many days after it's redeemed, once per account.
 const INVITE_CODES = new Map([
   ["TRYKLUI", { days: null }],
-  ["KLUIUOBD", { days: 14 }]
+  ["KLUIUOBD", { days: 30 }]
 ]);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
