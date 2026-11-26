@@ -7,7 +7,6 @@ const PHONE = "(max-width: 720px)";
 /* The feature tour's dialog. islands/featureTour.js draws everything inside it. */
 export function FeatureTour() {
   const open = useApp((s) => s.featureTourOpen);
-  const pass = useApp((s) => s.featureTourPass);
   const root = useRef<HTMLElement>(null);
   // A closing tour's stop, still waiting out its fade when a new tour opens.
   const pendingStop = useRef<(() => void) | null>(null);
@@ -28,11 +27,11 @@ export function FeatureTour() {
     let cancelled = false;
     import("../islands/featureTour.js").then(({ mountFeatureTour }) => {
       if (cancelled) return;
-      stop = mountFeatureTour(el, { pass, onTry: tryFeature, onClose: closeFeatureTour });
+      stop = mountFeatureTour(el, { onTry: tryFeature, onClose: closeFeatureTour });
     }).catch(() => closeFeatureTour());
     return () => {
       cancelled = true;
-      // Replaced by a new tour (a redeemed pass): stop now, and leave focus to the new one.
+      // Replaced by a new tour: stop now, and leave focus to the new one.
       if (useApp.getState().featureTourOpen) {
         stop?.(false);
         return;
@@ -52,7 +51,7 @@ export function FeatureTour() {
       const timer = setTimeout(() => finish(!useApp.getState().featureTourOpen), 300);
       pendingStop.current = early;
     };
-  }, [open, pass]);
+  }, [open]);
 
   return (
     <section

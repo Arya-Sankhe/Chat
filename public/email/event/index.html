@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Send the Klui email</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root { --ink: #0b1b3a; --muted: #5b6680; --sky: #79cfff; --sky-soft: #e8f5ff; --beige: #fff8e9; --beige-line: #f0dfbd; --pink: #ffe1ec; --yellow: #ffd43b; --ok: #1f7a4d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--beige); color: var(--ink); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 56px; }
+  .kicker { font: 600 12px/1 "SF Mono", Menlo, Consolas, monospace; letter-spacing: 2px; color: var(--muted); }
+  h1 { margin: 10px 0 6px; font: 600 36px/1.1 Georgia, "Times New Roman", serif; letter-spacing: -0.5px; }
+  .lede { margin: 0 0 24px; color: var(--muted); }
+  .card { background: #fff; border: 1.5px solid var(--beige-line); border-radius: 20px; padding: 22px; }
+  ol { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 16px; }
+  li { counter-increment: step; display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+  li::before { content: counter(step); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--sky-soft); color: #2366c4; font-weight: 700; font-size: 15px; }
+  li b { font-weight: 650; }
+  .hint { display: block; color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  button, .button { appearance: none; border: 0; border-radius: 999px; padding: 11px 20px; font-family: inherit; font-size: 15px; font-weight: 650; line-height: 1; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+  .primary { background: var(--yellow); color: var(--ink); }
+  .primary:hover { background: #ffe27a; }
+  .secondary { background: var(--sky-soft); color: #1d4f99; }
+  .secondary:hover { background: #d8eeff; }
+  .subject { flex: 1 1 260px; min-width: 0; padding: 10px 14px; border: 1px solid var(--beige-line); border-radius: 12px; background: var(--beige); font-size: 15px; }
+  .done { color: var(--ok); font-size: 14px; font-weight: 600; min-height: 1em; }
+  kbd { font: 600 13px "SF Mono", Menlo, Consolas, monospace; background: var(--beige); border: 1px solid var(--beige-line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; }
+  .note { margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: var(--pink); font-size: 14px; color: #6b2f45; }
+  details { margin-top: 18px; font-size: 15px; }
+  summary { cursor: pointer; font-weight: 650; }
+  details p { color: var(--muted); margin: 8px 0 0; }
+  h2 { margin: 36px 0 12px; font: 600 22px/1.2 Georgia, "Times New Roman", serif; }
+  .preview { width: 100%; height: 1900px; border: 0; border-radius: 20px; background: var(--beige); display: block; }
+  @media (max-width: 520px) { h1 { font-size: 30px; } .card { padding: 18px 16px; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="kicker">KLUI · FOR THE EVENT ORGANISERS</div>
+  <h1>Send the Klui email</h1>
+  <p class="lede">Thank you for sending this to your attendees. It takes about two minutes from your own Gmail or Outlook. Nothing to install.</p>
+
+  <section class="card" aria-label="Steps">
+    <ol>
+      <li><div>
+        <b>Copy the email.</b>
+        <div class="row">
+          <button class="primary" id="copyEmail" type="button">Copy email</button>
+          <span class="done" id="emailDone" role="status"></span>
+        </div>
+      </div></li>
+      <li><div>
+        <b>Start a new email</b> in Gmail or Outlook, click into the message area, and paste with <kbd>Ctrl</kbd> + <kbd>V</kbd> (<kbd>⌘</kbd> + <kbd>V</kbd> on a Mac).
+        <span class="hint">The pictures and the "Claim free Pro" button come along with it.</span>
+      </div></li>
+      <li><div>
+        <b>Add the subject.</b>
+        <div class="row">
+          <input class="subject" id="subject" readonly value="Your Klui Pro pass is on us (14 days free)" aria-label="Subject line">
+          <button class="secondary" id="copySubject" type="button">Copy subject</button>
+          <span class="done" id="subjectDone" role="status"></span>
+        </div>
+      </div></li>
+      <li><div>
+        <b>Put the attendees in Bcc</b>, not in To, so nobody sees everyone else's address. Put your own address in To.
+      </div></li>
+      <li><div>
+        <b>Send it to yourself first</b> and check it looks right, then send it to everyone.
+      </div></li>
+    </ol>
+
+    <div class="note">Gmail lets a personal account send to about 500 people a day (2,000 for a school or work Google account). For a bigger list, send it in a few batches.</div>
+
+    <details>
+      <summary>Using Mailchimp, Brevo or another mailing tool instead?</summary>
+      <p>Download the email file and pick the "paste or import your own HTML" option when you create the campaign. On phones it looks a little better that way.</p>
+      <div class="row"><a class="button secondary" href="/email/event/pro-pass.html" download="klui-pro-pass-email.html">Download email file</a></div>
+    </details>
+  </section>
+
+  <h2>What your attendees will see</h2>
+  <iframe class="preview" src="/email/event/pro-pass.html" title="Preview of the email" loading="lazy"></iframe>
+</main>
+
+<script>
+  const flash = (id, text) => {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.textContent = ""; }, 4000);
+  };
+
+  // The email's body without its hidden inbox-preview line, which a pasted email would show.
+  async function emailBody() {
+    const response = await fetch("/email/event/pro-pass.html", { cache: "no-store" });
+    if (!response.ok) throw new Error("The email couldn't be loaded.");
+    const html = await response.text();
+    if (!html.includes("coupon=KLUIUOBD")) throw new Error("The email couldn't be loaded.");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.body.querySelector(':scope > div[style*="display:none"]')?.remove();
+    return '<div style="background:#fff8e9;">' + doc.body.innerHTML + "</div>";
+  }
+
+  // Older browsers: render it, select it, and copy the selection.
+  function copyBySelection(html) {
+    const box = document.createElement("div");
+    box.contentEditable = "true";
+    box.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;";
+    box.innerHTML = html;
+    document.body.appendChild(box);
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const ok = document.execCommand("copy");
+    selection.removeAllRanges();
+    box.remove();
+    return ok;
+  }
+
+  document.getElementById("copyEmail").addEventListener("click", async () => {
+    try {
+      const html = await emailBody();
+      const text = "Here's 14 days of Klui Pro, free. Claim it here: https://klui.ai/?coupon=KLUIUOBD (code KLUIUOBD)";
+      try {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" })
+        })]);
+      } catch {
+        if (!copyBySelection(html)) throw new Error("copy failed");
+      }
+      flash("emailDone", "Copied. Now paste it into a new email.");
+    } catch {
+      flash("emailDone", "Couldn't copy here. Open the preview below, select all of it and copy.");
+    }
+  });
+
+  document.getElementById("copySubject").addEventListener("click", async () => {
+    const input = document.getElementById("subject");
+    try {
+      await navigator.clipboard.writeText(input.value);
+    } catch {
+      input.select();
+      document.execCommand("copy");
+    }
+    flash("subjectDone", "Copied.");
+  });
+</script>
+</body>
+</html>

@@ -7,7 +7,6 @@ import { clearPendingCoupon, inviteLinkNeedsRedeem, pendingCoupon, savePendingCo
 import { isNative, openExternal } from "../islands/platform/index.js";
 import { renderShell, showToast, useApp } from "./app";
 import { loadMe } from "./boot";
-import { featureTourPass, openFeatureTour } from "./featureTour";
 
 export type PaymentRequest = { id?: string; planId: string; status: string; referenceCode?: string; paymentUrl?: string };
 export type CouponOffer = { planId: string; code: string; trialDays?: number; initialAmountAed?: number; initialChargeAed?: number; renewalChargeAed?: number };
@@ -152,8 +151,7 @@ async function checkCouponCode() {
       await loadMe();
       set({ mamoCoupon: null, couponStatus: "Pro is now active for free. No payment required.", couponOpen: false });
       renderShell();
-      // The tour opens on the Pro pass ticket; the toast is for where it can't show.
-      if (!openFeatureTour(featureTourPass(code, redeemed?.currentPeriodEnd))) showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
+      showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
       return;
     }
     const plans = useApp.getState().plans || [];
@@ -229,7 +227,7 @@ export function redeemPendingInvite() {
     forgetLinkCoupon();
     await loadMe().catch(() => {});
     renderShell();
-    if (!openFeatureTour(featureTourPass(code, redeemed?.currentPeriodEnd))) showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
+    showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
   })().finally(() => {
     inviteRedeem = null;
   });

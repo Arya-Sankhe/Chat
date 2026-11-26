@@ -1,5 +1,5 @@
-/* The feature tour (clients/web/src/islands/featureTour.js): a once-per-account pop-up that
-   shows Dojo lecture recording, Compare and Council, and the Pro pass a student just redeemed.
+/* The feature tour (clients/web/src/islands/featureTour.js): a pop-up shown once per visitor that
+   shows Dojo lecture recording, Compare and Council.
    Ported from the design mockup; every rule is scoped to .feature-dialog. */
 
 .feature-dialog {
@@ -193,11 +193,6 @@ body[data-mode="dark"] .feature-dialog .stage-frame {
       background: linear-gradient(155deg, #fdf0f6 0%, #fff8e9 56%, #e8f5ff 100%);
     }
 
-.feature-dialog .stage-frame[data-scene="pass"] {
-      background: linear-gradient(160deg, #bfe8ff 0%, #79cfff 70%, #8fd3fb 100%);
-    }
-
-body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="pass"],
 body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="dojo"],
 body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="compare"],
 body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="council"] {
@@ -1149,79 +1144,6 @@ body[data-mode="dark"] .feature-dialog .btn-primary {
 body[data-mode="dark"] .feature-dialog .dialog-close {
       background: rgba(255, 255, 255, 0.12);
       color: #efede6;
-    }
-
-/* ─── Pro pass step: a ticket drops in ─── */
-
-.feature-dialog .pass-ticket {
-      position: absolute;
-      top: 34px;
-      left: 50%;
-      width: 268px;
-      margin-left: -134px;
-      padding: 14px 18px 12px;
-      border-radius: 14px;
-      background: var(--cream);
-      color: var(--ink);
-      text-align: center;
-      box-shadow: 0 10px 0 rgba(11, 27, 58, 0.1), var(--shadow-md);
-      will-change: transform, opacity;
-    }
-
-.feature-dialog .pass-ticket::before,
-.feature-dialog .pass-ticket::after {
-      content: "";
-      position: absolute;
-      top: 50%;
-      width: 20px;
-      height: 22px;
-      margin-top: -11px;
-      border-radius: 11px;
-      background: #8fd3fb;
-    }
-
-.feature-dialog .pass-ticket::before { left: -10px; }
-.feature-dialog .pass-ticket::after { right: -10px; }
-
-body[data-mode="dark"] .feature-dialog .pass-ticket::before,
-body[data-mode="dark"] .feature-dialog .pass-ticket::after {
-      background: #1c1c1f;
-    }
-
-.feature-dialog .pass-kicker {
-      font: 600 10px/1.2 var(--font-mono);
-      letter-spacing: 2px;
-      color: var(--blue);
-    }
-
-.feature-dialog .pass-code {
-      margin-top: 6px;
-      font: 700 26px/1.1 var(--font-mono);
-      letter-spacing: 5px;
-    }
-
-.feature-dialog .pass-until {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 2px dashed #ead9b5;
-      font: 600 11px/1.2 var(--font-mono);
-      color: var(--text-secondary);
-    }
-
-body[data-mode="dark"] .feature-dialog .pass-until {
-      color: #5a6477;
-    }
-
-.feature-dialog.is-phone .pass-ticket {
-      top: 22px;
-      width: 236px;
-      margin-left: -118px;
-      padding: 11px 14px 10px;
-    }
-
-.feature-dialog.is-phone .pass-code {
-      font-size: 22px;
-      letter-spacing: 4px;
     }
 
 @media (prefers-reduced-motion: reduce) {
