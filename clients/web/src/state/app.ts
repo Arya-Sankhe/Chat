@@ -101,9 +101,8 @@ export interface AppState {
   /** The account drawer (account details and, for admins, the dashboard). */
   accountOpen: boolean;
   betaWelcomeOpen: boolean;
-  /** The feature tour (state/featureTour.ts); `featureTourPass` adds its Pro pass step. */
+  /** The feature tour (state/featureTour.ts). */
   featureTourOpen: boolean;
-  featureTourPass: { code: string; until: string; days: number } | null;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
   /** The packaged app's update dialog (checkAndShowAppUpdate). */
@@ -176,7 +175,6 @@ export const useApp = create<AppState>(() => ({
   accountOpen: false,
   betaWelcomeOpen: false,
   featureTourOpen: false,
-  featureTourPass: null,
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
   appUpdate: null,

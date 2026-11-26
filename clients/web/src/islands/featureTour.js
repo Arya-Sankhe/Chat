@@ -1,23 +1,14 @@
-/* The feature tour: a pop-up shown once per account that shows off Dojo lecture recording,
-   Compare and Council. After a student redeems a Pro pass from a link it opens on a ticket
-   step first. The art is a canvas (the block-built Klui from betaWelcome.js, waveform,
+/* The feature tour: a pop-up shown once to every visitor that shows off Dojo lecture
+   recording, Compare and Council. The art is a canvas (the block-built Klui from betaWelcome.js, waveform,
    review arcs, sparks) under DOM cards kept in step with the same clock. Styles live in
    public/styles/feature-tour.css; state/featureTour.ts opens it and handles its buttons. */
 
 const STEP_INFO = {
-  pass: {
-    label: "YOUR PRO PASS",
-    pill: (pass) => (pass?.days ? `${pass.days} DAYS FREE` : "FREE PRO"),
-    heading: "Your Pro pass is <em>on.</em>",
-    copy: (pass) => `Klui Pro is yours free${pass?.until ? ` until ${pass.until}` : ""}. Here are three things worth trying first.`,
-    cta: "Show me →",
-    duration: 4.2
-  },
   dojo: {
     label: "DOJO LECTURE RECORDING",
     pill: "NEW IN PRO",
     heading: "Hit record, <em>keep everything</em>",
-    copy: () => "Record any live lecture. When class ends, Klui turns it into a transcript, summary notes, flashcards and a practice exam it grades for you.",
+    copy: "Record any live lecture. When class ends, Klui turns it into a transcript, summary notes, flashcards and a practice exam it grades for you.",
     cta: "Try Dojo",
     duration: 5.0
   },
@@ -25,7 +16,7 @@ const STEP_INFO = {
     label: "COMPARE",
     pill: "2 MODELS",
     heading: "Ask once, <em>pick the best</em>",
-    copy: () => "See two AI models answer the same question side by side. Pick the sharper answer and keep going.",
+    copy: "See two AI models answer the same question side by side. Pick the sharper answer and keep going.",
     cta: "Try Compare",
     duration: 4.6
   },
@@ -33,7 +24,7 @@ const STEP_INFO = {
     label: "AI COUNCIL",
     pill: "4 MODELS + CHAIRMAN",
     heading: "Four minds, <em>one verdict</em>",
-    copy: () => "Four models answer on their own, review each other anonymously, and a chairman writes one clear final answer.",
+    copy: "Four models answer on their own, review each other anonymously, and a chairman writes one clear final answer.",
     cta: "Try Council",
     duration: 5.0
   }
@@ -44,7 +35,7 @@ const TEXT_B = "Start with the base rate (1 in 100). Of 1,000 students, 10 have 
 
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-function template(steps, pass) {
+function template(steps) {
   const scene = (id, inner) => steps.includes(id) ? `<div class="scene-layer" data-scene-layer="${id}" aria-hidden="true">${inner}</div>` : "";
   return `
     <div class="sheet-handle" aria-hidden="true"></div>
@@ -53,12 +44,6 @@ function template(steps, pass) {
       <button class="dialog-close" data-ref="close" type="button" aria-label="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>
       </button>
-      ${scene("pass", `
-        <div class="pass-ticket" data-ref="ticket">
-          <div class="pass-kicker">ADMIT ONE · KLUI PRO</div>
-          <div class="pass-code">${escapeHtml(pass?.code || "PRO PASS")}</div>
-          <div class="pass-until">${pass?.until ? `FREE UNTIL ${escapeHtml(pass.until.toUpperCase())}` : "PRO IS ON"}</div>
-        </div>`)}
       ${scene("dojo", `
         <div class="ftd-rec-pill" data-ref="recPill"><span class="rec-dot" data-ref="recDot"></span><span data-ref="recText">REC · 42:18</span></div>
         <div class="ftd-course-pill">BIO 201 · LIVE</div>
@@ -148,16 +133,16 @@ const isBlinking = (t) => (t % 3.1) < 0.11;
 
 /**
  * Fills `root` (the .feature-dialog element) and starts the animation.
- * `pass` ({ code, until, days }) adds the ticket step first. `onTry(step)` runs for a step's main
+ * `onTry(step)` runs for a step's main
  * button ("dojo", "compare", "council"); `onClose()` for Skip, Done and the close button.
  * Returns stop(), which ends the animation and removes the listeners.
  * @param {HTMLElement} root
- * @param {{ pass?: { code: string, until: string, days: number } | null, onTry?: (step: string) => void, onClose?: () => void }} [options]
+ * @param {{ onTry?: (step: string) => void, onClose?: () => void }} [options]
  * @returns {() => void}
  */
-export function mountFeatureTour(root, { pass = null, onTry = () => {}, onClose = () => {} } = {}) {
-  const steps = [...(pass ? ["pass"] : []), "dojo", "compare", "council"];
-  root.innerHTML = template(steps, pass);
+export function mountFeatureTour(root, { onTry = () => {}, onClose = () => {} } = {}) {
+  const steps = ["dojo", "compare", "council"];
+  root.innerHTML = template(steps);
   const ref = (name) => root.querySelector(`[data-ref="${name}"]`);
   const stage = ref("stage");
   const canvas = ref("canvas");
@@ -300,37 +285,6 @@ export function mountFeatureTour(root, { pass = null, onTry = () => {}, onClose 
     g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
     g.fill();
     g.restore();
-  }
-
-  /* ─── Pass: the ticket drops in, Klui cheers under confetti ─── */
-  function renderPass(t, now) {
-    const { W, H, u, dpr } = S;
-    const ticket = ref("ticket");
-    const drop = easeOutBack(clamp(t / 0.6, 0, 1));
-    const float = Math.sin(t * 2.2) * 3;
-    ticket.style.opacity = clamp(t / 0.25, 0, 1).toFixed(3);
-    ticket.style.transform = `translate3d(0, ${((1 - drop) * -70 + float).toFixed(1)}px, 0) rotate(${lerp(-10, -3, drop).toFixed(2)}deg)`;
-    if (t >= 0.5 && !firedMarks.has("pass-1")) {
-      firedMarks.add("pass-1");
-      burstParticles(W * 0.5, H * 0.32, 16, ["✦", "*", "+", "♥", "·"]);
-    }
-    if (t >= 2.4 && !firedMarks.has("pass-2")) {
-      firedMarks.add("pass-2");
-      burstParticles(W * 0.3, H * 0.3, 10, ["✦", "*", "+"]);
-      burstParticles(W * 0.7, H * 0.3, 10, ["♥", "*", "·"]);
-    }
-    const hop = (start) => (t > start && t < start + 0.55 ? Math.sin(((t - start) / 0.55) * Math.PI) : 0);
-    const cheer = Math.max(hop(0.55), hop(2.45), hop(2.95));
-    const mHop = hopOffset(now);
-    const kluiX = W * 0.5, kluiY = H * 0.9;
-    shadow(kluiX, kluiY + 1.5 * dpr, (6 - cheer * 1.4) * u, 1.5 * u);
-    buildKlui(0, 0, {
-      happy: true,
-      bob: Math.sin(t * 3.4) * 0.3,
-      armFront: cheer > 0.05 || mHop.cheer ? -2.3 : -0.6,
-      armBack: cheer > 0.05 || mHop.cheer ? -2.3 : -0.6
-    });
-    renderBlocks(kluiX, kluiY - cheer * 5 * u + mHop.dy, 1 + mHop.sq, 1 - mHop.sq);
   }
 
   /* ─── Dojo: a live waveform that becomes a transcript, flashcard and graded exam ─── */
@@ -692,9 +646,9 @@ export function mountFeatureTour(root, { pass = null, onTry = () => {}, onClose 
     verdict.style.transform = `translate3d(-50%, ${((1 - easeOut(verdictIn)) * 18).toFixed(1)}px, 0) scale(${lerp(0.92, 1, easeOutBack(verdictIn)).toFixed(3)})`;
   }
 
-  const RENDER = { pass: renderPass, dojo: renderDojo, compare: renderCompare, council: renderCouncil };
+  const RENDER = { dojo: renderDojo, compare: renderCompare, council: renderCouncil };
   // With reduced motion each step holds still on its finished frame.
-  const SETTLED = { pass: 1.2, dojo: 4.3, compare: 3.6, council: 4.2 };
+  const SETTLED = { dojo: 4.3, compare: 3.6, council: 4.2 };
 
   function measure() {
     const rect = stage.getBoundingClientRect();
@@ -743,12 +697,10 @@ export function mountFeatureTour(root, { pass = null, onTry = () => {}, onClose 
     });
     const last = step === steps.length - 1;
     ref("kicker").textContent = `${String(step + 1).padStart(2, "0")} / ${String(steps.length).padStart(2, "0")} · ${info.label}`;
-    ref("pill").textContent = typeof info.pill === "function" ? info.pill(pass) : info.pill;
+    ref("pill").textContent = info.pill;
     ref("heading").innerHTML = info.heading;
-    ref("copy").textContent = info.copy(pass);
+    ref("copy").textContent = info.copy;
     ref("try").textContent = info.cta;
-    // The pass step's main button already moves on, so it has no Next.
-    ref("next").hidden = id === "pass";
     ref("next").textContent = last ? "Done" : "Next →";
     ref("skip").hidden = last;
     const body = ref("body");
@@ -765,7 +717,7 @@ export function mountFeatureTour(root, { pass = null, onTry = () => {}, onClose 
 
   dots.forEach((dot) => on(dot, "click", () => setStep(Number(dot.dataset.goto))));
   on(ref("next"), "click", () => (step === steps.length - 1 ? onClose() : setStep(step + 1)));
-  on(ref("try"), "click", () => (steps[step] === "pass" ? setStep(step + 1) : onTry(steps[step])));
+  on(ref("try"), "click", () => onTry(steps[step]));
   on(ref("skip"), "click", () => onClose());
   on(ref("close"), "click", () => onClose());
   on(canvas, "click", (event) => {

@@ -7,7 +7,7 @@ import { configureApiAuth, configureUploadLimit } from "../islands/api.js";
 import { isEmbedded, isNative, nativeInfoTarget, onEmbeddedEvents } from "../islands/platform/index.js";
 import { chatHooks, closeAuthDialog, handleUpgradeRequired, hasChatAccess, loadPinnedChatIds, openAuthDialog, openSettings, renderShell, showToast, useApp } from "./app";
 import { maybeShowBetaWelcome } from "./betaWelcome";
-import { featureTourShownTo, maybeShowFeatureTour } from "./featureTour";
+import { featureTourShownTo, maybeShowFeatureTour, maybeShowGuestFeatureTour } from "./featureTour";
 import { couponLinkOnLoad, loadPaymentRequests, redeemPendingInvite, refreshAfterMamoReturn, trackPaymentRequests } from "./billing";
 import { closeGuestContinue, handleNativeBack, handleSessionEnded, loadChatApp, openNativeConversation, rejoinTurnsAfterResume, openRouteResearchReport, prefetchRecentChats, restorePendingDocuments, resumeGuestSend } from "./chat";
 import { checkAndShowAppUpdate, hideLaunchScreenWaiting, showLaunchScreenWaiting, hydrateNativeSettings, installNativeChrome, loadBootData, reassertNativeTextZoom, restoreNativePins, setupNativeLifecycle } from "./native";
@@ -222,7 +222,7 @@ export async function bootstrap() {
       // Opened from a code link (the campus QR code): sign up first, then the code applies.
       openAuthDialog();
       showToast(`Code ${couponLinkOnLoad} is saved. Sign up and it's applied to your account.`);
-    }
+    } else if (!signedIn) maybeShowGuestFeatureTour();
     await refreshAfterMamoReturn();
     if (signedIn && hasChatAccess()) {
       await loadChatApp();
