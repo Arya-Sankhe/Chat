@@ -13,6 +13,14 @@ export async function getLatestSubscription(client, userId, { signal } = {}) {
   return single(rows);
 }
 
+export async function getSubscriptionByProviderId(client, providerSubscriptionId, { signal } = {}) {
+  const rows = await client.request("subscriptions", {
+    query: { provider_subscription_id: `eq.${providerSubscriptionId}`, select: "*", limit: "1" },
+    signal
+  });
+  return single(rows);
+}
+
 export async function upsertSubscription(client, subscription, { signal } = {}) {
   const rows = await client.request("subscriptions", {
     method: "POST",

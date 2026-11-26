@@ -5,6 +5,7 @@ import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
 import { NATIVE_APP, chatSurfaces, closeAppUpdate, closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
 import { closeBetaWelcome } from "../state/betaWelcome";
+import { closeFeatureTour } from "../state/featureTour";
 import { mountCameraSheet } from "../state/camera";
 import { mountChat } from "../state/chat";
 import { installGlobalEvents } from "../state/globalEvents";
@@ -14,6 +15,7 @@ import { AppUpdateDialog } from "./AppUpdateDialog";
 import { AppUpdateToast } from "./AppUpdateToast";
 import { AuthDialog } from "./AuthDialog";
 import { BetaWelcome } from "./BetaWelcome";
+import { FeatureTour } from "./FeatureTour";
 import { ChatPanel } from "./ChatPanel";
 import { BodySheets } from "./ComposerSheets";
 import { VoicePickerDialog } from "./VoicePicker";
@@ -65,6 +67,7 @@ function Overlay() {
     else if (mode === "rename") closeRenameDialog();
     else if (mode === "auth") closeAuthDialog();
     else if (mode === "welcome") closeBetaWelcome();
+    else if (mode === "tour") closeFeatureTour();
     else if (mode === "search") closeSearchDialog();
     else if (mode === "account") chatSurfaces.account();
     else if (mode === "app-update") closeAppUpdate();
@@ -128,6 +131,7 @@ export function AppRoot() {
         <SearchDialog />
         <AuthDialog />
         <BetaWelcome />
+        <FeatureTour />
         <Overlay />
       </div>
       <ProjectCreateDialog />

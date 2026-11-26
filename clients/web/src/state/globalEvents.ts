@@ -21,6 +21,7 @@ import {
 import { handleNativeBack } from "./chat";
 import { noteNativeSwipe } from "./native";
 import { closeBetaWelcome } from "./betaWelcome";
+import { closeFeatureTour } from "./featureTour";
 
 function onClick(event: MouseEvent) {
   const target = event.target instanceof Element ? event.target : null;
@@ -54,6 +55,7 @@ function onKeydown(event: KeyboardEvent) {
   if (chatSurfaces.compareDropdown()) return;
   if (s.spectrumOpen) return closeModelDropdown();
   if (s.authOpen) return closeAuthDialog();
+  if (s.featureTourOpen) return closeFeatureTour();
   if (s.betaWelcomeOpen) return closeBetaWelcome();
   if (chatSurfaces.guestContinue()) return;
   if (chatSurfaces.account()) return;

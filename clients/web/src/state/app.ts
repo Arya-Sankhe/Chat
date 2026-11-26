@@ -27,7 +27,7 @@ import { homeModes } from "./homeModes";
 
 export type View = "boot" | "setup" | "paywall" | "chat" | "research";
 export type SettingsTab = "general" | "voice" | "memory" | "storage" | "account";
-export type OverlayMode = "" | "search" | "settings" | "account" | "confirm" | "rename" | "auth" | "welcome" | "app-update";
+export type OverlayMode = "" | "search" | "settings" | "account" | "confirm" | "rename" | "auth" | "welcome" | "tour" | "app-update";
 
 export interface AppState {
   config: KluiConfig | null;
@@ -101,6 +101,9 @@ export interface AppState {
   /** The account drawer (account details and, for admins, the dashboard). */
   accountOpen: boolean;
   betaWelcomeOpen: boolean;
+  /** The feature tour (state/featureTour.ts); `featureTourPass` adds its Pro pass step. */
+  featureTourOpen: boolean;
+  featureTourPass: { code: string; until: string; days: number } | null;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
   /** The packaged app's update dialog (checkAndShowAppUpdate). */
@@ -172,6 +175,8 @@ export const useApp = create<AppState>(() => ({
   overlay: "",
   accountOpen: false,
   betaWelcomeOpen: false,
+  featureTourOpen: false,
+  featureTourPass: null,
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
   appUpdate: null,

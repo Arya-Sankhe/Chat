@@ -18,6 +18,11 @@ export function hasActiveSubscription(subscription, now = new Date()) {
     const end = parseDate(subscription.current_period_end);
     return Boolean(end && end > now);
   }
+  if (subscription?.provider === "invite" && subscription.current_period_end) {
+    // A timed invite pass (e.g. 14 days) ends on its date; a TRYKLUI invite has none.
+    const end = parseDate(subscription.current_period_end);
+    if (!end || end <= now) return false;
+  }
   return activeStatuses.has(status);
 }
 

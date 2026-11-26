@@ -36,7 +36,7 @@ export async function adminSummary(client, { signal } = {}) {
     }),
     client.request("subscriptions", {
       query: {
-        select: "id,user_id,plan_id,status,cancel_at_period_end,current_period_end,updated_at",
+        select: "id,user_id,provider,plan_id,status,cancel_at_period_end,current_period_end,updated_at",
         order: "updated_at.desc",
         limit: "1000"
       },
