@@ -102,6 +102,10 @@ export class SupabaseRest {
     return subscriptions.getLatestSubscription(this, userId, options);
   }
 
+  async getSubscriptionByProviderId(providerSubscriptionId, options) {
+    return subscriptions.getSubscriptionByProviderId(this, providerSubscriptionId, options);
+  }
+
   async upsertSubscription(subscription, options) {
     return subscriptions.upsertSubscription(this, subscription, options);
   }

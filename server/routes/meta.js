@@ -24,7 +24,8 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings, 
       id: user.id,
       email: user.email,
       name: accountName(user),
-      betaWelcomeSeen: Boolean(user.raw?.user_metadata?.beta_welcome_seen)
+      betaWelcomeSeen: Boolean(user.raw?.user_metadata?.beta_welcome_seen),
+      featureTourSeen: Boolean(user.raw?.user_metadata?.feature_tour_seen)
     },
     profile: {
       role: profile?.role || "user"

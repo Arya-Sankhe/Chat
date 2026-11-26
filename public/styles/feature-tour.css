@@ -1,0 +1,1238 @@
+/* The feature tour (clients/web/src/islands/featureTour.js): a once-per-account pop-up that
+   shows Dojo lecture recording, Compare and Council, and the Pro pass a student just redeemed.
+   Ported from the design mockup; every rule is scoped to .feature-dialog. */
+
+.feature-dialog {
+      
+      /* Brand palette */
+      --sky: #79cfff;
+      --sky-soft: #e6f6ff;
+      --blue: #397fe6;
+      --blue-hover: #2c6fd3;
+      --paper: #fff0d1;
+      --cream: #fff8e9;
+      --pink: #f7c2d9;
+      --pink-soft: #fdeef5;
+      --yellow: #ffd43b;
+      --yellow-soft: #fff6cf;
+      --coral: #ff623f;
+      --coral-soft: #ffe7e1;
+      --ink: #0b1b3a;
+
+      /* App neutral tokens (from base.css & drawers-dialogs.css) */
+      --bg: #ffffff;
+      --bg-secondary: #f9f9f9;
+      --text: #0b1b3a;
+      --text-secondary: #5a6477;
+      --text-tertiary: #8a93a6;
+      --border: #e5e5e5;
+      --border-light: #efefef;
+      --dialog-bg: #ffffff;
+      --dialog-border: #e5e5e5;
+      --stage-bg: #fff8e9;
+      --card-bg: #ffffff;
+      --card-border: rgba(11, 27, 58, 0.09);
+      --ribbon-bg: #fff8e9;
+      --ribbon-border: #f3dfbd;
+      --pill-bg: #fff0d1;
+      --overlay-bg: rgba(255, 248, 233, 0.45);
+      --shadow-sm: 0 1px 3px rgba(11, 27, 58, 0.06);
+      --shadow-md: 0 6px 20px rgba(11, 27, 58, 0.08);
+      --shadow-lg: 0 16px 48px rgba(11, 27, 58, 0.14), 0 2px 10px rgba(11, 27, 58, 0.05);
+
+      --cta-bg: #397fe6;
+      --cta-hover: #2c6fd3;
+      --cta-text: #ffffff;
+
+      --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+body[data-mode="dark"] .feature-dialog {
+      
+      --bg: #000000;
+      --bg-secondary: #1a1a1a;
+      --text: #f3f1ec;
+      --text-secondary: #b4b2ac;
+      --text-tertiary: #85837e;
+      --border: #303030;
+      --border-light: #222222;
+      --dialog-bg: #141414;
+      --dialog-border: #2a2a2a;
+      --stage-bg: #1c1c1f;
+      --card-bg: #242428;
+      --card-border: rgba(255, 248, 233, 0.1);
+      --ribbon-bg: #1d1b18;
+      --ribbon-border: #332d25;
+      --pill-bg: #2a2520;
+      --overlay-bg: rgba(0, 0, 0, 0.62);
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 20px 56px rgba(0, 0, 0, 0.72), 0 2px 12px rgba(0, 0, 0, 0.45);
+
+      --cta-bg: #79cfff;
+      --cta-hover: #99dcff;
+      --cta-text: #0b1b3a;
+    }
+
+/* ─── Feature Pop-up Dialog (matched to .welcome-dialog) ─── */
+
+.feature-dialog *,
+.feature-dialog *::before,
+.feature-dialog *::after {
+      box-sizing: border-box;
+    }
+
+.feature-dialog button {
+      font: inherit;
+      border: 0;
+      background: none;
+      cursor: pointer;
+      color: inherit;
+    }
+
+.feature-dialog {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      z-index: 46;
+      visibility: hidden;
+      width: min(640px, calc(100% - 32px));
+      padding: 12px;
+      border: 1px solid var(--dialog-border);
+      border-radius: 20px;
+      background: var(--dialog-bg);
+      box-shadow: var(--shadow-lg);
+      transform: translate(-50%, calc(-50% + 14px)) scale(0.975);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 240ms var(--ease-out), transform 280ms var(--ease-out), border-radius 240ms var(--ease-out);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+.feature-dialog.open {
+      visibility: visible;
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+/* Phone bottom sheet adaptation */
+
+.feature-dialog.is-phone {
+      top: auto;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      padding: 8px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+      border-radius: 24px 24px 0 0;
+      border-bottom: 0;
+      border-left: 0;
+      border-right: 0;
+      transform: translateY(100%);
+      opacity: 1;
+      gap: 9px;
+    }
+
+.feature-dialog.is-phone.open {
+      transform: translateY(0);
+    }
+
+.feature-dialog .sheet-handle {
+      display: none;
+      width: 38px;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--border);
+      margin: 2px auto 2px;
+    }
+
+.feature-dialog.is-phone .sheet-handle {
+      display: block;
+    }
+
+
+
+/* ─── Animated Art Stage (matched to .welcome-dialog-art) ─── */
+
+.feature-dialog .stage-frame {
+      position: relative;
+      height: 286px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--stage-bg);
+      border: 1px solid rgba(11, 27, 58, 0.06);
+      transition: background 300ms ease;
+    }
+
+body[data-mode="dark"] .feature-dialog .stage-frame {
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+
+.feature-dialog.is-phone .stage-frame {
+      height: 226px;
+    }
+
+/* Per-step light-mode pastel backgrounds (no dark navy, no green!) */
+
+.feature-dialog .stage-frame[data-scene="dojo"] {
+      background: linear-gradient(155deg, #fffaf0 0%, #fff0d1 60%, #fdeef5 100%);
+    }
+
+.feature-dialog .stage-frame[data-scene="compare"] {
+      background: linear-gradient(155deg, #eaf6ff 0%, #fff8e9 58%, #fdeef5 100%);
+    }
+
+.feature-dialog .stage-frame[data-scene="council"] {
+      background: linear-gradient(155deg, #fdf0f6 0%, #fff8e9 56%, #e8f5ff 100%);
+    }
+
+.feature-dialog .stage-frame[data-scene="pass"] {
+      background: linear-gradient(160deg, #bfe8ff 0%, #79cfff 70%, #8fd3fb 100%);
+    }
+
+body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="pass"],
+body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="dojo"],
+body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="compare"],
+body[data-mode="dark"] .feature-dialog .stage-frame[data-scene="council"] {
+      background: #1c1c1f;
+    }
+
+/* Subtle notebook dot grid */
+
+.feature-dialog .stage-grid {
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(11, 27, 58, 0.09) 1px, transparent 1px);
+      background-size: 18px 18px;
+      pointer-events: none;
+    }
+
+body[data-mode="dark"] .feature-dialog .stage-grid {
+      background-image: radial-gradient(rgba(255, 240, 209, 0.09) 1px, transparent 1px);
+    }
+
+/* Canvas layer for extruded-block Klui, waveform, review arcs & ASCII sparks */
+
+.feature-dialog .stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 4;
+      cursor: pointer;
+    }
+
+/* Subtle loop progress hairline */
+
+.feature-dialog .stage-progress {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2.5px;
+      z-index: 8;
+      background: rgba(11, 27, 58, 0.06);
+      pointer-events: none;
+    }
+
+body[data-mode="dark"] .feature-dialog .stage-progress {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+.feature-dialog .stage-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--sky), var(--blue), var(--pink));
+      border-radius: 0 2px 2px 0;
+    }
+
+/* ─── Scene DOM Overlays (frame-locked to JS animation clock) ─── */
+
+.feature-dialog .scene-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 220ms var(--ease-out);
+    }
+
+.feature-dialog .scene-layer.active {
+      opacity: 1;
+    }
+
+/* Shared micro-card styling */
+
+.feature-dialog .ui-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      box-shadow: 0 8px 22px rgba(11, 27, 58, 0.08);
+      color: var(--text);
+    }
+
+body[data-mode="dark"] .feature-dialog .ui-card {
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+    }
+
+.feature-dialog .mono-tag {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+/* ─── SCENE 0: DOJO LECTURE RECORDING ─── */
+
+.feature-dialog .ftd-rec-pill {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow-sm);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 600;
+      color: var(--text);
+      transform-origin: left center;
+      z-index: 5;
+    }
+
+.feature-dialog .rec-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--coral);
+      box-shadow: 0 0 0 3px rgba(255, 98, 63, 0.22);
+    }
+
+.feature-dialog .ftd-course-pill {
+      position: absolute;
+      top: 14px;
+      right: 50px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--card-border);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      z-index: 5;
+    }
+
+body[data-mode="dark"] .feature-dialog .ftd-course-pill {
+      background: rgba(36, 36, 40, 0.85);
+    }
+
+/* Dojo artifacts deck */
+
+.feature-dialog .ftd-deck {
+      position: absolute;
+      inset: 52px 18px 18px 142px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+.feature-dialog.is-phone .ftd-deck {
+      inset: 46px 12px 14px 86px;
+    }
+
+.feature-dialog .ftd-sheet {
+      position: absolute;
+      width: 242px;
+      padding: 12px 14px;
+      left: 10px;
+      top: 12px;
+      z-index: 1;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+.feature-dialog.is-phone .ftd-sheet {
+      width: 192px;
+      padding: 9px 10px;
+      left: 4px;
+      top: 6px;
+    }
+
+.feature-dialog .ftd-sheet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+.feature-dialog .ftd-badge-sky {
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: var(--sky-soft);
+      color: var(--blue);
+    }
+
+body[data-mode="dark"] .feature-dialog .ftd-badge-sky {
+      background: rgba(121, 207, 255, 0.16);
+      color: var(--sky);
+    }
+
+.feature-dialog .ftd-badge-pink {
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: var(--pink-soft);
+      color: #b13d70;
+    }
+
+body[data-mode="dark"] .feature-dialog .ftd-badge-pink {
+      background: rgba(247, 194, 217, 0.16);
+      color: var(--pink);
+    }
+
+.feature-dialog .ftd-badge-yellow {
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: var(--yellow-soft);
+      color: #8a5c00;
+    }
+
+body[data-mode="dark"] .feature-dialog .ftd-badge-yellow {
+      background: rgba(255, 212, 59, 0.16);
+      color: var(--yellow);
+    }
+
+.feature-dialog .tx-line {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--text-secondary);
+      margin-bottom: 5px;
+    }
+
+.feature-dialog .tx-time {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-tertiary);
+      flex: 0 0 auto;
+    }
+
+.feature-dialog .tx-highlight {
+      background: rgba(255, 212, 59, 0.42);
+      color: var(--text);
+      padding: 0 3px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+
+body[data-mode="dark"] .feature-dialog .tx-highlight {
+      background: rgba(255, 212, 59, 0.22);
+      color: #fff5d6;
+    }
+
+.feature-dialog .summary-strip {
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: var(--cream);
+      border: 1px solid #f2e0be;
+      font-size: 10.5px;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+body[data-mode="dark"] .feature-dialog .summary-strip {
+      background: #2c2822;
+      border-color: #3f382e;
+      color: var(--paper);
+    }
+
+.feature-dialog.is-phone .tx-line { font-size: 9.5px; margin-bottom: 3px; }
+
+.feature-dialog.is-phone .summary-strip { font-size: 9.2px; padding: 5px 7px; margin-top: 5px; }
+
+/* Flashcard */
+
+.feature-dialog .ftd-flashcard-wrap {
+      position: absolute;
+      width: 196px;
+      height: 120px;
+      right: 18px;
+      top: 10px;
+      z-index: 2;
+      opacity: 0;
+      perspective: 700px;
+      will-change: transform, opacity;
+    }
+
+.feature-dialog.is-phone .ftd-flashcard-wrap {
+      width: 158px;
+      height: 98px;
+      right: 4px;
+      top: 6px;
+    }
+
+.feature-dialog .ftd-flashcard-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      will-change: transform;
+    }
+
+.feature-dialog .ftd-fc-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      padding: 11px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-radius: 12px;
+    }
+
+.feature-dialog .ftd-fc-front {
+      background: var(--card-bg);
+      border: 1.5px solid var(--pink);
+      box-shadow: 0 10px 24px rgba(11, 27, 58, 0.1);
+    }
+
+.feature-dialog .ftd-fc-back {
+      background: linear-gradient(155deg, #fff8e9, #ffeef6);
+      border: 1.5px solid var(--sky);
+      transform: rotateY(180deg);
+      box-shadow: 0 10px 24px rgba(11, 27, 58, 0.1);
+      color: var(--ink);
+    }
+
+body[data-mode="dark"] .feature-dialog .ftd-fc-back {
+      background: linear-gradient(155deg, #272529, #232830);
+      color: #f3f1ec;
+    }
+
+.feature-dialog .fc-q {
+      font-family: var(--font-serif);
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.28;
+    }
+
+.feature-dialog .fc-a {
+      font-size: 11.5px;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+.feature-dialog.is-phone .fc-q { font-size: 11px; }
+
+.feature-dialog.is-phone .fc-a { font-size: 10px; }
+
+/* Practice Exam Card + Grade Stamp */
+
+.feature-dialog .ftd-exam {
+      position: absolute;
+      width: 214px;
+      right: 12px;
+      bottom: 4px;
+      z-index: 3;
+      opacity: 0;
+      padding: 11px 13px;
+      will-change: transform, opacity;
+      overflow: visible;
+    }
+
+.feature-dialog.is-phone .ftd-exam {
+      width: 174px;
+      right: 4px;
+      bottom: 0;
+      padding: 8px 10px;
+    }
+
+.feature-dialog .exam-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--text-secondary);
+      padding: 3px 0;
+      border-bottom: 1px dashed var(--border-light);
+    }
+
+.feature-dialog .exam-row:last-of-type {
+      border-bottom: 0;
+    }
+
+.feature-dialog .exam-check {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--blue);
+      font-size: 10.5px;
+    }
+
+body[data-mode="dark"] .feature-dialog .exam-check {
+      color: var(--sky);
+    }
+
+.feature-dialog.is-phone .exam-row { font-size: 9.5px; padding: 2px 0; }
+
+.feature-dialog .grade-stamp {
+      position: absolute;
+      top: -12px;
+      right: -10px;
+      padding: 5px 10px;
+      border-radius: 10px;
+      border: 2px solid var(--coral);
+      background: var(--coral-soft);
+      color: var(--coral);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      box-shadow: 0 6px 16px rgba(255, 98, 63, 0.22);
+      will-change: transform, opacity;
+    }
+
+body[data-mode="dark"] .feature-dialog .grade-stamp {
+      background: #331f1b;
+      color: #ff8569;
+      border-color: #ff7354;
+    }
+
+/* ─── SCENE 1: COMPARE SIDE BY SIDE ─── */
+
+.feature-dialog .cmp-prompt {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 13px;
+      border-radius: 999px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow-sm);
+      font-size: 11.5px;
+      color: var(--text);
+      white-space: nowrap;
+      max-width: calc(100% - 28px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      will-change: transform, opacity;
+    }
+
+.feature-dialog.is-phone .cmp-prompt {
+      top: 10px;
+      font-size: 10px;
+      padding: 5px 10px;
+    }
+
+.feature-dialog .cmp-prompt-tag {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      color: var(--blue);
+    }
+
+body[data-mode="dark"] .feature-dialog .cmp-prompt-tag {
+      color: var(--sky);
+    }
+
+.feature-dialog .cmp-grid {
+      position: absolute;
+      top: 54px;
+      left: 18px;
+      right: 18px;
+      bottom: 62px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+.feature-dialog.is-phone .cmp-grid {
+      top: 44px;
+      left: 10px;
+      right: 10px;
+      bottom: 48px;
+      gap: 8px;
+    }
+
+.feature-dialog .cmp-card {
+      position: relative;
+      padding: 12px 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      overflow: hidden;
+      transition: border-color 220ms ease, box-shadow 220ms ease;
+      will-change: transform, opacity;
+    }
+
+.feature-dialog.is-phone .cmp-card {
+      padding: 8px 9px;
+      gap: 5px;
+    }
+
+.feature-dialog .cmp-card.is-picked {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(57, 127, 230, 0.22), 0 12px 28px rgba(57, 127, 230, 0.16);
+    }
+
+body[data-mode="dark"] .feature-dialog .cmp-card.is-picked {
+      border-color: var(--sky);
+      box-shadow: 0 0 0 2px rgba(121, 207, 255, 0.24), 0 12px 28px rgba(0, 0, 0, 0.55);
+    }
+
+.feature-dialog .cmp-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+.feature-dialog .model-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2.5px 7px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+    }
+
+.feature-dialog .model-pill-a {
+      background: var(--pink-soft);
+      color: #a63768;
+    }
+
+body[data-mode="dark"] .feature-dialog .model-pill-a {
+      background: rgba(247, 194, 217, 0.16);
+      color: var(--pink);
+    }
+
+.feature-dialog .model-pill-b {
+      background: var(--sky-soft);
+      color: #2163c2;
+    }
+
+body[data-mode="dark"] .feature-dialog .model-pill-b {
+      background: rgba(121, 207, 255, 0.16);
+      color: var(--sky);
+    }
+
+.feature-dialog .picked-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2.5px 7px;
+      border-radius: 999px;
+      background: var(--yellow);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      will-change: transform, opacity;
+    }
+
+.feature-dialog .cmp-stream {
+      font-size: 11px;
+      line-height: 1.42;
+      color: var(--text-secondary);
+      overflow: hidden;
+    }
+
+.feature-dialog.is-phone .cmp-stream {
+      font-size: 9.5px;
+      line-height: 1.35;
+    }
+
+.feature-dialog .cmp-formula {
+      margin-top: 4px;
+      padding: 5px 8px;
+      border-radius: 7px;
+      background: var(--cream);
+      border: 1px solid #f0ddba;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink);
+    }
+
+body[data-mode="dark"] .feature-dialog .cmp-formula {
+      background: #2b2722;
+      border-color: #3d362d;
+      color: var(--paper);
+    }
+
+.feature-dialog.is-phone .cmp-formula {
+      font-size: 8.5px;
+      padding: 4px 6px;
+    }
+
+.feature-dialog .stream-caret {
+      display: inline-block;
+      width: 5px;
+      height: 11px;
+      background: var(--blue);
+      vertical-align: -1px;
+      margin-left: 2px;
+      border-radius: 1px;
+    }
+
+body[data-mode="dark"] .feature-dialog .stream-caret {
+      background: var(--sky);
+    }
+
+/* ─── SCENE 2: COUNCIL ─── */
+
+.feature-dialog .council-phase-pill {
+      position: absolute;
+      top: 13px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow-sm);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      z-index: 5;
+      white-space: nowrap;
+    }
+
+.feature-dialog .council-phase-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--sky);
+    }
+
+.feature-dialog .council-verdict {
+      position: absolute;
+      left: 50%;
+      bottom: 14px;
+      width: min(370px, calc(100% - 32px));
+      padding: 11px 14px;
+      border-radius: 13px;
+      background: var(--card-bg);
+      border: 1.5px solid var(--yellow);
+      box-shadow: 0 12px 30px rgba(11, 27, 58, 0.12);
+      will-change: transform, opacity;
+      z-index: 5;
+    }
+
+body[data-mode="dark"] .feature-dialog .council-verdict {
+      border-color: rgba(255, 212, 59, 0.65);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+    }
+
+.feature-dialog.is-phone .council-verdict {
+      bottom: 10px;
+      padding: 8px 10px;
+    }
+
+.feature-dialog .verdict-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+
+.feature-dialog .verdict-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+      background: var(--yellow);
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+
+.feature-dialog .verdict-meta {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-tertiary);
+    }
+
+.feature-dialog .verdict-body {
+      font-size: 11.5px;
+      line-height: 1.4;
+      color: var(--text);
+    }
+
+.feature-dialog.is-phone .verdict-body {
+      font-size: 10px;
+      line-height: 1.32;
+    }
+
+/* ─── Copy & Footer Controls ─── */
+
+.feature-dialog .dialog-body {
+      padding: 6px 10px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+
+.feature-dialog .step-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+    }
+
+.feature-dialog .step-kicker .kaomoji {
+      color: var(--coral);
+    }
+
+.feature-dialog .step-kicker-pill {
+      padding: 1.5px 7px;
+      border-radius: 999px;
+      background: var(--sky-soft);
+      color: var(--blue);
+      font-size: 10px;
+    }
+
+body[data-mode="dark"] .feature-dialog .step-kicker-pill {
+      background: rgba(121, 207, 255, 0.14);
+      color: var(--sky);
+    }
+
+.feature-dialog .dialog-heading {
+      margin: 0;
+      font-family: var(--font-serif);
+      font-size: 25px;
+      font-weight: 600;
+      line-height: 1.18;
+      letter-spacing: -0.015em;
+      color: var(--text);
+    }
+
+.feature-dialog .dialog-heading em {
+      font-style: italic;
+      color: var(--blue);
+    }
+
+body[data-mode="dark"] .feature-dialog .dialog-heading em {
+      color: var(--sky);
+    }
+
+.feature-dialog.is-phone .dialog-heading {
+      font-size: 21px;
+    }
+
+.feature-dialog .dialog-copy {
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.48;
+      color: var(--text-secondary);
+      max-width: 56ch;
+    }
+
+.feature-dialog.is-phone .dialog-copy {
+      font-size: 12.5px;
+      line-height: 1.42;
+    }
+
+.feature-dialog .dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 10px 4px;
+      border-top: 1px solid var(--border-light);
+      margin-top: 2px;
+    }
+
+.feature-dialog .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+.feature-dialog .step-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+.feature-dialog .step-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--border);
+      padding: 0;
+      transition: width 220ms var(--ease-out), background 180ms ease;
+    }
+
+.feature-dialog .step-dot:hover {
+      background: var(--text-tertiary);
+    }
+
+.feature-dialog .step-dot.active {
+      width: 22px;
+      background: var(--blue);
+    }
+
+body[data-mode="dark"] .feature-dialog .step-dot.active {
+      background: var(--sky);
+    }
+
+.feature-dialog .btn-skip {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      padding: 6px 8px;
+      border-radius: 8px;
+      transition: color 140ms ease, background 140ms ease;
+    }
+
+.feature-dialog .btn-skip:hover {
+      color: var(--text);
+      background: var(--bg-secondary);
+    }
+
+.feature-dialog .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+.feature-dialog .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 13px;
+      border-radius: 11px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms var(--ease-out);
+    }
+
+.feature-dialog .btn-secondary:hover {
+      background: var(--cream);
+      border-color: #e2cfa9;
+    }
+
+body[data-mode="dark"] .feature-dialog .btn-secondary:hover {
+      background: #252528;
+      border-color: #3d3d42;
+    }
+
+.feature-dialog .btn-secondary:active {
+      transform: scale(0.97);
+    }
+
+.feature-dialog .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 11px;
+      background: var(--cta-bg);
+      color: var(--cta-text);
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(57, 127, 230, 0.24);
+      transition: background 140ms ease, transform 140ms var(--ease-out), box-shadow 140ms ease;
+    }
+
+body[data-mode="dark"] .feature-dialog .btn-primary {
+      box-shadow: 0 4px 14px rgba(121, 207, 255, 0.2);
+    }
+
+.feature-dialog .btn-primary:hover {
+      background: var(--cta-hover);
+      transform: translateY(-1px);
+    }
+
+.feature-dialog .btn-primary:active {
+      transform: scale(0.97);
+    }
+
+.feature-dialog.is-phone .dialog-footer {
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 8px 6px 2px;
+    }
+
+.feature-dialog.is-phone .footer-actions {
+      margin-left: auto;
+    }
+
+.feature-dialog.is-phone .btn-secondary {
+      padding: 8px 11px;
+      font-size: 12.5px;
+    }
+
+.feature-dialog.is-phone .btn-primary {
+      padding: 8px 14px;
+      font-size: 12.5px;
+    }
+
+/* Smooth copy swap animation */
+
+.feature-dialog .copy-swap {
+      animation: ft-copyIn 240ms var(--ease-out);
+    }
+
+@keyframes ft-copyIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+/* ─── Close button, in the stage's top-right corner ─── */
+
+.feature-dialog .dialog-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 6;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--ink);
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: background 140ms ease, transform 140ms var(--ease-out);
+    }
+
+.feature-dialog .dialog-close:hover {
+      background: #ffffff;
+    }
+
+.feature-dialog .dialog-close:active {
+      transform: scale(0.92);
+    }
+
+body[data-mode="dark"] .feature-dialog .dialog-close {
+      background: rgba(255, 255, 255, 0.12);
+      color: #efede6;
+    }
+
+/* ─── Pro pass step: a ticket drops in ─── */
+
+.feature-dialog .pass-ticket {
+      position: absolute;
+      top: 34px;
+      left: 50%;
+      width: 268px;
+      margin-left: -134px;
+      padding: 14px 18px 12px;
+      border-radius: 14px;
+      background: var(--cream);
+      color: var(--ink);
+      text-align: center;
+      box-shadow: 0 10px 0 rgba(11, 27, 58, 0.1), var(--shadow-md);
+      will-change: transform, opacity;
+    }
+
+.feature-dialog .pass-ticket::before,
+.feature-dialog .pass-ticket::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 20px;
+      height: 22px;
+      margin-top: -11px;
+      border-radius: 11px;
+      background: #8fd3fb;
+    }
+
+.feature-dialog .pass-ticket::before { left: -10px; }
+.feature-dialog .pass-ticket::after { right: -10px; }
+
+body[data-mode="dark"] .feature-dialog .pass-ticket::before,
+body[data-mode="dark"] .feature-dialog .pass-ticket::after {
+      background: #1c1c1f;
+    }
+
+.feature-dialog .pass-kicker {
+      font: 600 10px/1.2 var(--font-mono);
+      letter-spacing: 2px;
+      color: var(--blue);
+    }
+
+.feature-dialog .pass-code {
+      margin-top: 6px;
+      font: 700 26px/1.1 var(--font-mono);
+      letter-spacing: 5px;
+    }
+
+.feature-dialog .pass-until {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 2px dashed #ead9b5;
+      font: 600 11px/1.2 var(--font-mono);
+      color: var(--text-secondary);
+    }
+
+body[data-mode="dark"] .feature-dialog .pass-until {
+      color: #5a6477;
+    }
+
+.feature-dialog.is-phone .pass-ticket {
+      top: 22px;
+      width: 236px;
+      margin-left: -118px;
+      padding: 11px 14px 10px;
+    }
+
+.feature-dialog.is-phone .pass-code {
+      font-size: 22px;
+      letter-spacing: 4px;
+    }
+
+@media (prefers-reduced-motion: reduce) {
+  .feature-dialog,
+  .feature-dialog .copy-swap {
+        transition: none;
+        animation: none;
+      }
+}
+
+.feature-dialog [hidden] { display: none !important; }
+
+/* Phones: the close button stands in for Skip, so the footer fits on one row. */
+.feature-dialog.is-phone .btn-skip { display: none; }

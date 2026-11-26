@@ -3,10 +3,11 @@
 import { create } from "zustand";
 import { session } from "../app/runtime";
 import { checkMamoCoupon, createMamoCheckout, createZiinaPaymentRequest, fetchZiinaPaymentRequests, redeemInvite } from "../islands/api.js";
-import { clearPendingCoupon, pendingCoupon, savePendingCoupon, takeCouponFromUrl } from "../islands/inviteLink.js";
+import { clearPendingCoupon, inviteLinkNeedsRedeem, pendingCoupon, savePendingCoupon, takeCouponFromUrl } from "../islands/inviteLink.js";
 import { isNative, openExternal } from "../islands/platform/index.js";
 import { renderShell, showToast, useApp } from "./app";
 import { loadMe } from "./boot";
+import { featureTourPass, openFeatureTour } from "./featureTour";
 
 export type PaymentRequest = { id?: string; planId: string; status: string; referenceCode?: string; paymentUrl?: string };
 export type CouponOffer = { planId: string; code: string; trialDays?: number; initialAmountAed?: number; initialChargeAed?: number; renewalChargeAed?: number };
@@ -147,11 +148,12 @@ async function checkCouponCode() {
   set({ couponBusy: true });
   try {
     if (inviteOnly()) {
-      await redeemInvite(current, code);
+      const redeemed = await redeemInvite(current, code);
       await loadMe();
       set({ mamoCoupon: null, couponStatus: "Pro is now active for free. No payment required.", couponOpen: false });
       renderShell();
-      showToast("Invite accepted. You now have Pro for free.");
+      // The tour opens on the Pro pass ticket; the toast is for where it can't show.
+      if (!openFeatureTour(featureTourPass(code, redeemed?.currentPeriodEnd))) showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
       return;
     }
     const plans = useApp.getState().plans || [];
@@ -194,6 +196,13 @@ export function applyCouponFromUrl() {
   void applyCoupon();
 }
 
+/** "…for free." or, for a timed pass, "…free until 10 December." */
+export function inviteAcceptedMessage(currentPeriodEnd?: string | null) {
+  const end = currentPeriodEnd ? new Date(currentPeriodEnd) : null;
+  if (!end || !Number.isFinite(end.getTime())) return "Invite accepted. You now have Pro for free.";
+  return `Invite accepted. You have Pro free until ${end.toLocaleDateString(undefined, { day: "numeric", month: "long" })}.`;
+}
+
 let inviteRedeem: Promise<void> | null = null;
 
 /** Signed in with a code from the link while Klui is invite-only: Pro is applied
@@ -204,12 +213,13 @@ export function redeemPendingInvite() {
     const code = savedLinkCoupon();
     if (!current || !code || isNative() || !inviteOnly()) return;
     const me = useApp.getState().me as any;
-    if (me?.subscription?.provider === "invite" && me?.access?.active) {
+    if (!inviteLinkNeedsRedeem(me)) {
       forgetLinkCoupon();
       return;
     }
+    let redeemed: any;
     try {
-      await redeemInvite(current, code);
+      redeemed = await redeemInvite(current, code);
     } catch (error: any) {
       // A refused code or an active paid plan is final; anything else tries again on the next visit.
       if ([400, 403, 409].includes(error?.status)) forgetLinkCoupon();
@@ -217,9 +227,9 @@ export function redeemPendingInvite() {
       return;
     }
     forgetLinkCoupon();
-    showToast("Invite accepted. You now have Pro for free.");
     await loadMe().catch(() => {});
     renderShell();
+    if (!openFeatureTour(featureTourPass(code, redeemed?.currentPeriodEnd))) showToast(inviteAcceptedMessage(redeemed?.currentPeriodEnd));
   })().finally(() => {
     inviteRedeem = null;
   });

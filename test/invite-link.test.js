@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearPendingCoupon, pendingCoupon, savePendingCoupon, takeCouponFromUrl } from "../clients/web/src/islands/inviteLink.js";
+import { clearPendingCoupon, inviteLinkNeedsRedeem, pendingCoupon, savePendingCoupon, takeCouponFromUrl } from "../clients/web/src/islands/inviteLink.js";
 
 function memoryStorage() {
   const items = new Map();
@@ -57,4 +57,12 @@ test("malformed codes and broken storage are ignored", () => {
   assert.doesNotThrow(() => savePendingCoupon("TRYKLUI", blocked));
   assert.equal(pendingCoupon(blocked), "");
   assert.doesNotThrow(() => clearPendingCoupon(blocked));
+});
+
+test("a code link is skipped only for open-ended invite Pro; a 14-day pass can still be upgraded", () => {
+  const invite = (end, active = true) => ({ access: { active }, subscription: { provider: "invite", current_period_end: end } });
+  assert.equal(inviteLinkNeedsRedeem(invite(null)), false);
+  assert.equal(inviteLinkNeedsRedeem(invite("2099-01-01T00:00:00Z")), true);
+  assert.equal(inviteLinkNeedsRedeem(invite("2020-01-01T00:00:00Z", false)), true);
+  assert.equal(inviteLinkNeedsRedeem({ access: { active: false }, subscription: null }), true);
 });

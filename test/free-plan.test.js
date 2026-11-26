@@ -7,7 +7,7 @@ import { freeUsageDay, freeUsageResetsAt } from "../server/saas/freePlan.js";
 
 const USER = "11111111-1111-4111-8111-000000002001";
 
-async function dispatch(env, path, { method = "GET", body, db = {} } = {}) {
+async function dispatch(env, path, { method = "GET", body, db = {}, user = USER } = {}) {
   const req = Readable.from(body ? [Buffer.from(JSON.stringify(body))] : []);
   Object.assign(req, { method, headers: {}, url: path });
   const res = { statusCode: null, body: "", setHeader() {},
@@ -15,12 +15,12 @@ async function dispatch(env, path, { method = "GET", body, db = {} } = {}) {
     json() { return JSON.parse(this.body); } };
   await createApiHandler(loadConfig({ ACCESS_MODE: "subscription", ...env }), {
     createDb: () => ({
-      async upsertProfile() { return { id: USER, role: "user" }; },
+      async upsertProfile() { return { id: user, role: "user" }; },
       async getLatestSubscription() { return null; },
       ...db
     }),
     createR2: () => ({ objectKey: ({ fileName }) => `users/${USER}/${fileName}`, uploadUrl: () => "https://r2.example/put", uploadHeaders: () => ({}) }),
-    verifyUser: async () => ({ id: USER, email: "free@example.com", raw: {} })
+    verifyUser: async () => ({ id: user, email: "free@example.com", raw: {} })
   })(req, res, new URL(path, "http://test.local"));
   return res;
 }
@@ -74,6 +74,7 @@ test("testing starts on Free, redeems TRYKLUI durably, and blocks paid checkout"
   const db = {
     async getApiWeeklyUsage() { return null; },
     async getLatestSubscription() { return subscription; },
+    async getSubscriptionByProviderId(id) { return subscription?.provider_subscription_id === id ? subscription : null; },
     async upsertSubscription(row) { subscription = row; writes++; return row; },
     async getFreeUsage() { return {}; },
     async accountStorageUsed() { return 0; }
@@ -111,4 +112,70 @@ test("testing starts on Free, redeems TRYKLUI durably, and blocks paid checkout"
   assert.equal((await redeem("TRYKLUI")).statusCode, 409);
   assert.equal(subscription.plan_id, "pro");
   assert.equal(writes, 1);
+});
+
+function inviteDb() {
+  // Rows by provider id; the latest row is the last one written.
+  const rows = new Map();
+  let latest = null;
+  const write = (row) => { rows.set(row.provider_subscription_id, row); latest = row; return row; };
+  return {
+    rows,
+    write,
+    async getApiWeeklyUsage() { return null; },
+    async getLatestSubscription() { return latest; },
+    async getSubscriptionByProviderId(id) { return rows.get(id) || null; },
+    async upsertSubscription(row) { await new Promise((resolve) => setTimeout(resolve, 5)); return write(row); },
+    async getFreeUsage() { return {}; },
+    async accountStorageUsed() { return 0; }
+  };
+}
+
+// Each test uses its own account, so the redeem rate limit (5 per account) isn't shared.
+function inviteAccount(n) {
+  const db = inviteDb();
+  const env = { ACCESS_MODE: "testing" };
+  const user = `11111111-1111-4111-8111-00000000300${n}`;
+  return {
+    db,
+    redeem: (coupon) => dispatch(env, "/api/invite/redeem", { method: "POST", db, body: { coupon }, user }),
+    plan: async () => (await dispatch(env, "/api/me", { db, user })).json().plan.id,
+    invite: () => db.rows.get(`invite:${user}`)
+  };
+}
+
+test("KLUIUOBD is a 14-day Pro pass that ends on its date and is used once per account", async () => {
+  const { db, redeem, plan, invite } = inviteAccount(1);
+  const redeemed = await redeem("kluiuobd");
+  assert.equal(redeemed.statusCode, 200);
+  const days = (Date.parse(redeemed.json().currentPeriodEnd) - Date.now()) / 86_400_000;
+  assert.ok(days > 13.99 && days <= 14);
+  assert.equal(await plan(), "pro");
+
+  // Expired, then a paid plan came and went: the pass still can't be used again.
+  db.write({ ...invite(), current_period_end: new Date(Date.now() - 1000).toISOString() });
+  assert.equal(await plan(), "free");
+  db.write({ provider: "mamo", provider_subscription_id: "mamo-1", status: "canceled", plan_id: "pro", current_period_end: null });
+  assert.equal((await redeem("KLUIUOBD")).statusCode, 409);
+  assert.equal(await plan(), "free");
+});
+
+test("TRYKLUI's open-ended Pro wins whichever order the two codes arrive in", async () => {
+  for (const [n, codes] of [[2, ["TRYKLUI", "KLUIUOBD"]], [3, ["KLUIUOBD", "TRYKLUI"]]]) {
+    const { redeem, plan, invite } = inviteAccount(n);
+    const results = await Promise.all(codes.map(redeem));
+    assert.deepEqual(results.map((r) => r.statusCode), [200, 200]);
+    assert.equal(invite().current_period_end, null, codes.join(" then "));
+    assert.equal(await plan(), "pro");
+  }
+});
+
+test("redeeming again brings back invite Pro hidden behind a newer ended paid plan", async () => {
+  const { db, redeem, plan, invite } = inviteAccount(4);
+  await redeem("TRYKLUI");
+  db.write({ provider: "mamo", provider_subscription_id: "mamo-2", status: "canceled", plan_id: "pro", current_period_end: null });
+  assert.equal(await plan(), "free");
+  assert.equal((await redeem("TRYKLUI")).statusCode, 200);
+  assert.equal(await plan(), "pro");
+  assert.equal(invite().raw.invite_code, "TRYKLUI");
 });

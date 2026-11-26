@@ -27,9 +27,17 @@ function couponSummary({ percentOff, trialDays }: MamoCoupon["coupon"]) {
   return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
 }
 
+function freeProNote(end?: string | null) {
+  const date = end ? new Date(end) : null;
+  return date && Number.isFinite(date.getTime())
+    ? `Your free Pro pass runs until ${date.toLocaleDateString(undefined, { day: "numeric", month: "long" })}.`
+    : "Your free Pro access is active.";
+}
+
 /** Prices exclude Mamo's processing fee, which is added at checkout; `chargeAed` is the exact monthly card charge. */
 function PlanCard({ plan, pending, coupon, inviteOnly }: { plan: any; pending?: PaymentRequest; coupon: MamoCoupon | null; inviteOnly: boolean }) {
   const subscription = useApp((s) => s.me?.subscription);
+  const accessActive = useApp((s) => Boolean(s.me?.access?.active));
   const id = String(plan.id || "").toLowerCase();
   const meta = PLAN_META[id];
   const features = meta ? FEATURES : [];
@@ -66,7 +74,7 @@ function PlanCard({ plan, pending, coupon, inviteOnly }: { plan: any; pending?: 
       {inviteOnly ? (
         <>
           <button className="plan-pay-btn" type="button" disabled>INVITE ONLY</button>
-          <p className="plan-payment-note">{subscription?.provider === "invite" && id === "pro" ? "Your free Pro access is active." : "Redeem an invite code above for free Pro access. No payment required."}</p>
+          <p className="plan-payment-note">{subscription?.provider === "invite" && accessActive && id === "pro" ? freeProNote(subscription.current_period_end) : "Redeem an invite code above for free Pro access. No payment required."}</p>
         </>
       ) : mamo ? (
         <>

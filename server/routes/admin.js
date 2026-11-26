@@ -19,6 +19,13 @@ function activeSubscriptionStatus(status) {
   return ["active", "trialing", "testing"].includes(String(status || "").toLowerCase());
 }
 
+// A timed invite pass (KLUIUOBD) keeps status "active" after its end date.
+function subscriptionCountsAsActive(subscription, now = Date.now()) {
+  if (!activeSubscriptionStatus(subscription?.status)) return false;
+  if (subscription?.provider !== "invite" || !subscription.current_period_end) return true;
+  return Date.parse(subscription.current_period_end) > now;
+}
+
 function roundCredits(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? Math.round(n * 10000) / 10000 : 0;
@@ -50,10 +57,12 @@ function buildAdminDashboardSummary(raw, config) {
   }
 
   const planCounts = new Map();
+  const activeUserIds = new Set();
   const users = profiles.map((profile) => {
     const subscription = latestSubscriptionByUser.get(profile.id) || null;
     const planId = subscription?.plan_id || "none";
-    const active = activeSubscriptionStatus(subscription?.status);
+    const active = subscriptionCountsAsActive(subscription);
+    if (active) activeUserIds.add(profile.id);
     const usage = usageByUser.get(profile.id) || {};
     const latestWeek = usage.latestWeek || null;
     const plan = planCounts.get(planId) || {
@@ -89,7 +98,7 @@ function buildAdminDashboardSummary(raw, config) {
   const totals = {
     users: profiles.length,
     admins: profiles.filter((profile) => profile.role === "admin").length,
-    subscribedUsers: users.filter((user) => activeSubscriptionStatus(user.subscriptionStatus)).length,
+    subscribedUsers: activeUserIds.size,
     totalCreditsUsed: roundCredits(users.reduce((sum, user) => sum + user.totalCreditsUsed, 0)),
     currentWeekCreditsUsed: roundCredits(users.reduce((sum, user) => sum + user.currentWeekUsed, 0))
   };
