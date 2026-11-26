@@ -107,7 +107,7 @@
   const preview = document.getElementById("preview");
   preview.addEventListener("load", () => {
     const fit = () => {
-      try { preview.style.height = preview.contentDocument.documentElement.scrollHeight + "px"; } catch {}
+      try { preview.style.height = preview.contentDocument.body.offsetHeight + "px"; } catch {}
     };
     fit();
     // Rotating a phone or resizing re-wraps the email.
