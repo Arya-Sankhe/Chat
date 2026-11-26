@@ -59,7 +59,7 @@ export function clearPendingCoupon(storage = browserStorage) {
 }
 
 /** Whether a code from a link still needs the server: everyone except an account whose
-    invite Pro is already on with no end date (a 14-day pass can still be upgraded). */
+    invite Pro is already on with no end date (a 30-day pass can still be upgraded). */
 export function inviteLinkNeedsRedeem(me) {
   const subscription = me?.subscription;
   return !(subscription?.provider === "invite" && me?.access?.active && !subscription.current_period_end);

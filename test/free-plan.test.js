@@ -144,12 +144,12 @@ function inviteAccount(n) {
   };
 }
 
-test("KLUIUOBD is a 14-day Pro pass that ends on its date and is used once per account", async () => {
+test("KLUIUOBD is a 30-day Pro pass that ends on its date and is used once per account", async () => {
   const { db, redeem, plan, invite } = inviteAccount(1);
   const redeemed = await redeem("kluiuobd");
   assert.equal(redeemed.statusCode, 200);
   const days = (Date.parse(redeemed.json().currentPeriodEnd) - Date.now()) / 86_400_000;
-  assert.ok(days > 13.99 && days <= 14);
+  assert.ok(days > 29.99 && days <= 30);
   assert.equal(await plan(), "pro");
 
   // Expired, then a paid plan came and went: the pass still can't be used again.
