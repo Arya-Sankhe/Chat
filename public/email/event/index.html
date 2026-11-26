@@ -26,6 +26,16 @@
   .primary:hover { background: #ffe27a; }
   .secondary { background: var(--sky-soft); color: #1d4f99; }
   .secondary:hover { background: #d8eeff; }
+  /* Copy buttons: the label folds away and a tick draws in, on the button's own colour turning green. */
+  .copy-btn { position: relative; overflow: hidden; transition: background-color .25s ease, color .25s ease, transform .15s ease; }
+  .copy-btn:active { transform: scale(.96); }
+  .copy-btn .label { display: inline-block; transition: opacity .18s ease, transform .25s cubic-bezier(.3,.7,.4,1); }
+  .copy-btn .tick { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 24; opacity: 0; transform: scale(.6); transition: opacity .15s ease, transform .3s cubic-bezier(.3,1.6,.5,1); }
+  .copy-btn.copied { background: #2f9e62; color: #fff; }
+  .copy-btn.copied .label { opacity: 0; transform: translateY(-10px) scale(.9); }
+  .copy-btn.copied .tick { opacity: 1; transform: scale(1); animation: draw-tick .35s .08s ease-out forwards; }
+  @keyframes draw-tick { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .copy-btn, .copy-btn .label, .copy-btn .tick { transition: none; } .copy-btn.copied .tick { animation: none; stroke-dashoffset: 0; } }
   .subject { flex: 1 1 260px; min-width: 0; padding: 10px 14px; border: 1px solid var(--beige-line); border-radius: 12px; background: var(--beige); font-size: 15px; }
   .done { color: var(--ok); font-size: 14px; font-weight: 600; min-height: 1em; }
   kbd { font: 600 13px "SF Mono", Menlo, Consolas, monospace; background: var(--beige); border: 1px solid var(--beige-line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; }
@@ -64,7 +74,7 @@
       <li><div>
         <b>Copy the email.</b>
         <div class="row">
-          <button class="primary" id="copyEmail" type="button">Click to copy</button>
+          <button class="primary copy-btn" id="copyEmail" type="button"><span class="label">Click to copy</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
           <span class="done" id="emailDone" role="status"></span>
         </div>
       </div></li>
@@ -75,7 +85,7 @@
         <b>Add the subject.</b> Here's one idea, but it's only a suggestion. Feel free to write whatever you like.
         <div class="row">
           <input class="subject" id="subject" value="Your Klui Pro pass is on us" aria-label="Subject line">
-          <button class="secondary" id="copySubject" type="button">Copy subject</button>
+          <button class="secondary copy-btn" id="copySubject" type="button"><span class="label">Copy subject</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
           <span class="done" id="subjectDone" role="status"></span>
         </div>
       </div></li>
@@ -116,6 +126,13 @@
     preview.contentDocument?.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
   });
 
+  // The button turns into a tick for a moment, then back into its label.
+  function tickButton(button) {
+    button.classList.add("copied");
+    clearTimeout(button._t);
+    button._t = setTimeout(() => button.classList.remove("copied"), 2200);
+  }
+
   const flash = (id, text) => {
     const el = document.getElementById(id);
     el.textContent = text;
@@ -131,7 +148,7 @@
     if (!html.includes("coupon=KLUIUOBD")) throw new Error("The email couldn't be loaded.");
     const doc = new DOMParser().parseFromString(html, "text/html");
     doc.body.querySelector(':scope > div[style*="display:none"]')?.remove();
-    return '<div style="background:#fff8e9;">' + doc.body.innerHTML + "</div>";
+    return '<div style="background:#faf9f6;">' + doc.body.innerHTML + "</div>";
   }
 
   // Older browsers: render it, select it, and copy the selection.
@@ -164,6 +181,7 @@
       } catch {
         if (!copyBySelection(html)) throw new Error("copy failed");
       }
+      tickButton(document.getElementById("copyEmail"));
       flash("emailDone", "Copied. Now paste it into a new email.");
     } catch {
       flash("emailDone", "Couldn't copy here. Open the preview below, select all of it and copy.");
@@ -178,6 +196,7 @@
       input.select();
       document.execCommand("copy");
     }
+    tickButton(document.getElementById("copySubject"));
     flash("subjectDone", "Copied.");
   });
 </script>
