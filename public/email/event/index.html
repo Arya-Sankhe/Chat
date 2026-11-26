@@ -110,6 +110,8 @@
       try { preview.style.height = preview.contentDocument.documentElement.scrollHeight + "px"; } catch {}
     };
     fit();
+    // Rotating a phone or resizing re-wraps the email.
+    new ResizeObserver(fit).observe(preview);
     preview.contentWindow?.addEventListener("load", fit);
     preview.contentDocument?.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
   });
