@@ -29,12 +29,27 @@
   .subject { flex: 1 1 260px; min-width: 0; padding: 10px 14px; border: 1px solid var(--beige-line); border-radius: 12px; background: var(--beige); font-size: 15px; }
   .done { color: var(--ok); font-size: 14px; font-weight: 600; min-height: 1em; }
   kbd { font: 600 13px "SF Mono", Menlo, Consolas, monospace; background: var(--beige); border: 1px solid var(--beige-line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; }
-  .note { margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: var(--pink); font-size: 14px; color: #6b2f45; }
-  details { margin-top: 18px; font-size: 15px; }
-  summary { cursor: pointer; font-weight: 650; }
-  details p { color: var(--muted); margin: 8px 0 0; }
+  .thanks { position: relative; margin-top: 22px; padding: 26px 22px 24px; border-radius: 20px; text-align: center; overflow: hidden;
+    background: linear-gradient(160deg, #e8f5ff 0%, #ffe1ec 55%, #fff1c9 100%); border: 1.5px solid #f3cfe0; animation: rise .7s cubic-bezier(.2,.9,.3,1.2) both .15s; }
+  .thanks-art { position: relative; height: 112px; }
+  .thanks-klui { position: absolute; left: 50%; bottom: 14px; width: 107px; height: 89px; margin-left: -53px; image-rendering: pixelated; animation: hop 1.6s ease-in-out infinite; }
+  .float { position: absolute; bottom: 30px; font-size: 18px; opacity: 0; animation: drift 3.2s ease-in infinite; }
+  .float.f1 { left: 30%; color: #ff7aa8; animation-delay: 0s; }
+  .float.f2 { left: 64%; color: #f5b800; animation-delay: .7s; font-size: 16px; }
+  .float.f3 { left: 70%; color: #ff623f; animation-delay: 1.4s; font-size: 14px; }
+  .float.f4 { left: 26%; color: #397fe6; animation-delay: 2.1s; font-size: 13px; }
+  .float.f5 { left: 48%; color: #ff7aa8; animation-delay: 2.6s; font-size: 22px; }
+  .thanks-title { margin: 8px 0 8px; font: 600 26px/1.2 Georgia, "Times New Roman", serif; }
+  .thanks-copy { margin: 0 auto; max-width: 460px; color: #3b4766; }
+  .thanks-sign { margin-top: 14px; font: 600 13px/1 "SF Mono", Menlo, Consolas, monospace; letter-spacing: 1px; color: #b0306a; }
+  .beat { display: inline-block; animation: beat 1.2s ease-in-out infinite; }
+  @keyframes hop { 0%, 55%, 100% { transform: translateY(0); } 30% { transform: translateY(-16px) rotate(-3deg); } 42% { transform: translateY(0) scale(1.04, .96); } }
+  @keyframes drift { 0% { opacity: 0; transform: translateY(0) scale(.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-80px) scale(1.1) rotate(15deg); } }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 20% { transform: scale(1.3); } 40% { transform: scale(.95); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  @media (prefers-reduced-motion: reduce) { .thanks, .thanks-klui, .float, .beat { animation: none; } .float { opacity: .8; } }
   h2 { margin: 36px 0 12px; font: 600 22px/1.2 Georgia, "Times New Roman", serif; }
-  .preview { width: 100%; height: 1900px; border: 0; border-radius: 20px; background: var(--beige); display: block; }
+  .preview { width: 100%; height: 2300px; border: 0; border-radius: 20px; background: var(--beige); display: block; }
   @media (max-width: 520px) { h1 { font-size: 30px; } .card { padding: 18px 16px; } }
 </style>
 </head>
@@ -49,18 +64,17 @@
       <li><div>
         <b>Copy the email.</b>
         <div class="row">
-          <button class="primary" id="copyEmail" type="button">Copy email</button>
+          <button class="primary" id="copyEmail" type="button">Click to copy</button>
           <span class="done" id="emailDone" role="status"></span>
         </div>
       </div></li>
       <li><div>
         <b>Start a new email</b> in Gmail or Outlook, click into the message area, and paste with <kbd>Ctrl</kbd> + <kbd>V</kbd> (<kbd>⌘</kbd> + <kbd>V</kbd> on a Mac).
-        <span class="hint">The pictures and the "Claim free Pro" button come along with it.</span>
       </div></li>
       <li><div>
-        <b>Add the subject.</b>
+        <b>Add the subject.</b> Here's one idea, but it's only a suggestion. Feel free to write whatever you like.
         <div class="row">
-          <input class="subject" id="subject" readonly value="Your Klui Pro pass is on us (14 days free)" aria-label="Subject line">
+          <input class="subject" id="subject" value="Your Klui Pro pass is on us" aria-label="Subject line">
           <button class="secondary" id="copySubject" type="button">Copy subject</button>
           <span class="done" id="subjectDone" role="status"></span>
         </div>
@@ -72,21 +86,36 @@
         <b>Send it to yourself first</b> and check it looks right, then send it to everyone.
       </div></li>
     </ol>
+  </section>
 
-    <div class="note">Gmail lets a personal account send to about 500 people a day (2,000 for a school or work Google account). For a bigger list, send it in a few batches.</div>
-
-    <details>
-      <summary>Using Mailchimp, Brevo or another mailing tool instead?</summary>
-      <p>Download the email file and pick the "paste or import your own HTML" option when you create the campaign. On phones it looks a little better that way.</p>
-      <div class="row"><a class="button secondary" href="/email/event/pro-pass.html" download="klui-pro-pass-email.html">Download email file</a></div>
-    </details>
+  <section class="thanks" aria-label="Thank you">
+    <div class="thanks-art" aria-hidden="true">
+      <span class="float f1">♥</span><span class="float f2">✦</span><span class="float f3">♥</span><span class="float f4">✦</span><span class="float f5">♥</span>
+      <img class="thanks-klui" src="/assets/email/klui-happy.png" width="107" height="89" alt="">
+    </div>
+    <h2 class="thanks-title">Thank you for teaming up with us!</h2>
+    <p class="thanks-copy">It was a joy being part of your event. We hope this is the first of many, and we'd love to do more together soon.</p>
+    <div class="thanks-sign">With love, the Klui team <span class="beat">♥</span></div>
   </section>
 
   <h2>What your attendees will see</h2>
-  <iframe class="preview" src="/email/event/pro-pass.html" title="Preview of the email" loading="lazy"></iframe>
+  <iframe class="preview" id="preview" src="/email/event/pro-pass.html" title="Preview of the email"></iframe>
 </main>
 
 <script>
+  // The preview grows to the email's own height.
+  const preview = document.getElementById("preview");
+  preview.addEventListener("load", () => {
+    const fit = () => {
+      try { preview.style.height = preview.contentDocument.body.offsetHeight + "px"; } catch {}
+    };
+    fit();
+    // Rotating a phone or resizing re-wraps the email.
+    new ResizeObserver(fit).observe(preview);
+    preview.contentWindow?.addEventListener("load", fit);
+    preview.contentDocument?.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
+  });
+
   const flash = (id, text) => {
     const el = document.getElementById(id);
     el.textContent = text;
