@@ -131,7 +131,7 @@
     if (!html.includes("coupon=KLUIUOBD")) throw new Error("The email couldn't be loaded.");
     const doc = new DOMParser().parseFromString(html, "text/html");
     doc.body.querySelector(':scope > div[style*="display:none"]')?.remove();
-    return '<div style="background:#fff8e9;">' + doc.body.innerHTML + "</div>";
+    return '<div style="background:#faf9f6;">' + doc.body.innerHTML + "</div>";
   }
 
   // Older browsers: render it, select it, and copy the selection.
